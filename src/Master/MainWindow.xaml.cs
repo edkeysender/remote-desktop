@@ -1,6 +1,7 @@
 using System.Diagnostics;
 using System.IO;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -13,6 +14,7 @@ public partial class MainWindow : Window
     private readonly AppConfig _config;
     private ViewerSession? _session;
     private bool _connected;
+    private bool _suppressMon;   // don't echo a selmon while populating the dropdown
     private int _srcW = 1, _srcH = 1;
     private readonly Stopwatch _moveClock = Stopwatch.StartNew();
     private long _lastMoveMs;
@@ -39,6 +41,7 @@ public partial class MainWindow : Window
         _session.Connected += () => Dispatcher.Invoke(OnConnected);
         _session.Rejected  += r  => Dispatcher.Invoke(() => { SetStatus("Rejected: " + r); Cleanup(); });
         _session.Frame     += DrawFrame;   // decoded BGR frames from the WebRTC track
+        _session.Monitors  += (mons, cur) => Dispatcher.Invoke(() => PopulateMonitors(mons, cur));
         _session.Closed    += r  => Dispatcher.Invoke(() => { if (_connected) SetStatus("Closed: " + (r ?? "")); Cleanup(); });
 
         try
@@ -82,10 +85,41 @@ public partial class MainWindow : Window
         RemoteImage.Visibility = Visibility.Collapsed;
         RemoteImage.Source = null;
         Hint.Visibility = Visibility.Visible;
+        _suppressMon = true;
+        MonitorSelector.Items.Clear();
+        MonitorSelector.IsEnabled = false;
+        _suppressMon = false;
         foreach (var c in new UIElement[] { ServerBox, IdBox, PwBox }) c.IsEnabled = true;
     }
 
     private void SetStatus(string s) => StatusText.Text = s;
+
+    // ---- monitor selector ----
+    private void PopulateMonitors(List<RemoteMonitor> mons, int current)
+    {
+        _suppressMon = true;
+        MonitorSelector.Items.Clear();
+        // -1 = all monitors
+        MonitorSelector.Items.Add(new ComboBoxItem { Content = "All monitors", Tag = -1 });
+        foreach (var m in mons)
+        {
+            var label = $"Display {m.Index + 1} ({m.Width}×{m.Height}){(m.Primary ? " • primary" : "")}";
+            MonitorSelector.Items.Add(new ComboBoxItem { Content = label, Tag = m.Index });
+        }
+        // select the host's current choice
+        int sel = 0;
+        for (int i = 0; i < MonitorSelector.Items.Count; i++)
+            if (((ComboBoxItem)MonitorSelector.Items[i]).Tag is int tag && tag == current) { sel = i; break; }
+        MonitorSelector.SelectedIndex = sel;
+        MonitorSelector.IsEnabled = true;
+        _suppressMon = false;
+    }
+
+    private void MonitorSelector_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_suppressMon || !_connected || MonitorSelector.SelectedItem is not ComboBoxItem it) return;
+        if (it.Tag is int index) _session?.SelectMonitor(index);
+    }
 
     // ---- frame rendering: blit decoded BGR24 into a reused WriteableBitmap ----
     private WriteableBitmap? _wb;

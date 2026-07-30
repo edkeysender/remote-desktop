@@ -26,6 +26,9 @@
                 <Button x:Name="ConnectBtn" Content="Connect" Width="110" Height="30" Margin="14,0,0,0"
                         Background="#238636" Foreground="White" BorderThickness="0" Cursor="Hand"
                         Click="ConnectBtn_Click"/>
+                <TextBlock Text="Monitor" Foreground="#8b949e" VerticalAlignment="Center" Margin="14,0,6,0"/>
+                <ComboBox x:Name="MonitorSelector" Width="150" IsEnabled="False"
+                          VerticalAlignment="Center" SelectionChanged="MonitorSelector_SelectionChanged"/>
                 <TextBlock x:Name="StatusText" Text="idle" Foreground="#8b949e"
                            VerticalAlignment="Center" Margin="16,0,0,0"/>
             </StackPanel>

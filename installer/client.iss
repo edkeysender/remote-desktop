@@ -18,6 +18,7 @@ UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\{#AppExe}
 OutputDir=dist
 OutputBaseFilename=FTDRemoteClient-Setup-{#AppVersion}
+SetupIconFile=..\assets\ftd.ico
 Compression=lzma2/max
 SolidCompression=yes
 ; Self-contained x64 build → require 64-bit Windows.

@@ -17,6 +17,7 @@ UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\{#AppExe}
 OutputDir=dist
 OutputBaseFilename=FTDRemoteMaster-Setup-{#AppVersion}
+SetupIconFile=..\assets\ftd.ico
 Compression=lzma2/max
 SolidCompression=yes
 ArchitecturesAllowed=x64compatible

@@ -33,6 +33,9 @@ public sealed class HostSession : IDisposable
     private readonly object _encLock = new();   // serialize encode vs. dispose (native codec)
     private volatile bool _pcConnected;
 
+    private List<MonitorInfo> _monitors = new();
+    private int _currentMon;                     // -1 = all monitors, else index into _monitors
+
     public event Action<string>? IdAssigned;
     public event Action<string>? Status;
     public event Action<bool>? SessionActive;
@@ -44,7 +47,11 @@ public sealed class HostSession : IDisposable
 
     public async Task StartAsync()
     {
-        _capture = new ScreenCapture();
+        _monitors = ScreenCapture.EnumerateMonitors();
+        _currentMon = PrimaryIndex();
+        _capture = new ScreenCapture(RegionFor(_currentMon));
+        ApplyInputRegion();
+
         _conn = new SignalingConnection();
         _conn.JsonReceived += OnJson;
         _conn.Closed += _ => { SessionActive?.Invoke(false); Status?.Invoke("Disconnected from server"); TearDownPeer(); };
@@ -86,6 +93,10 @@ public sealed class HostSession : IDisposable
                     _pc?.addIceCandidate(new RTCIceCandidateInit { candidate = cand });
                 break;
 
+            case "selmon":
+                SelectMonitor(root.GetProperty("index").GetInt32());
+                break;
+
             case "bye":
                 SessionActive?.Invoke(false);
                 Status?.Invoke("Viewer disconnected — waiting for a connection");
@@ -121,7 +132,12 @@ public sealed class HostSession : IDisposable
         _pc.onconnectionstatechange += s =>
         {
             _pcConnected = s == RTCPeerConnectionState.connected;
-            if (s == RTCPeerConnectionState.connected) { Status?.Invoke("Session active — streaming"); StartPump(); }
+            if (s == RTCPeerConnectionState.connected)
+            {
+                Status?.Invoke("Session active — streaming");
+                SendMonitorList();
+                StartPump();
+            }
             else if (s is RTCPeerConnectionState.failed or RTCPeerConnectionState.disconnected or RTCPeerConnectionState.closed)
                 StopPump();
         };
@@ -129,6 +145,50 @@ public sealed class HostSession : IDisposable
         var offer = _pc.createOffer(null);
         await _pc.setLocalDescription(offer);
         await _conn!.SendJsonAsync(new { t = "offer", sdp = offer.sdp });
+    }
+
+    private int PrimaryIndex()
+    {
+        foreach (var m in _monitors) if (m.Primary) return m.Index;
+        return _monitors.Count > 0 ? _monitors[0].Index : 0;
+    }
+
+    // index -1 = whole virtual desktop (all monitors); else a monitor by its
+    // enumeration Index (NOT list position — the list is sorted primary-first).
+    private System.Drawing.Rectangle RegionFor(int index)
+    {
+        if (index < 0 || _monitors.Count == 0) return ScreenCapture.VirtualDesktop();
+        foreach (var m in _monitors) if (m.Index == index) return m.Bounds;
+        return _monitors[0].Bounds;
+    }
+
+    private void ApplyInputRegion()
+    {
+        var r = _capture!.Region;
+        InputInjector.SetRegion(r.X, r.Y, r.Width, r.Height);
+    }
+
+    private void SendMonitorList()
+    {
+        var list = _monitors.Select(m => new { i = m.Index, w = m.Width, h = m.Height, primary = m.Primary, name = m.Name });
+        _ = _conn!.SendJsonAsync(new { t = "monitors", list, current = _currentMon });
+    }
+
+    private void SelectMonitor(int index)
+    {
+        if (index == _currentMon) return;
+        _currentMon = index;
+        var region = RegionFor(index);
+        // Hold the encoder lock so the pump can't encode against a half-changed region
+        // or a disposed codec; recreate the codec so the next frame is a keyframe at the
+        // new dimensions.
+        lock (_encLock)
+        {
+            _capture!.SetRegion(region);
+            _encoder?.Dispose();
+            _encoder = new VpxVideoEncoder();
+        }
+        ApplyInputRegion();
     }
 
     private void StartPump()

@@ -23,15 +23,24 @@ public static class InputInjector
     private static readonly int VTop    = GetSystemMetrics(SM_YVIRTUALSCREEN);
     private static readonly int VWidth  = GetSystemMetrics(SM_CXVIRTUALSCREEN);
     private static readonly int VHeight = GetSystemMetrics(SM_CYVIRTUALSCREEN);
-    private static readonly int PWidth  = GetSystemMetrics(SM_CXSCREEN);
-    private static readonly int PHeight = GetSystemMetrics(SM_CYSCREEN);
+
+    // The captured region in virtual-desktop pixels; the viewer's normalized coords
+    // are relative to THIS region. Defaults to the primary monitor; updated on switch.
+    private static int _rx, _ry, _rw = 1, _rh = 1;
+
+    /// <summary>Set the region the viewer is currently seeing (its coords map into it).</summary>
+    public static void SetRegion(int x, int y, int w, int h)
+    {
+        _rx = x; _ry = y; _rw = Math.Max(1, w); _rh = Math.Max(1, h);
+    }
 
     private static (int ax, int ay) ToAbsolute(double nx, double ny)
     {
-        double px = nx * PWidth;
-        double py = ny * PHeight;
-        double vx = (px - VLeft) / VWidth;
-        double vy = (py - VTop) / VHeight;
+        // normalized within the captured region -> virtual-desktop pixel -> 0..65535
+        double screenX = _rx + nx * _rw;
+        double screenY = _ry + ny * _rh;
+        double vx = (screenX - VLeft) / VWidth;
+        double vy = (screenY - VTop) / VHeight;
         int ax = (int)Math.Clamp(vx * 65535.0, 0, 65535);
         int ay = (int)Math.Clamp(vy * 65535.0, 0, 65535);
         return (ax, ay);

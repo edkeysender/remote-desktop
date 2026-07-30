@@ -7,6 +7,9 @@ using RemoteDesktop.Shared;
 
 namespace RemoteDesktop.Master;
 
+/// <summary>A monitor the host is offering, as advertised over signaling.</summary>
+public readonly record struct RemoteMonitor(int Index, int Width, int Height, bool Primary, string Name);
+
 /// <summary>
 /// Master (viewer) side, Phase 2. The WebSocket carries only signaling; video and
 /// input travel over a direct WebRTC peer connection. The master is the answerer:
@@ -25,6 +28,7 @@ public sealed class ViewerSession : IDisposable
     public event Action<string>? Rejected;
     public event Action<int, int, byte[]>? Frame;   // width, height, BGR24
     public event Action<bool>? ControlReady;        // input data channel open/closed
+    public event Action<List<RemoteMonitor>, int>? Monitors;  // available monitors, current index
     public event Action<string?>? Closed;
 
     public async Task ConnectAsync(string serverUrl, string id, string password)
@@ -58,6 +62,19 @@ public sealed class ViewerSession : IDisposable
                 if (!string.IsNullOrEmpty(cand))
                     _pc?.addIceCandidate(new RTCIceCandidateInit { candidate = cand });
                 break;
+
+            case "monitors":
+            {
+                var mons = new List<RemoteMonitor>();
+                foreach (var m in root.GetProperty("list").EnumerateArray())
+                    mons.Add(new RemoteMonitor(
+                        m.GetProperty("i").GetInt32(), m.GetProperty("w").GetInt32(),
+                        m.GetProperty("h").GetInt32(), m.GetProperty("primary").GetBoolean(),
+                        m.TryGetProperty("name", out var n) ? n.GetString() ?? "" : ""));
+                int current = root.TryGetProperty("current", out var c) ? c.GetInt32() : 0;
+                Monitors?.Invoke(mons, current);
+                break;
+            }
 
             case "bye":
                 Closed?.Invoke(root.TryGetProperty("reason", out var b) ? b.GetString() : null);
@@ -137,6 +154,9 @@ public sealed class ViewerSession : IDisposable
     public void MouseButton(double nx, double ny, int btn, bool down) => Send(new { t = "b", x = nx, y = ny, btn, down });
     public void MouseWheel(int dy) => Send(new { t = "w", dy });
     public void KeyVirtual(int vk, bool down) => Send(new { t = "k", vk, down });
+
+    /// <summary>Ask the host to switch the captured monitor (-1 = all). Sent over signaling.</summary>
+    public void SelectMonitor(int index) => _ = _conn.SendJsonAsync(new { t = "selmon", index });
 
     public async Task CloseAsync()
     {

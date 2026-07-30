@@ -19,6 +19,9 @@ var viewerConnected = new TaskCompletionSource<bool>();
 int framesDecoded = 0;
 int lastW = 0, lastH = 0;
 var controlReady = new TaskCompletionSource<bool>();
+List<RemoteMonitor>? monitors = null;
+int currentMon = -99;
+var monitorsReady = new TaskCompletionSource<bool>();
 
 // --- host (client) ---
 var host = new HostSession(SERVER, PASSWORD, fps: 12);
@@ -36,6 +39,7 @@ viewer.Connected += () => viewerConnected.TrySetResult(true);
 viewer.Rejected += r => { Console.WriteLine($"[viewer] rejected: {r}"); viewerConnected.TrySetResult(false); };
 viewer.Frame += (w, h, bgr) => { framesDecoded++; lastW = w; lastH = h; };
 viewer.ControlReady += ready => { Console.WriteLine($"[viewer] control ready={ready}"); if (ready) controlReady.TrySetResult(true); };
+viewer.Monitors += (m, cur) => { monitors = m; currentMon = cur; monitorsReady.TrySetResult(true); };
 await viewer.ConnectAsync(SERVER, id2!, PASSWORD);
 
 Check(await WaitBool(viewerConnected.Task, 10000), "viewer authenticated + paired");
@@ -59,6 +63,33 @@ await Task.Delay(500);
 int before = framesDecoded;
 await Task.Delay(1500);
 Check(framesDecoded > before, $"sustained streaming ({framesDecoded - before} more frames in 1.5s)");
+
+// multi-monitor: monitor list advertised
+Check(await WaitBool(monitorsReady.Task, 5000) && monitors is { Count: >= 1 },
+    $"host advertised monitor list ({monitors?.Count ?? 0} monitor(s), current={currentMon})");
+if (monitors is { Count: >= 1 })
+    foreach (var m in monitors)
+        Console.WriteLine($"    monitor {m.Index}: {m.Width}x{m.Height}{(m.Primary ? " primary" : "")} '{m.Name}'");
+
+// switch to "all monitors" (virtual desktop) and confirm streaming continues at new dims
+int beforeSwitch = framesDecoded;
+int wPre = lastW, hPre = lastH;
+viewer.SelectMonitor(-1);
+Console.WriteLine("[viewer] requested all-monitors (virtual desktop)");
+bool switched = await WaitUntil(() => framesDecoded > beforeSwitch + 3, 8000);
+Check(switched, $"streaming continued after monitor switch ({framesDecoded - beforeSwitch} frames, now {lastW}x{lastH}, was {wPre}x{hPre})");
+
+// switch to a specific monitor by its enumeration Index and confirm we get that
+// monitor's exact dimensions (verifies the Index-vs-list-position fix).
+if (monitors is { Count: >= 1 })
+{
+    var target = monitors[^1];   // last in the (primary-first) list
+    int b2 = framesDecoded;
+    viewer.SelectMonitor(target.Index);
+    Console.WriteLine($"[viewer] requested monitor Index={target.Index} ({target.Width}x{target.Height})");
+    bool ok = await WaitUntil(() => framesDecoded > b2 + 3 && lastW == target.Width && lastH == target.Height, 8000);
+    Check(ok, $"switched to specific monitor Index={target.Index}: got {lastW}x{lastH}, expected {target.Width}x{target.Height}");
+}
 
 await viewer.CloseAsync();
 await host.StopAsync();
