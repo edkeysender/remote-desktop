@@ -1,0 +1,13 @@
+{
+  "name": "remote-desktop-server",
+  "version": "0.1.0",
+  "description": "Signaling + Phase-0 relay for the remote-desktop project",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "start": "node index.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  }
+}

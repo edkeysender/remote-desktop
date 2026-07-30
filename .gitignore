@@ -1,0 +1,21 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# .NET
+bin/
+obj/
+*.user
+
+# Build output
+publish/
+installer/dist/
+
+# Local config / secrets — never commit host passwords or TURN credentials
+.env
+*.local.json
+docker/turnserver.local.conf
+
+# OS
+Thumbs.db
+desktop.ini

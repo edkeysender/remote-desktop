@@ -1,0 +1,11 @@
+services:
+  coturn:
+    image: coturn/coturn:4.6
+    container_name: rd-coturn
+    # host networking is strongly recommended for TURN — bridged NAT breaks
+    # the relay's own address discovery.
+    network_mode: host
+    restart: unless-stopped
+    volumes:
+      - ./turnserver.local.conf:/etc/coturn/turnserver.conf:ro
+    command: ["-c", "/etc/coturn/turnserver.conf"]

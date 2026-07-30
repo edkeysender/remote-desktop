@@ -1,0 +1,40 @@
+; Inno Setup script — Remote Desktop MASTER (the controlling PC)
+; Build: publish first (see build.ps1), then compile this with ISCC.exe.
+
+#define AppName "Remote Desktop Master"
+#define AppVersion "0.1.0"
+#define AppPublisher "You"
+#define AppExe "RemoteDesktopMaster.exe"
+
+[Setup]
+AppId={{8D2FAB3C-4E50-4B66-AD22-B2C3D4E5F607}
+AppName={#AppName}
+AppVersion={#AppVersion}
+AppPublisher={#AppPublisher}
+DefaultDirName={autopf}\RemoteDesktop\Master
+DefaultGroupName=Remote Desktop
+UninstallDisplayName={#AppName}
+UninstallDisplayIcon={app}\{#AppExe}
+OutputDir=dist
+OutputBaseFilename=RemoteDesktopMaster-Setup-{#AppVersion}
+Compression=lzma2/max
+SolidCompression=yes
+ArchitecturesAllowed=x64compatible
+ArchitecturesInstallIn64BitMode=x64compatible
+WizardStyle=modern
+; The master doesn't inject input or need admin — install per-user, no UAC.
+PrivilegesRequired=lowest
+
+[Tasks]
+Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"
+
+[Files]
+Source: "..\publish\master\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
+
+[Icons]
+Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
+Name: "{group}\Uninstall {#AppName}"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopicon
+
+[Run]
+Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName} now"; Flags: nowait postinstall skipifsilent
