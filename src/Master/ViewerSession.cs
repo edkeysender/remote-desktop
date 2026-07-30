@@ -1,27 +1,35 @@
+using System.Text;
 using System.Text.Json;
+using SIPSorcery.Net;
+using SIPSorceryMedia.Abstractions;
+using SIPSorceryMedia.Encoders;
 using RemoteDesktop.Shared;
 
 namespace RemoteDesktop.Master;
 
 /// <summary>
-/// Drives the master (viewer) side: connect to the signaling server, request a
-/// session by ID+password, receive JPEG frames, and forward input events.
-/// UI-agnostic; the WPF window subscribes to events and calls the Send* methods.
+/// Master (viewer) side, Phase 2. The WebSocket carries only signaling; video and
+/// input travel over a direct WebRTC peer connection. The master is the answerer:
+/// it receives the host's VP8 track (decodes to BGR) and receives the host-created
+/// "input" data channel (sends input JSON back over it).
 /// </summary>
 public sealed class ViewerSession : IDisposable
 {
     private readonly SignalingConnection _conn = new();
+    private readonly VpxVideoEncoder _decoder = new();
+    private RTCPeerConnection? _pc;
+    private RTCDataChannel? _inputChannel;
+    private int _controlReadyFired;   // 0/1 guard so ControlReady fires once
 
     public event Action? Connected;
-    public event Action<string>? Rejected;      // reason
-    public event Action<int, int>? ScreenSize;  // w, h
-    public event Action<byte[]>? Frame;         // JPEG bytes
+    public event Action<string>? Rejected;
+    public event Action<int, int, byte[]>? Frame;   // width, height, BGR24
+    public event Action<bool>? ControlReady;        // input data channel open/closed
     public event Action<string?>? Closed;
 
     public async Task ConnectAsync(string serverUrl, string id, string password)
     {
         _conn.JsonReceived += OnJson;
-        _conn.BinaryReceived += data => Frame?.Invoke(data);
         _conn.Closed += reason => Closed?.Invoke(reason);
         await _conn.ConnectAsync(serverUrl);
         await _conn.SendJsonAsync(new { t = "connect", id, password });
@@ -32,19 +40,114 @@ public sealed class ViewerSession : IDisposable
         var t = root.TryGetProperty("t", out var tv) ? tv.GetString() : null;
         switch (t)
         {
-            case "connected": Connected?.Invoke(); break;
-            case "rejected":  Rejected?.Invoke(root.TryGetProperty("reason", out var r) ? r.GetString() ?? "" : ""); break;
-            case "screen":    ScreenSize?.Invoke(root.GetProperty("w").GetInt32(), root.GetProperty("h").GetInt32()); break;
-            case "bye":       Closed?.Invoke(root.TryGetProperty("reason", out var b) ? b.GetString() : null); break;
+            case "connected":
+                Connected?.Invoke();
+                SetupPeer();
+                break;
+
+            case "rejected":
+                Rejected?.Invoke(root.TryGetProperty("reason", out var r) ? r.GetString() ?? "" : "");
+                break;
+
+            case "offer":
+                _ = HandleOfferAsync(root.GetProperty("sdp").GetString() ?? "");
+                break;
+
+            case "ice":
+                var cand = root.GetProperty("candidate").GetString();
+                if (!string.IsNullOrEmpty(cand))
+                    _pc?.addIceCandidate(new RTCIceCandidateInit { candidate = cand });
+                break;
+
+            case "bye":
+                Closed?.Invoke(root.TryGetProperty("reason", out var b) ? b.GetString() : null);
+                break;
         }
     }
 
-    // ---- outbound input (coords normalized 0..1 of the source image) ----
-    public void MouseMove(double nx, double ny) => _ = _conn.SendJsonAsync(new { t = "m", x = nx, y = ny });
-    public void MouseButton(double nx, double ny, int btn, bool down) => _ = _conn.SendJsonAsync(new { t = "b", x = nx, y = ny, btn, down });
-    public void MouseWheel(int dy) => _ = _conn.SendJsonAsync(new { t = "w", dy });
-    public void KeyVirtual(int vk, bool down) => _ = _conn.SendJsonAsync(new { t = "k", vk, down });
+    private void SetupPeer()
+    {
+        var config = new RTCConfiguration
+        {
+            iceServers = new List<RTCIceServer> { new() { urls = "stun:stun.l.google.com:19302" } }
+        };
+        _pc = new RTCPeerConnection(config);
 
-    public async Task CloseAsync() { try { await _conn.SendJsonAsync(new { t = "bye" }); } catch { } await _conn.CloseAsync(); }
-    public void Dispose() => _conn.Dispose();
+        var vp8 = new SDPAudioVideoMediaFormat(SDPMediaTypesEnum.video, 96, "VP8", 90000);
+        _pc.addTrack(new MediaStreamTrack(SDPMediaTypesEnum.video, false,
+            new List<SDPAudioVideoMediaFormat> { vp8 }, MediaStreamStatusEnum.RecvOnly));
+
+        _pc.ondatachannel += chan =>
+        {
+            _inputChannel = chan;
+            // On the answerer, the received channel's onopen does not reliably fire
+            // (SIPSorcery), so poll IsOpened to detect readiness. Keep onopen too.
+            chan.onopen += MarkControlReady;
+            chan.onclose += () => ControlReady?.Invoke(false);
+            _ = WatchChannelOpenAsync(chan);
+        };
+
+        _pc.onicecandidate += c =>
+        {
+            if (c != null) _ = _conn.SendJsonAsync(new { t = "ice", candidate = c.ToString() });
+        };
+
+        _pc.OnVideoFrameReceived += (_, _, encoded, _) =>
+        {
+            try
+            {
+                foreach (var s in _decoder.DecodeVideo(encoded, VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.VP8))
+                    Frame?.Invoke((int)s.Width, (int)s.Height, s.Sample);
+            }
+            catch { /* skip a bad frame */ }
+        };
+    }
+
+    private async Task HandleOfferAsync(string sdp)
+    {
+        if (_pc == null) return;
+        _pc.setRemoteDescription(new RTCSessionDescriptionInit { type = RTCSdpType.offer, sdp = sdp });
+        var answer = _pc.createAnswer(null);
+        await _pc.setLocalDescription(answer);
+        await _conn.SendJsonAsync(new { t = "answer", sdp = answer.sdp });
+    }
+
+    private void MarkControlReady()
+    {
+        if (Interlocked.Exchange(ref _controlReadyFired, 1) == 0) ControlReady?.Invoke(true);
+    }
+
+    private async Task WatchChannelOpenAsync(RTCDataChannel chan)
+    {
+        for (int i = 0; i < 40 && _controlReadyFired == 0; i++)
+        {
+            if (chan.IsOpened) { MarkControlReady(); return; }
+            await Task.Delay(250);
+        }
+    }
+
+    // ---- outbound input over the data channel (coords normalized 0..1) ----
+    private void Send(object o)
+    {
+        if (_inputChannel is { IsOpened: true })
+            _inputChannel.send(JsonSerializer.Serialize(o));
+    }
+
+    public void MouseMove(double nx, double ny) => Send(new { t = "m", x = nx, y = ny });
+    public void MouseButton(double nx, double ny, int btn, bool down) => Send(new { t = "b", x = nx, y = ny, btn, down });
+    public void MouseWheel(int dy) => Send(new { t = "w", dy });
+    public void KeyVirtual(int vk, bool down) => Send(new { t = "k", vk, down });
+
+    public async Task CloseAsync()
+    {
+        try { await _conn.SendJsonAsync(new { t = "bye" }); } catch { }
+        try { _pc?.Close("closed by user"); } catch { }
+        await _conn.CloseAsync();
+    }
+
+    public void Dispose()
+    {
+        try { _pc?.Close("disposed"); } catch { }
+        _conn.Dispose();
+    }
 }

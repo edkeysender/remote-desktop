@@ -1,10 +1,10 @@
 ; Inno Setup script — Remote Desktop CLIENT (the PC being controlled)
 ; Build: publish first (see build.ps1), then compile this with ISCC.exe.
 
-#define AppName "Remote Desktop Client"
+#define AppName "FTD Remote Client"
 #define AppVersion "0.1.0"
-#define AppPublisher "You"
-#define AppExe "RemoteDesktopClient.exe"
+#define AppPublisher "FTD.aero"
+#define AppExe "FtdRemoteClient.exe"
 
 [Setup]
 ; A stable, unique GUID keeps upgrades/uninstall coherent across versions.
@@ -12,12 +12,12 @@ AppId={{7C1E9A2B-3D4F-4A55-9C11-A1B2C3D4E5F6}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
-DefaultDirName={autopf}\RemoteDesktop\Client
-DefaultGroupName=Remote Desktop
+DefaultDirName={autopf}\FTD Remote\Client
+DefaultGroupName=FTD Remote
 UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\{#AppExe}
 OutputDir=dist
-OutputBaseFilename=RemoteDesktopClient-Setup-{#AppVersion}
+OutputBaseFilename=FTDRemoteClient-Setup-{#AppVersion}
 Compression=lzma2/max
 SolidCompression=yes
 ; Self-contained x64 build → require 64-bit Windows.
@@ -41,7 +41,7 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 [Registry]
 ; Optional per-user autostart (only if the task is selected).
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; \
-    ValueName: "RemoteDesktopClient"; ValueData: """{app}\{#AppExe}"""; \
+    ValueName: "FtdRemoteClient"; ValueData: """{app}\{#AppExe}"""; \
     Flags: uninsdeletevalue; Tasks: autostart
 
 [Run]

@@ -1,7 +1,7 @@
 <Window x:Class="RemoteDesktop.Client.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Remote Desktop — Client (this PC)" Height="440" Width="420"
+        Title="FTD Remote — Client (this PC)" Height="480" Width="420"
         ResizeMode="CanMinimize" WindowStartupLocation="CenterScreen"
         Background="#0d1117">
     <Window.Resources>
@@ -19,6 +19,8 @@
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0" Margin="0,0,0,14">
+            <Image Source="pack://application:,,,/logo-ftd.png" Height="34" HorizontalAlignment="Left"
+                   Margin="0,0,0,12" RenderOptions.BitmapScalingMode="HighQuality"/>
             <TextBlock Text="Allow this computer to be controlled" FontSize="16" FontWeight="SemiBold"/>
             <TextBlock Text="Give the ID and password below to the person connecting." Foreground="#8b949e" FontSize="12" Margin="0,2,0,0"/>
         </StackPanel>

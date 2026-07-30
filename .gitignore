@@ -19,3 +19,4 @@ docker/turnserver.local.conf
 # OS
 Thumbs.db
 desktop.ini
+spike/

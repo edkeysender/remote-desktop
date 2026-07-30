@@ -1,13 +1,20 @@
 using System.Runtime.Versioning;
+using System.Text;
 using System.Text.Json;
+using SIPSorcery.Net;
+using SIPSorceryMedia.Abstractions;
+using SIPSorceryMedia.Encoders;
 using RemoteDesktop.Shared;
 
 namespace RemoteDesktop.Client;
 
 /// <summary>
-/// Drives the client (host) side: connect to the signaling server, obtain an ID,
-/// verify a viewer's password locally, then stream JPEG frames and replay input.
-/// UI-agnostic; raises events the WPF window subscribes to.
+/// Client (host) side, Phase 2. The WebSocket carries only signaling
+/// (register / password / SDP / ICE); the screen video and input travel over a
+/// direct WebRTC peer connection:
+///   video  host -> master  : VP8 on a media track
+///   input  master -> host  : JSON on a "input" data channel
+/// The host is the offerer (it owns the video), so it creates the data channel too.
 /// </summary>
 [SupportedOSPlatform("windows")]
 public sealed class HostSession : IDisposable
@@ -15,38 +22,36 @@ public sealed class HostSession : IDisposable
     private readonly string _serverUrl;
     private readonly string _password;
     private readonly int _fps;
-    private readonly long _quality;
 
     private SignalingConnection? _conn;
     private ScreenCapture? _capture;
+    private RTCPeerConnection? _pc;
+    private RTCDataChannel? _inputChannel;
+    private VpxVideoEncoder? _encoder;
     private CancellationTokenSource? _pumpCts;
-    private volatile bool _streaming;
+    private Task? _pumpTask;
+    private readonly object _encLock = new();   // serialize encode vs. dispose (native codec)
+    private volatile bool _pcConnected;
 
-    public event Action<string>? IdAssigned;      // 9-digit ID
-    public event Action<string>? Status;          // human-readable status line
-    public event Action<bool>? SessionActive;     // true = a viewer is connected
+    public event Action<string>? IdAssigned;
+    public event Action<string>? Status;
+    public event Action<bool>? SessionActive;
 
-    public HostSession(string serverUrl, string password, int fps = 12, long quality = 50)
+    public HostSession(string serverUrl, string password, int fps = 15)
     {
-        _serverUrl = serverUrl; _password = password; _fps = fps; _quality = quality;
+        _serverUrl = serverUrl; _password = password; _fps = fps;
     }
 
     public async Task StartAsync()
     {
-        _capture = new ScreenCapture(_quality);
+        _capture = new ScreenCapture();
         _conn = new SignalingConnection();
         _conn.JsonReceived += OnJson;
-        _conn.Closed += reason =>
-        {
-            _streaming = false;
-            SessionActive?.Invoke(false);
-            Status?.Invoke($"Disconnected from server ({reason ?? "closed"})");
-        };
+        _conn.Closed += _ => { SessionActive?.Invoke(false); Status?.Invoke("Disconnected from server"); TearDownPeer(); };
 
         Status?.Invoke("Connecting to server…");
         await _conn.ConnectAsync(_serverUrl);
         await _conn.SendJsonAsync(new { t = "register" });
-        StartPump();
     }
 
     private void OnJson(JsonElement root)
@@ -64,73 +69,144 @@ public sealed class HostSession : IDisposable
                 var rid = root.GetProperty("rid").GetString();
                 var pw = root.TryGetProperty("password", out var pv) ? pv.GetString() : "";
                 bool ok = string.Equals(pw, _password, StringComparison.Ordinal);
-                // Phase 1: replace with Argon2id verify + on-screen "Allow?" prompt.
                 _ = _conn!.SendJsonAsync(new { t = "connect-response", rid, ok });
-                if (ok)
-                {
-                    _streaming = true;
-                    SessionActive?.Invoke(true);
-                    Status?.Invoke("Session active — a viewer is connected");
-                    _ = _conn.SendJsonAsync(new { t = "screen", w = _capture!.Width, h = _capture.Height });
-                }
+                if (ok) _ = StartPeerAsync();
                 else Status?.Invoke("Rejected a connection (wrong password)");
                 break;
             }
 
-            case "bye":
-                _streaming = false;
-                SessionActive?.Invoke(false);
-                Status?.Invoke("Viewer disconnected — waiting for a connection");
+            case "answer":
+                _pc?.setRemoteDescription(new RTCSessionDescriptionInit
+                    { type = RTCSdpType.answer, sdp = root.GetProperty("sdp").GetString() });
                 break;
 
-            // ---- input from the viewer ----
-            case "m": InputInjector.MouseMove(GetD(root, "x"), GetD(root, "y")); break;
-            case "b": InputInjector.MouseButton(GetD(root, "x"), GetD(root, "y"),
-                          root.GetProperty("btn").GetInt32(), root.GetProperty("down").GetBoolean()); break;
-            case "w": InputInjector.MouseWheel(root.GetProperty("dy").GetInt32()); break;
-            case "k":
-                if (root.TryGetProperty("vk", out var vk))
-                    InputInjector.KeyVirtual(vk.GetInt32(), root.GetProperty("down").GetBoolean());
-                else if (root.TryGetProperty("code", out var code))
-                    InputInjector.KeyCode(code.GetString() ?? "", root.GetProperty("down").GetBoolean());
+            case "ice":
+                var cand = root.GetProperty("candidate").GetString();
+                if (!string.IsNullOrEmpty(cand))
+                    _pc?.addIceCandidate(new RTCIceCandidateInit { candidate = cand });
+                break;
+
+            case "bye":
+                SessionActive?.Invoke(false);
+                Status?.Invoke("Viewer disconnected — waiting for a connection");
+                TearDownPeer();
                 break;
         }
     }
 
+    private async Task StartPeerAsync()
+    {
+        SessionActive?.Invoke(true);
+        Status?.Invoke("Session active — negotiating video…");
+
+        _encoder = new VpxVideoEncoder();
+        var config = new RTCConfiguration
+        {
+            iceServers = new List<RTCIceServer> { new() { urls = "stun:stun.l.google.com:19302" } }
+        };
+        _pc = new RTCPeerConnection(config);
+
+        var vp8 = new SDPAudioVideoMediaFormat(SDPMediaTypesEnum.video, 96, "VP8", 90000);
+        _pc.addTrack(new MediaStreamTrack(SDPMediaTypesEnum.video, false,
+            new List<SDPAudioVideoMediaFormat> { vp8 }, MediaStreamStatusEnum.SendOnly));
+
+        // Host creates the input channel; master sends input back over it.
+        _inputChannel = await _pc.createDataChannel("input", null);
+        _inputChannel.onmessage += (_, _, data) => InjectInput(data);
+
+        _pc.onicecandidate += c =>
+        {
+            if (c != null) _ = _conn!.SendJsonAsync(new { t = "ice", candidate = c.ToString() });
+        };
+        _pc.onconnectionstatechange += s =>
+        {
+            _pcConnected = s == RTCPeerConnectionState.connected;
+            if (s == RTCPeerConnectionState.connected) { Status?.Invoke("Session active — streaming"); StartPump(); }
+            else if (s is RTCPeerConnectionState.failed or RTCPeerConnectionState.disconnected or RTCPeerConnectionState.closed)
+                StopPump();
+        };
+
+        var offer = _pc.createOffer(null);
+        await _pc.setLocalDescription(offer);
+        await _conn!.SendJsonAsync(new { t = "offer", sdp = offer.sdp });
+    }
+
     private void StartPump()
     {
+        if (_pumpCts != null) return;               // already running
         _pumpCts = new CancellationTokenSource();
         var token = _pumpCts.Token;
-        _ = Task.Run(async () =>
+        uint duration = (uint)(90000 / _fps);       // VP8 90 kHz clock
+        _pumpTask = Task.Run(async () =>
         {
             int delay = Math.Max(1, 1000 / _fps);
-            while (!token.IsCancellationRequested)
+            while (!token.IsCancellationRequested && _pcConnected)
             {
-                if (_streaming && _conn!.State == System.Net.WebSockets.WebSocketState.Open)
+                try
                 {
-                    try
+                    byte[] bgr = _capture!.CaptureBgr();
+                    byte[]? enc;
+                    // Hold the lock across the native encode so teardown can't free
+                    // the codec mid-call (would be an uncatchable AccessViolation).
+                    lock (_encLock)
                     {
-                        byte[] jpeg = _capture!.CaptureJpeg();
-                        await _conn.SendBinaryAsync(jpeg);
+                        if (_encoder == null || token.IsCancellationRequested) break;
+                        enc = _encoder.EncodeVideo(_capture.Width, _capture.Height, bgr,
+                            VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.VP8);
                     }
-                    catch { await Task.Delay(200, token); }
+                    if (enc is { Length: > 0 }) _pc?.SendVideo(duration, enc);
                 }
+                catch { /* transient send error; keep going */ }
                 try { await Task.Delay(delay, token); } catch { break; }
             }
         }, token);
     }
 
-    private static double GetD(JsonElement e, string name) => e.GetProperty(name).GetDouble();
+    private void StopPump()
+    {
+        _pumpCts?.Cancel();
+        try { _pumpTask?.Wait(2000); } catch { /* ignore aggregate/cancel */ }
+        _pumpTask = null;
+        _pumpCts = null;
+    }
+
+    private void InjectInput(byte[] data)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(Encoding.UTF8.GetString(data));
+            var r = doc.RootElement;
+            switch (r.GetProperty("t").GetString())
+            {
+                case "m": InputInjector.MouseMove(r.GetProperty("x").GetDouble(), r.GetProperty("y").GetDouble()); break;
+                case "b": InputInjector.MouseButton(r.GetProperty("x").GetDouble(), r.GetProperty("y").GetDouble(),
+                              r.GetProperty("btn").GetInt32(), r.GetProperty("down").GetBoolean()); break;
+                case "w": InputInjector.MouseWheel(r.GetProperty("dy").GetInt32()); break;
+                case "k": InputInjector.KeyVirtual(r.GetProperty("vk").GetInt32(), r.GetProperty("down").GetBoolean()); break;
+            }
+        }
+        catch { /* ignore malformed input packet */ }
+    }
+
+    private void TearDownPeer()
+    {
+        _pcConnected = false;
+        StopPump();                                 // guarantees the pump loop has exited
+        try { _inputChannel?.close(); } catch { }
+        try { _pc?.Close("session ended"); } catch { }
+        _inputChannel = null; _pc = null;
+        lock (_encLock) { _encoder?.Dispose(); _encoder = null; }
+    }
 
     public async Task StopAsync()
     {
-        _pumpCts?.Cancel();
+        TearDownPeer();
         if (_conn != null) await _conn.CloseAsync();
     }
 
     public void Dispose()
     {
-        _pumpCts?.Cancel();
+        TearDownPeer();
         _conn?.Dispose();
         _capture?.Dispose();
     }

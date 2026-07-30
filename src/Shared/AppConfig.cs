@@ -16,7 +16,7 @@ public sealed class AppConfig
 
     private static string PathFor(string name) => System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData),
-        "RemoteDesktop", name + ".json");
+        "FTD Remote", name + ".json");
 
     public static AppConfig Load(string name)
     {

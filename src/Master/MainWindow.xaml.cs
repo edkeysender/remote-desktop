@@ -36,11 +36,10 @@ public partial class MainWindow : Window
         if (id.Length == 0) { SetStatus("Enter an ID."); return; }
 
         _session = new ViewerSession();
-        _session.Connected  += () => Dispatcher.Invoke(OnConnected);
-        _session.Rejected   += r  => Dispatcher.Invoke(() => { SetStatus("Rejected: " + r); Cleanup(); });
-        _session.ScreenSize += (w, h) => Dispatcher.Invoke(() => { _srcW = w; _srcH = h; });
-        _session.Frame      += DrawFrame;   // decode off the UI thread
-        _session.Closed     += r  => Dispatcher.Invoke(() => { if (_connected) SetStatus("Closed: " + (r ?? "")); Cleanup(); });
+        _session.Connected += () => Dispatcher.Invoke(OnConnected);
+        _session.Rejected  += r  => Dispatcher.Invoke(() => { SetStatus("Rejected: " + r); Cleanup(); });
+        _session.Frame     += DrawFrame;   // decoded BGR frames from the WebRTC track
+        _session.Closed    += r  => Dispatcher.Invoke(() => { if (_connected) SetStatus("Closed: " + (r ?? "")); Cleanup(); });
 
         try
         {
@@ -88,21 +87,21 @@ public partial class MainWindow : Window
 
     private void SetStatus(string s) => StatusText.Text = s;
 
-    // ---- frame rendering: decode on the calling (receive-loop) thread, assign on UI ----
-    private void DrawFrame(byte[] jpeg)
+    // ---- frame rendering: blit decoded BGR24 into a reused WriteableBitmap ----
+    private WriteableBitmap? _wb;
+    private void DrawFrame(int w, int h, byte[] bgr)
     {
-        try
+        if (w <= 0 || h <= 0 || bgr.Length < w * h * 3) return;
+        Dispatcher.Invoke(() =>
         {
-            var bmp = new BitmapImage();
-            using var ms = new MemoryStream(jpeg);
-            bmp.BeginInit();
-            bmp.CacheOption = BitmapCacheOption.OnLoad;
-            bmp.StreamSource = ms;
-            bmp.EndInit();
-            bmp.Freeze();
-            Dispatcher.Invoke(() => RemoteImage.Source = bmp);
-        }
-        catch { /* skip a corrupt frame */ }
+            _srcW = w; _srcH = h;
+            if (_wb == null || _wb.PixelWidth != w || _wb.PixelHeight != h)
+            {
+                _wb = new WriteableBitmap(w, h, 96, 96, PixelFormats.Bgr24, null);
+                RemoteImage.Source = _wb;
+            }
+            _wb.WritePixels(new Int32Rect(0, 0, w, h), bgr, w * 3, 0);
+        });
     }
 
     // ---- input capture ----

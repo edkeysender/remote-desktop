@@ -16,14 +16,19 @@ remote machine, sees its screen, and controls mouse + keyboard.
 Both Master and Client are native Windows apps that ship as **single-file installers**
 (no .NET install needed on the target machine — the runtime is bundled).
 
-## Current phase: **Phase 0 spike** (working, verified end-to-end)
+## Current phase: **Phase 2 — WebRTC P2P** (working, verified end-to-end)
 
-Deliberately crude on the media path, to nail the hard parts first:
-- Client captures the screen (GDI `CopyFromScreen`), JPEG-encodes each frame.
-- Frames are relayed **through** the server (not P2P yet) to the Master's canvas.
-- Master captures mouse/keyboard and sends events back; Client replays with `SendInput`.
-- ~10–15 fps, LAN or your-own-VPS only. The media path is throwaway; the auth
-  handshake and input pipeline carry forward to WebRTC.
+Video and input now flow **directly peer-to-peer** over WebRTC; the server only
+brokers the introduction (ID/password) and relays SDP/ICE.
+- Client captures the screen (GDI), VP8-encodes each frame (pure-C#
+  `SIPSorceryMedia.Encoders`), and sends it on a WebRTC video track.
+- Master receives the track, decodes VP8 to a `WriteableBitmap`, and renders it.
+- Input travels master→client on a WebRTC **data channel**; Client replays with `SendInput`.
+- Encryption (DTLS-SRTP), NAT traversal (STUN, with coturn as TURN fallback), and
+  congestion control come from WebRTC. The relay server never sees pixels or input.
+
+Verified end-to-end with the real session classes: `capture → VP8 → P2P → decode`
+at 1920×1080 plus a live input channel. See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 See [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md) for the protocol, security model,
 and the Phase 0–4 roadmap.
@@ -33,9 +38,10 @@ and the Phase 0–4 roadmap.
 remote-desktop/
 ├─ server/            Node + ws — signaling & Phase-0 relay (runs on a VPS)
 ├─ src/
-│   ├─ Shared/        protocol + WebSocket wrapper + config (netstandard-ish lib)
-│   ├─ Client/        WPF app — capture, input injection, ws client (the controlled PC)
-│   └─ Master/        WPF app — render + input capture (the controlling PC)
+│   ├─ Shared/        signaling WebSocket wrapper + config
+│   ├─ Client/        WPF app — capture, VP8 encode, input injection, WebRTC peer
+│   └─ Master/        WPF app — WebRTC peer, VP8 decode/render, input capture
+├─ tests/E2E/         headless end-to-end test driving the real session classes
 ├─ installer/         Inno Setup scripts → dist\*-Setup-*.exe
 ├─ docker/            coturn (TURN relay) config — used from Phase 2
 ├─ viewer/            legacy browser viewer (still works; Master exe supersedes it)
@@ -53,8 +59,8 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 Produces:
 ```
-installer\dist\RemoteDesktopClient-Setup-0.1.0.exe   (~64 MB, admin install)
-installer\dist\RemoteDesktopMaster-Setup-0.1.0.exe   (~64 MB, per-user install)
+installer\dist\FTDRemoteClient-Setup-0.1.0.exe   (~70 MB, admin install)
+installer\dist\FTDRemoteMaster-Setup-0.1.0.exe   (~70 MB, per-user install)
 ```
 The Client installer requests admin (it injects input) and offers optional
 sign-in autostart. The Master installs per-user with no UAC.
@@ -68,10 +74,10 @@ cd server && npm install && npm start      # ws://0.0.0.0:8080
 ```
 
 **2. Client** (on the PC to be controlled): install and run
-`RemoteDesktopClient-Setup`. Set the server URL, click **Start**. It shows a
+`FTDRemoteClient-Setup`. Set the server URL, click **Start**. It shows a
 **9-digit ID** and a **password**. Hand those to whoever will connect.
 
-**3. Master** (on your PC): install and run `RemoteDesktopMaster-Setup`. Enter the
+**3. Master** (on your PC): install and run `FTDRemoteMaster-Setup`. Enter the
 server URL, the Client's ID and password, click **Connect**. The remote screen
 appears and your mouse + keyboard drive it.
 

@@ -1,22 +1,22 @@
 ; Inno Setup script — Remote Desktop MASTER (the controlling PC)
 ; Build: publish first (see build.ps1), then compile this with ISCC.exe.
 
-#define AppName "Remote Desktop Master"
+#define AppName "FTD Remote Master"
 #define AppVersion "0.1.0"
-#define AppPublisher "You"
-#define AppExe "RemoteDesktopMaster.exe"
+#define AppPublisher "FTD.aero"
+#define AppExe "FtdRemoteMaster.exe"
 
 [Setup]
 AppId={{8D2FAB3C-4E50-4B66-AD22-B2C3D4E5F607}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
-DefaultDirName={autopf}\RemoteDesktop\Master
-DefaultGroupName=Remote Desktop
+DefaultDirName={autopf}\FTD Remote\Master
+DefaultGroupName=FTD Remote
 UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\{#AppExe}
 OutputDir=dist
-OutputBaseFilename=RemoteDesktopMaster-Setup-{#AppVersion}
+OutputBaseFilename=FTDRemoteMaster-Setup-{#AppVersion}
 Compression=lzma2/max
 SolidCompression=yes
 ArchitecturesAllowed=x64compatible

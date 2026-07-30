@@ -48,8 +48,15 @@ Text frames are JSON with a `t` (type) field. Binary frames are JPEG image data
 | srv→host   | `{t:"connect-request", rid, password}` | someone wants in (`rid` = request id) |
 | host→srv   | `{t:"connect-response", rid, ok}` | password check result |
 | srv→viewer | `{t:"connected"}` / `{t:"rejected", reason}` | session up / denied |
-| host→viewer| `{t:"screen", w, h}` | source resolution (for coord mapping) |
+| host→viewer| `{t:"screen", w, h}` | source resolution (Phase-0 relay only) |
 | either→srv | `{t:"bye"}` | teardown |
+
+**WebRTC signaling (Phase 2)** — relayed verbatim between the paired peers:
+| From | Message | Meaning |
+|------|---------|---------|
+| host→master   | `{t:"offer", sdp}`  | host's SDP offer (video sendonly + data m-line) |
+| master→host   | `{t:"answer", sdp}` | master's SDP answer |
+| either        | `{t:"ice", candidate}` | trickled ICE candidate |
 
 **Media / input**
 | From        | Payload | Meaning |
@@ -69,9 +76,16 @@ either side doesn't corrupt them; the host maps 0..1 → virtual-desktop absolut
   mapping, key translation. LAN / own-VPS only.
 - **Phase 1 — auth done right:** server-assigned IDs, host-side Argon2id password
   verify, first-connect "Allow?" prompt on host, ID-enumeration rate limiting.
-- **Phase 2 — WebRTC:** server becomes pure signaling. Video on a media track, input
-  on a `DataChannel` (unordered/`maxRetransmits:0` for moves, reliable for clicks/keys).
-  DTLS-SRTP encryption + NAT traversal + congestion control for free. Add coturn.
+- **Phase 2 — WebRTC (DONE):** server is pure signaling; it relays SDP offer/answer +
+  ICE via its generic paired-peer JSON passthrough (no server code specific to WebRTC).
+  Video travels on a VP8 media track (pure-C# `SIPSorceryMedia.Encoders`, native
+  `vpxmd.dll`), input on an `input` data channel (host is offerer + creates the channel;
+  master answers and sends input back over it). DTLS-SRTP + NAT traversal via a public
+  STUN server; coturn is the TURN fallback for symmetric-NAT peers. Verified end-to-end
+  with the real session classes: capture → VP8 → P2P → decode at 1920×1080, plus input.
+  Note: on the answerer, SIPSorcery's received-channel `onopen` does not fire — readiness
+  is detected via `RTCDataChannel.IsOpened`. Codec teardown is lock-guarded against the
+  capture pump (a mid-encode dispose is an uncatchable native AccessViolation).
 - **Phase 3 — quality:** DXGI Desktop Duplication w/ dirty-rects, QuickSync H.264,
   multi-monitor, clipboard sync, file transfer, adaptive bitrate.
 - **Phase 4 — product:** host as a **Windows Service** (survives logout, works at the
