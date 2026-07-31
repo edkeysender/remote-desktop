@@ -88,9 +88,22 @@ either side doesn't corrupt them; the host maps 0..1 → virtual-desktop absolut
   capture pump (a mid-encode dispose is an uncatchable native AccessViolation).
 - **Phase 3 — quality:** DXGI Desktop Duplication w/ dirty-rects, QuickSync H.264,
   multi-monitor, clipboard sync, file transfer, adaptive bitrate.
-- **Phase 4 — product:** host as a **Windows Service** (survives logout, works at the
-  lock screen / UAC secure desktop via `WTSQueryUserToken` + `CreateProcessAsUser`),
-  installers, **code signing**, accounts, self-hosted relay deployment.
+- **Phase 4 — product (IN PROGRESS):** host as a **Windows Service** (survives logout,
+  works at the lock screen / UAC secure desktop). `src/Service` is a LocalSystem
+  `BackgroundService` (`Supervisor`) that keeps one capture worker — `FtdRemoteClient.exe
+  --worker` — alive in the active console session, respawning it on session change,
+  input-desktop switch (Default ↔ Winlogon), or worker exit, via a duplicated SYSTEM
+  token retargeted at the session + `CreateProcessAsUser` onto `WinSta0\{desktop}`
+  (`SessionLauncher`). The worker is headless: it reads machine config from
+  `%ProgramData%\FTD Remote`, self-provisions a stable `HostToken` + fixed password on
+  first run, and reconnects forever. The relay maps that token → a **stable ID** across
+  restarts (`idmap.json`). Wired into the solution, `build.ps1` (published into the
+  client folder), and the client installer as an **opt-in** task that `sc create`s +
+  starts the service. The attended client window surfaces the unattended ID + fixed
+  password when the service has provisioned them (read from the world-readable
+  `%ProgramData%\FTD Remote\machine.json`; the ID field polls until the worker connects).
+  Still TODO: provision the real `ServerUrl` at deploy time (defaults to
+  `ws://localhost:8080`); **code signing**; accounts; self-hosted relay deployment.
 
 ## Known hard problems (don't be surprised)
 1. **UAC / secure desktop:** a normal user process can't capture or inject into the

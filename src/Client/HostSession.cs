@@ -22,6 +22,7 @@ public sealed class HostSession : IDisposable
     private readonly string _serverUrl;
     private readonly string _password;
     private readonly int _fps;
+    private readonly string? _token;   // stable identity for unattended hosts (null = random ID)
 
     private SignalingConnection? _conn;
     private ScreenCapture? _capture;
@@ -40,9 +41,9 @@ public sealed class HostSession : IDisposable
     public event Action<string>? Status;
     public event Action<bool>? SessionActive;
 
-    public HostSession(string serverUrl, string password, int fps = 15)
+    public HostSession(string serverUrl, string password, int fps = 15, string? token = null)
     {
-        _serverUrl = serverUrl; _password = password; _fps = fps;
+        _serverUrl = serverUrl; _password = password; _fps = fps; _token = token;
     }
 
     public async Task StartAsync()
@@ -58,7 +59,7 @@ public sealed class HostSession : IDisposable
 
         Status?.Invoke("Connecting to server…");
         await _conn.ConnectAsync(_serverUrl);
-        await _conn.SendJsonAsync(new { t = "register" });
+        await _conn.SendJsonAsync(new { t = "register", token = _token });
     }
 
     private void OnJson(JsonElement root)

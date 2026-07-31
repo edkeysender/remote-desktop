@@ -8,8 +8,29 @@
 
 import { WebSocketServer } from 'ws';
 import { randomBytes } from 'crypto';
+import { readFileSync, writeFileSync, existsSync } from 'fs';
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
+const ID_MAP_FILE = process.env.ID_MAP_FILE || 'idmap.json';
+
+// Persistent host identity: a host may present a stable `token` (stored on its
+// machine) to be assigned the SAME ID every time — this is what makes unattended
+// access usable (the ID printed on the machine doesn't change across restarts).
+// File-backed so IDs survive a server restart. For scale, back this with a DB.
+/** @type {Map<string,string>} token -> id */
+const tokenToId = new Map();
+function loadIdMap() {
+  try {
+    if (existsSync(ID_MAP_FILE))
+      for (const [tok, id] of Object.entries(JSON.parse(readFileSync(ID_MAP_FILE, 'utf8'))))
+        tokenToId.set(tok, id);
+  } catch (e) { console.error('[server] could not load id map:', e.message); }
+}
+function saveIdMap() {
+  try { writeFileSync(ID_MAP_FILE, JSON.stringify(Object.fromEntries(tokenToId), null, 2)); }
+  catch (e) { console.error('[server] could not save id map:', e.message); }
+}
+loadIdMap();
 
 /** @type {Map<string, {ws: import('ws').WebSocket, viewer: import('ws').WebSocket|null}>} */
 const hosts = new Map();        // id -> host entry
@@ -52,12 +73,23 @@ wss.on('connection', (ws) => {
 
     switch (msg.t) {
       case 'register': {                     // host asks for an ID
-        const id = newId();
+        // A token (unattended hosts) maps to a stable ID; otherwise assign fresh.
+        const token = typeof msg.token === 'string' && msg.token ? msg.token : null;
+        let id;
+        if (token && tokenToId.has(token)) {
+          id = tokenToId.get(token);
+          // If that ID is currently held by another live host, drop the stale one.
+          const existing = hosts.get(id);
+          if (existing && existing.ws !== ws) { try { existing.ws.close(); } catch {} }
+        } else {
+          id = newId();
+          if (token) { tokenToId.set(token, id); saveIdMap(); }
+        }
         ws.role = 'host';
         ws.id = id;
         hosts.set(id, { ws, viewer: null });
         send(ws, { t: 'registered', id });
-        console.log(`[server] host registered id=${id}`);
+        console.log(`[server] host registered id=${id}${token ? ' (persistent)' : ''}`);
         break;
       }
 

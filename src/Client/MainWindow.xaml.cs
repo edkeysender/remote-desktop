@@ -17,6 +17,39 @@ public partial class MainWindow : Window
         _config = AppConfig.Load("client");
         ServerBox.Text = _config.ServerUrl;
         PwBox.Text = _config.FixedPassword ?? GeneratePassword();
+        ShowUnattendedInfo();
+    }
+
+    /// <summary>
+    /// If the unattended service is installed it self-provisions a fixed password (and,
+    /// once connected, a stable ID) into machine config under %ProgramData% — which is
+    /// world-readable, so this attended app can surface those credentials to the operator.
+    /// Hidden entirely when unattended access isn't set up.
+    /// </summary>
+    private void ShowUnattendedInfo()
+    {
+        var machine = AppConfig.LoadMachine("machine");
+        if (string.IsNullOrEmpty(machine.UnattendedPassword)) return;   // not provisioned
+
+        UnPwBox.Text = machine.UnattendedPassword;
+        UnattendedPanel.Visibility = Visibility.Visible;
+
+        // The worker writes CurrentId once it connects (async, in another process), so poll
+        // until the ID resolves, then stop.
+        if (string.IsNullOrEmpty(machine.CurrentId))
+        {
+            UnIdBox.Text = "waiting…";
+            var timer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+            timer.Tick += (_, _) =>
+            {
+                var id = AppConfig.LoadMachine("machine").CurrentId;
+                if (string.IsNullOrEmpty(id)) return;
+                UnIdBox.Text = FormatId(id);
+                timer.Stop();
+            };
+            timer.Start();
+        }
+        else UnIdBox.Text = FormatId(machine.CurrentId);
     }
 
     private async void StartBtn_Click(object sender, RoutedEventArgs e)

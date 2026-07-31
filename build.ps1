@@ -38,6 +38,11 @@ dotnet publish "$root\src\Client\Client.csproj" @publishArgs -o "$root\publish\c
 Write-Host '== Publishing Master ==' -ForegroundColor Cyan
 dotnet publish "$root\src\Master\Master.csproj" @publishArgs -o "$root\publish\master"
 
+# The unattended Windows service. Published into the SAME folder as the client so
+# the supervisor finds FtdRemoteClient.exe next to itself (AppContext.BaseDirectory).
+Write-Host '== Publishing Service ==' -ForegroundColor Cyan
+dotnet publish "$root\src\Service\Service.csproj" @publishArgs -o "$root\publish\client"
+
 $iscc = Find-ISCC
 Write-Host "== Compiling installers ($iscc) ==" -ForegroundColor Cyan
 & $iscc "$root\installer\client.iss"

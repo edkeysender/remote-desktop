@@ -5,6 +5,8 @@
 #define AppVersion "0.1.0"
 #define AppPublisher "FTD.aero"
 #define AppExe "FtdRemoteClient.exe"
+#define SvcExe "FtdRemoteService.exe"
+#define SvcName "FtdRemoteService"
 
 [Setup]
 ; A stable, unique GUID keeps upgrades/uninstall coherent across versions.
@@ -30,9 +32,15 @@ PrivilegesRequired=admin
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"
 Name: "autostart"; Description: "Start automatically when I sign in"; GroupDescription: "Startup:"; Flags: unchecked
+; Unattended access installs a LocalSystem service that keeps this PC reachable with a
+; fixed ID/password even while logged out or at the UAC/lock secure desktop. Opt-in.
+Name: "unattended"; Description: "Enable unattended access (installs a background service)"; GroupDescription: "Unattended access:"; Flags: unchecked
 
 [Files]
 Source: "..\publish\client\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
+; The service exe is always laid down (harmless if the task is unchecked); it looks for
+; the worker exe next to itself, so both live in {app}.
+Source: "..\publish\client\{#SvcExe}"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"
@@ -46,4 +54,29 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
     Flags: uninsdeletevalue; Tasks: autostart
 
 [Run]
+; Register + start the unattended service only if the user opted in. `binPath= ` needs the
+; trailing space; the doubled quotes wrap the path (may contain spaces).
+Filename: "{sys}\sc.exe"; \
+    Parameters: "create {#SvcName} binPath= ""{app}\{#SvcExe}"" start= auto DisplayName= ""FTD Remote Service"""; \
+    Flags: runhidden; Tasks: unattended
+Filename: "{sys}\sc.exe"; \
+    Parameters: "description {#SvcName} ""Unattended remote access for FTD Remote (LocalSystem)."""; \
+    Flags: runhidden; Tasks: unattended
+Filename: "{sys}\sc.exe"; Parameters: "start {#SvcName}"; Flags: runhidden; Tasks: unattended
 Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName} now"; Flags: nowait postinstall skipifsilent
+
+[UninstallRun]
+; Runs before files are removed, so stopping releases the exe lock. Harmless if absent.
+Filename: "{sys}\sc.exe"; Parameters: "stop {#SvcName}"; Flags: runhidden; RunOnceId: "StopFtdSvc"
+Filename: "{sys}\sc.exe"; Parameters: "delete {#SvcName}"; Flags: runhidden; RunOnceId: "DelFtdSvc"
+
+[Code]
+// On upgrade the service may be running and holding FtdRemoteService.exe open, which would
+// block [Files] from overwriting it. Stop it (best-effort) before files are copied.
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  code: Integer;
+begin
+  Result := '';
+  Exec(ExpandConstant('{sys}\sc.exe'), 'stop {#SvcName}', '', SW_HIDE, ewWaitUntilTerminated, code);
+end;
