@@ -18,6 +18,12 @@ Responsibilities:
   (version + per-component file list) and `GET /update/<file>` (published exes),
   from `UPDATE_DIR` (default `./update`). `build.ps1` stages that directory and can
   scp it to the Pi. The Windows apps poll the manifest and offer an in-app update.
+- Host an **admin panel** (`server/admin.html` at `/admin`) and a JSON API
+  (`/admin/api/*`) to view every connection (online/in-session/offline, IP, last
+  seen), create/rename/delete **groups**, and assign clients to groups + name them.
+  A read-only **`/directory`** endpoint feeds the Master's computer picker. All three
+  are HTTP-Basic protected by `ADMIN_PASSWORD` (default `admin` — set it!). State
+  persists in `admin.json` (`{groups, clients:{id:{name,groupId,lastSeen}}}`).
 
 ### 2. Host (`host/`, C# .NET 8, Windows-only)
 Runs on the controlled machine.

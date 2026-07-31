@@ -1,0 +1,61 @@
+<Window x:Class="RemoteDesktop.Master.DirectoryWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Computers" Height="560" Width="560"
+        WindowStartupLocation="CenterOwner" Background="#0d1117">
+    <Window.Resources>
+        <Style x:Key="Tool" TargetType="Button">
+            <Setter Property="Background" Value="#21262d"/>
+            <Setter Property="Foreground" Value="#e6edf3"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Height" Value="30"/>
+            <Setter Property="Padding" Value="12,0"/>
+            <Setter Property="Margin" Value="0,0,6,0"/>
+        </Style>
+    </Window.Resources>
+    <Grid Margin="12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Orientation="Horizontal" Margin="0,0,0,8">
+            <TextBlock Text="Directory password" Foreground="#8b949e" VerticalAlignment="Center" Margin="0,0,6,0"/>
+            <PasswordBox x:Name="PwBox" Width="150" Background="#010409" Foreground="#e6edf3"
+                         BorderBrush="#30363d" Padding="6,4" VerticalContentAlignment="Center"/>
+            <Button Content="⟳ Load" Style="{StaticResource Tool}" Margin="8,0,0,0" Click="Load_Click"/>
+            <TextBlock x:Name="StatusText" Text="" Foreground="#8b949e" VerticalAlignment="Center" Margin="8,0,0,0"/>
+        </StackPanel>
+
+        <ListView x:Name="List" Grid.Row="1" Background="#010409" Foreground="#e6edf3"
+                  BorderBrush="#30363d" SelectionMode="Single"
+                  MouseDoubleClick="List_MouseDoubleClick">
+            <ListView.View>
+                <GridView>
+                    <GridViewColumn Header="Status" Width="120" DisplayMemberBinding="{Binding StatusText}"/>
+                    <GridViewColumn Header="ID" Width="130" DisplayMemberBinding="{Binding Id}"/>
+                    <GridViewColumn Header="Computer" Width="250" DisplayMemberBinding="{Binding Display}"/>
+                </GridView>
+            </ListView.View>
+            <ListView.GroupStyle>
+                <GroupStyle>
+                    <GroupStyle.HeaderTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding Name}" Foreground="#58a6ff" FontWeight="Bold"
+                                       FontSize="13" Margin="0,10,0,4"/>
+                        </DataTemplate>
+                    </GroupStyle.HeaderTemplate>
+                </GroupStyle>
+            </ListView.GroupStyle>
+        </ListView>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+            <TextBlock Text="Double-click or select a computer, then Connect."
+                       Foreground="#6e7681" VerticalAlignment="Center" Margin="0,0,12,0"/>
+            <Button Content="Connect" Width="110" Height="32" Background="#238636" Foreground="White"
+                    BorderThickness="0" Cursor="Hand" Click="Connect_Click"/>
+        </StackPanel>
+    </Grid>
+</Window>

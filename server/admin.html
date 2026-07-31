@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FTD Remote — Admin</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #010409; color: #e6edf3;
+         font: 14px/1.5 -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
+  header { display: flex; align-items: center; gap: 12px; padding: 14px 20px;
+           background: #161b22; border-bottom: 1px solid #30363d; position: sticky; top: 0; }
+  header h1 { font-size: 16px; margin: 0; font-weight: 600; }
+  header .dot { width: 8px; height: 8px; border-radius: 50%; background: #3fb950; }
+  header .spacer { flex: 1; }
+  header .muted { color: #8b949e; font-size: 12px; }
+  main { max-width: 1100px; margin: 0 auto; padding: 20px; }
+  h2 { font-size: 13px; text-transform: uppercase; letter-spacing: .04em; color: #8b949e; margin: 24px 0 10px; }
+  .card { background: #0d1117; border: 1px solid #30363d; border-radius: 10px; padding: 4px; }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 10px 12px; border-bottom: 1px solid #21262d; vertical-align: middle; }
+  th { color: #8b949e; font-weight: 600; font-size: 12px; }
+  tr:last-child td { border-bottom: 0; }
+  .status { display: inline-flex; align-items: center; gap: 6px; }
+  .status .d { width: 9px; height: 9px; border-radius: 50%; }
+  .on  { background: #3fb950; } .off { background: #6e7681; } .busy { background: #d29922; }
+  .id { font-family: Consolas, monospace; color: #58a6ff; }
+  .muted { color: #8b949e; }
+  input, select, button { font: inherit; }
+  input, select { background: #0d1117; color: #e6edf3; border: 1px solid #30363d;
+                  border-radius: 6px; padding: 6px 8px; }
+  input.name { width: 180px; }
+  button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 6px;
+           padding: 6px 12px; cursor: pointer; }
+  button.primary { background: #238636; border-color: #238636; color: #fff; }
+  button.danger { background: transparent; border-color: #6e2b28; color: #f85149; }
+  button:hover { filter: brightness(1.15); }
+  .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  .grouprow { display: flex; align-items: center; gap: 8px; padding: 8px 12px; border-bottom: 1px solid #21262d; }
+  .grouprow:last-child { border-bottom: 0; }
+  .grouprow .gname { flex: 1; font-weight: 600; }
+  .pill { font-size: 12px; color: #8b949e; background: #161b22; border: 1px solid #30363d;
+          border-radius: 20px; padding: 1px 8px; }
+  .empty { color: #6e7681; padding: 16px 12px; }
+</style>
+</head>
+<body>
+<header>
+  <span class="dot"></span>
+  <h1>FTD Remote — Admin</h1>
+  <span class="spacer"></span>
+  <span id="tick" class="muted"></span>
+</header>
+<main>
+  <h2>Groups</h2>
+  <div class="card">
+    <div id="groups"></div>
+    <div class="grouprow">
+      <input id="newGroup" class="name" placeholder="New group name…" style="width:220px">
+      <button class="primary" onclick="createGroup()">Add group</button>
+    </div>
+  </div>
+
+  <h2>Connections</h2>
+  <div class="card">
+    <table>
+      <thead>
+        <tr><th style="width:110px">Status</th><th style="width:130px">ID</th><th>Name</th>
+            <th style="width:150px">Group</th><th style="width:130px">IP</th><th style="width:160px">Last seen</th></tr>
+      </thead>
+      <tbody id="clients"></tbody>
+    </table>
+    <div id="noclients" class="empty" style="display:none">No clients have connected yet.</div>
+  </div>
+</main>
+
+<script>
+let state = { groups: [], clients: [], now: Date.now() };
+
+async function api(path, opts) {
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error(await r.text());
+  return r.headers.get('content-type')?.includes('json') ? r.json() : null;
+}
+
+function fmtAgo(ts, now) {
+  if (!ts) return '—';
+  const s = Math.max(0, Math.floor((now - ts) / 1000));
+  if (s < 60) return s + 's ago';
+  if (s < 3600) return Math.floor(s / 60) + 'm ago';
+  if (s < 86400) return Math.floor(s / 3600) + 'h ago';
+  return Math.floor(s / 86400) + 'd ago';
+}
+function esc(s) { return (s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+
+async function refresh() {
+  try {
+    state = await api('/admin/api/state');
+    render();
+    document.getElementById('tick').textContent = 'updated ' + new Date().toLocaleTimeString();
+  } catch (e) {
+    document.getElementById('tick').textContent = 'error: ' + e.message;
+  }
+}
+
+function render() {
+  // groups
+  const g = document.getElementById('groups');
+  if (!state.groups.length) {
+    g.innerHTML = '<div class="empty">No groups yet — add one below, then assign clients.</div>';
+  } else {
+    g.innerHTML = state.groups.map(gr => {
+      const count = state.clients.filter(c => c.groupId === gr.id).length;
+      return `<div class="grouprow">
+        <span class="gname">${esc(gr.name)}</span>
+        <span class="pill">${count} client${count === 1 ? '' : 's'}</span>
+        <button onclick="renameGroup('${gr.id}','${esc(gr.name)}')">Rename</button>
+        <button class="danger" onclick="deleteGroup('${gr.id}')">Delete</button>
+      </div>`;
+    }).join('');
+  }
+
+  // clients
+  const tb = document.getElementById('clients');
+  document.getElementById('noclients').style.display = state.clients.length ? 'none' : 'block';
+  tb.innerHTML = state.clients.map(c => {
+    const cls = c.online ? (c.busy ? 'busy' : 'on') : 'off';
+    const label = c.online ? (c.busy ? 'In session' : 'Online') : 'Offline';
+    const opts = ['<option value="">— none —</option>'].concat(
+      state.groups.map(gr => `<option value="${gr.id}" ${gr.id === c.groupId ? 'selected' : ''}>${esc(gr.name)}</option>`)
+    ).join('');
+    return `<tr>
+      <td><span class="status"><span class="d ${cls}"></span>${label}</span></td>
+      <td class="id">${c.id}</td>
+      <td><input class="name" value="${esc(c.name)}" placeholder="(unnamed)"
+                 onchange="setName('${c.id}', this.value)"></td>
+      <td><select onchange="setGroup('${c.id}', this.value)">${opts}</select></td>
+      <td class="muted">${c.ip || '—'}</td>
+      <td class="muted">${c.online ? 'now' : fmtAgo(c.lastSeen, state.now)}</td>
+    </tr>`;
+  }).join('');
+}
+
+async function createGroup() {
+  const el = document.getElementById('newGroup');
+  const name = el.value.trim();
+  if (!name) return;
+  el.value = '';
+  await api('/admin/api/groups', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+  refresh();
+}
+async function renameGroup(id, current) {
+  const name = prompt('Rename group', current);
+  if (name == null) return;
+  await api('/admin/api/groups/' + id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+  refresh();
+}
+async function deleteGroup(id) {
+  if (!confirm('Delete this group? Its clients become ungrouped.')) return;
+  await api('/admin/api/groups/' + id, { method: 'DELETE' });
+  refresh();
+}
+async function setGroup(id, groupId) {
+  await api('/admin/api/clients/' + id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ groupId }) });
+  refresh();
+}
+async function setName(id, name) {
+  await api('/admin/api/clients/' + id, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ name }) });
+  refresh();
+}
+
+refresh();
+setInterval(refresh, 3000);
+</script>
+</body>
+</html>

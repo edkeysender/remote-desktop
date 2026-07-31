@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using System.IO;
+using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -37,22 +38,35 @@ public partial class MainWindow : Window
 
     private readonly Updater _updater = new("master", elevate: false);
     private UpdateInfo? _pendingUpdate;
+    private System.Windows.Threading.DispatcherTimer? _updateTimer;
 
     public MainWindow()
     {
         InitializeComponent();
         _config = AppConfig.Load("master");
         ServerBox.Text = _config.ServerUrl;
-        Loaded += async (_, _) => await CheckForUpdateAsync();
+        Loaded += (_, _) => StartUpdateChecks();
+    }
+
+    // Check on launch, then every 5 minutes, so the button appears while the app is
+    // open (no relaunch needed). Stops polling once an update has been found.
+    private void StartUpdateChecks()
+    {
+        _ = CheckForUpdateAsync();
+        _updateTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMinutes(5) };
+        _updateTimer.Tick += async (_, _) => await CheckForUpdateAsync();
+        _updateTimer.Start();
     }
 
     private async Task CheckForUpdateAsync()
     {
+        if (_pendingUpdate != null) { _updateTimer?.Stop(); return; }
         var url = ServerBox.Text.Trim();
         if (url.Length == 0) return;
         var info = await _updater.CheckAsync(url);
         if (info == null) return;
         _pendingUpdate = info;
+        _updateTimer?.Stop();
         UpdateBtn.Content = $"⬇ Update to v{info.Version}";
         UpdateBtn.ToolTip = string.IsNullOrWhiteSpace(info.Notes) ? null : info.Notes;
         UpdateBtn.Visibility = Visibility.Visible;
@@ -133,7 +147,20 @@ public partial class MainWindow : Window
         TransferBtn.IsEnabled = true;
         WinKeyBtn.IsEnabled = true;
         RemoteImage.Focus();
-        foreach (var c in new UIElement[] { ServerBox, IdBox, PwBox }) c.IsEnabled = false;
+        foreach (var c in new UIElement[] { ServerBox, IdBox, PwBox, DirectoryBtn }) c.IsEnabled = false;
+    }
+
+    private void DirectoryBtn_Click(object sender, RoutedEventArgs e)
+    {
+        var url = ServerBox.Text.Trim();
+        if (url.Length == 0) { SetStatus("Enter the server URL first."); return; }
+        var dlg = new DirectoryWindow(url, _config) { Owner = this };
+        if (dlg.ShowDialog() == true && dlg.SelectedId is { } id)
+        {
+            IdBox.Text = id;
+            PwBox.Focus();
+            SetStatus($"Selected {id} — enter the password and Connect.");
+        }
     }
 
     private async Task DisconnectAsync()
@@ -163,7 +190,7 @@ public partial class MainWindow : Window
         _browser?.Close();
         _browser = null;
         _lastFilePct = -1;
-        foreach (var c in new UIElement[] { ServerBox, IdBox, PwBox }) c.IsEnabled = true;
+        foreach (var c in new UIElement[] { ServerBox, IdBox, PwBox, DirectoryBtn }) c.IsEnabled = true;
     }
 
     private void SetStatus(string s) => StatusText.Text = s;
@@ -400,6 +427,44 @@ public partial class MainWindow : Window
         if (pct == _lastFilePct) return;   // avoid flooding the dispatcher per 16 KB chunk
         _lastFilePct = pct;
         Dispatcher.BeginInvoke(() => SetStatus($"{verb} {name}… {pct}%"));
+    }
+
+    // ---- drag files from Explorer onto the remote view → auto-send to the client ----
+
+    private void RemoteView_DragOver(object sender, DragEventArgs e)
+    {
+        bool ok = _connected && e.Data.GetDataPresent(DataFormats.FileDrop);
+        e.Effects = ok ? DragDropEffects.Copy : DragDropEffects.None;
+        DropHint.Visibility = ok ? Visibility.Visible : Visibility.Collapsed;
+        e.Handled = true;
+    }
+
+    private void RemoteView_DragLeave(object sender, DragEventArgs e) => DropHint.Visibility = Visibility.Collapsed;
+
+    private async void RemoteView_Drop(object sender, DragEventArgs e)
+    {
+        DropHint.Visibility = Visibility.Collapsed;
+        if (!_connected || _session is not { } session) return;
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
+
+        var files = ((string[])e.Data.GetData(DataFormats.FileDrop)).Where(File.Exists).ToArray();
+        if (files.Length == 0) { SetStatus("Only files can be dropped (folders aren't supported yet)."); return; }
+
+        _lastFilePct = -1;
+        int sent = 0;
+        foreach (var f in files)
+        {
+            try
+            {
+                await session.Files.SendFileAsync(f);   // lands in the remote's Downloads
+                sent++;
+            }
+            catch (Exception ex) { SetStatus($"Send failed on {Path.GetFileName(f)}: {ex.Message}"); return; }
+        }
+        _lastFilePct = -1;
+        SetStatus(files.Length == 1
+            ? $"Sent {Path.GetFileName(files[0])} → remote Downloads ✓"
+            : $"Sent {sent} files → remote Downloads ✓");
     }
 
     // Keyboard is captured at the window level so Tab/arrows/modifiers are intercepted.

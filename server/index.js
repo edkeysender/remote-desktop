@@ -8,15 +8,21 @@
 
 import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
-import { randomBytes } from 'crypto';
+import { randomBytes, timingSafeEqual } from 'crypto';
 import { readFileSync, writeFileSync, existsSync, createReadStream, statSync } from 'fs';
-import { resolve, join, basename, extname } from 'path';
+import { resolve, join, basename, extname, dirname } from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
 const ID_MAP_FILE = process.env.ID_MAP_FILE || 'idmap.json';
 // Directory of app-update artifacts (manifest.json + the published .exe files).
 // The Windows apps poll <http>/update/manifest.json and download from here.
 const UPDATE_DIR = resolve(process.env.UPDATE_DIR || './update');
+// Admin panel: persisted groups + client metadata, and the panel password.
+const ADMIN_FILE = process.env.ADMIN_FILE || 'admin.json';
+const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin';
 
 // Persistent host identity: a host may present a stable `token` (stored on its
 // machine) to be assigned the SAME ID every time — this is what makes unattended
@@ -37,19 +43,58 @@ function saveIdMap() {
 }
 loadIdMap();
 
-/** @type {Map<string, {ws: import('ws').WebSocket, viewer: import('ws').WebSocket|null}>} */
+/** @type {Map<string, {ws: import('ws').WebSocket, viewer: import('ws').WebSocket|null, ip: string, since: number}>} */
 const hosts = new Map();        // id -> host entry
 const pending = new Map();      // requestId -> viewer ws (awaiting host's password check)
 
-// HTTP server shares the port with the WebSocket. It serves two things:
-//   GET /health                  → liveness check
-//   GET /update/manifest.json    → the current version manifest
-//   GET /update/<file>           → a published app artifact (by bare filename)
+// Admin state: named groups and per-client metadata (friendly name, group, last-seen),
+// persisted so it survives restarts and covers offline clients too.
+// { groups: [{id,name}], clients: { <id>: {name, groupId, lastSeen} } }
+let admin = { groups: [], clients: {} };
+function loadAdmin() {
+  try {
+    if (existsSync(ADMIN_FILE)) {
+      const a = JSON.parse(readFileSync(ADMIN_FILE, 'utf8'));
+      admin = { groups: Array.isArray(a.groups) ? a.groups : [], clients: a.clients || {} };
+    }
+  } catch (e) { console.error('[server] could not load admin store:', e.message); }
+}
+function saveAdmin() {
+  try { writeFileSync(ADMIN_FILE, JSON.stringify(admin, null, 2)); }
+  catch (e) { console.error('[server] could not save admin store:', e.message); }
+}
+loadAdmin();
+
+// Ensure a metadata record exists for an id (so it persists after going offline).
+function ensureClientMeta(id) {
+  if (!admin.clients[id]) admin.clients[id] = { name: '', groupId: null, lastSeen: 0 };
+  return admin.clients[id];
+}
+
+// HTTP server shares the port with the WebSocket. It serves:
+//   GET  /health                    → liveness check
+//   GET  /update/manifest.json      → the current version manifest
+//   GET  /update/<file>             → a published app artifact (by bare filename)
+//   GET  /directory                 → groups + clients for the Master picker (auth)
+//   *    /admin, /admin/api/*        → admin panel + API (auth)
 // Everything else 404s. The WebSocket upgrade is handled by the wss below.
 const ALLOWED_EXT = new Set(['.json', '.exe', '.zip']);
-const http = createServer((req, res) => {
-  if (req.method !== 'GET') { res.writeHead(405).end(); return; }
+const http = createServer(async (req, res) => {
   const url = new URL(req.url, 'http://localhost');
+
+  // ---- admin panel + API and the master directory (all password-protected) ----
+  if (url.pathname === '/admin' || url.pathname.startsWith('/admin/') || url.pathname === '/directory') {
+    if (!checkAuth(req)) {
+      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="FTD Admin"' }).end('auth required');
+      return;
+    }
+    try { await handleAdmin(req, res, url); }
+    catch (e) { sendJson(res, { error: e.message }, 500); }
+    return;
+  }
+
+  // ---- public GET endpoints ----
+  if (req.method !== 'GET') { res.writeHead(405).end(); return; }
   if (url.pathname === '/health') { res.writeHead(200).end('ok'); return; }
 
   if (url.pathname === '/update/manifest.json') return serveFile(res, join(UPDATE_DIR, 'manifest.json'), 'application/json');
@@ -75,10 +120,126 @@ function serveFile(res, path, type) {
   createReadStream(path).pipe(res);
 }
 
+// ------------------------------- admin / directory -------------------------------
+
+function clientIp(req) {
+  const ip = req.socket.remoteAddress || '';
+  return ip.startsWith('::ffff:') ? ip.slice(7) : ip;   // unwrap IPv4-mapped IPv6
+}
+
+function checkAuth(req) {
+  const m = /^Basic (.+)$/.exec(req.headers['authorization'] || '');
+  if (!m) return false;
+  const pass = Buffer.from(m[1], 'base64').toString().split(':').slice(1).join(':');
+  const a = Buffer.from(pass), b = Buffer.from(ADMIN_PASSWORD);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
+function sendJson(res, obj, code = 200) {
+  res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' });
+  res.end(JSON.stringify(obj));
+}
+
+function readBody(req) {
+  return new Promise((resolvePromise) => {
+    let data = '';
+    req.on('data', (c) => { data += c; if (data.length > 1e6) req.destroy(); });
+    req.on('end', () => { try { resolvePromise(JSON.parse(data || '{}')); } catch { resolvePromise({}); } });
+    req.on('error', () => resolvePromise({}));
+  });
+}
+
+// A snapshot of every known client (online now, or seen before) plus the groups.
+function adminState() {
+  const persistentIds = new Set(tokenToId.values());
+  const ids = new Set([...persistentIds, ...hosts.keys(), ...Object.keys(admin.clients)]);
+  const clients = [...ids].map((id) => {
+    const entry = hosts.get(id);
+    const meta = admin.clients[id] || {};
+    return {
+      id,
+      online: !!entry,
+      busy: !!(entry && entry.viewer),
+      ip: entry ? entry.ip : null,
+      since: entry ? entry.since : null,
+      name: meta.name || '',
+      groupId: meta.groupId || null,
+      lastSeen: meta.lastSeen || null,
+      persistent: persistentIds.has(id),
+    };
+  });
+  clients.sort((a, b) => (Number(b.online) - Number(a.online)) || a.id.localeCompare(b.id));
+  return { groups: admin.groups, clients, now: Date.now() };
+}
+
+async function handleAdmin(req, res, url) {
+  // The Master's read-only picker: groups + connectable clients.
+  if (url.pathname === '/directory' && req.method === 'GET') {
+    const s = adminState();
+    return sendJson(res, {
+      groups: s.groups,
+      clients: s.clients.map((c) => ({ id: c.id, name: c.name, groupId: c.groupId, online: c.online, busy: c.busy })),
+    });
+  }
+
+  if (url.pathname === '/admin' || url.pathname === '/admin/')
+    return serveFile(res, join(__dirname, 'admin.html'), 'text/html; charset=utf-8');
+
+  if (url.pathname === '/admin/api/state' && req.method === 'GET')
+    return sendJson(res, adminState());
+
+  if (url.pathname === '/admin/api/groups' && req.method === 'POST') {
+    const body = await readBody(req);
+    const name = (body.name || '').toString().trim() || 'Group';
+    const group = { id: 'g' + randomBytes(4).toString('hex'), name };
+    admin.groups.push(group);
+    saveAdmin();
+    return sendJson(res, group);
+  }
+
+  const gm = /^\/admin\/api\/groups\/([^/]+)$/.exec(url.pathname);
+  if (gm) {
+    const gid = decodeURIComponent(gm[1]);
+    if (req.method === 'DELETE') {
+      admin.groups = admin.groups.filter((g) => g.id !== gid);
+      for (const c of Object.values(admin.clients)) if (c.groupId === gid) c.groupId = null;
+      saveAdmin();
+      return sendJson(res, { ok: true });
+    }
+    if (req.method === 'PATCH') {
+      const body = await readBody(req);
+      const g = admin.groups.find((x) => x.id === gid);
+      if (!g) return sendJson(res, { error: 'no such group' }, 404);
+      g.name = (body.name || '').toString().trim() || g.name;
+      saveAdmin();
+      return sendJson(res, g);
+    }
+  }
+
+  const cm = /^\/admin\/api\/clients\/([^/]+)$/.exec(url.pathname);
+  if (cm && req.method === 'PATCH') {
+    const cid = decodeURIComponent(cm[1]);
+    const body = await readBody(req);
+    const meta = ensureClientMeta(cid);
+    if (typeof body.name === 'string') meta.name = body.name.trim();
+    if ('groupId' in body) {
+      const gid = body.groupId;
+      meta.groupId = gid && admin.groups.some((g) => g.id === gid) ? gid : null;
+    }
+    saveAdmin();
+    return sendJson(res, { ok: true });
+  }
+
+  res.writeHead(404).end();
+}
+
 const wss = new WebSocketServer({ server: http });
 http.listen(PORT, () => {
   console.log(`[server] signaling/relay listening on ws://0.0.0.0:${PORT}`);
   console.log(`[server] update artifacts served from ${UPDATE_DIR}`);
+  console.log(`[server] admin panel at http://0.0.0.0:${PORT}/admin`);
+  if (ADMIN_PASSWORD === 'admin')
+    console.warn('[server] WARNING: admin password is the default "admin" — set ADMIN_PASSWORD to secure it.');
 });
 
 function newId() {
@@ -94,9 +255,10 @@ function send(ws, obj) {
   if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj));
 }
 
-wss.on('connection', (ws) => {
+wss.on('connection', (ws, req) => {
   ws.role = null;      // 'host' | 'viewer'
   ws.id = null;        // host id (both peers store the paired host id)
+  ws._ip = clientIp(req);
 
   ws.on('message', (data, isBinary) => {
     // Binary = a media frame from the host. Fast-path relay to its viewer.
@@ -129,7 +291,10 @@ wss.on('connection', (ws) => {
         }
         ws.role = 'host';
         ws.id = id;
-        hosts.set(id, { ws, viewer: null });
+        hosts.set(id, { ws, viewer: null, ip: ws._ip, since: Date.now() });
+        const meta = ensureClientMeta(id);
+        meta.lastSeen = Date.now();
+        saveAdmin();
         send(ws, { t: 'registered', id });
         console.log(`[server] host registered id=${id}${token ? ' (persistent)' : ''}`);
         break;
@@ -188,6 +353,8 @@ wss.on('connection', (ws) => {
       const entry = hosts.get(ws.id);
       if (entry?.viewer) send(entry.viewer, { t: 'bye', reason: 'host disconnected' });
       hosts.delete(ws.id);
+      ensureClientMeta(ws.id).lastSeen = Date.now();
+      saveAdmin();
       console.log(`[server] host id=${ws.id} gone`);
     } else if (ws.role === 'viewer' && ws.id) {
       const entry = hosts.get(ws.id);

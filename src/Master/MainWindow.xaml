@@ -67,6 +67,9 @@
                 <Button x:Name="ConnectBtn" Content="Connect" Width="100" Height="30" Margin="12,0,0,0"
                         Background="#238636" Foreground="White" BorderThickness="0" Cursor="Hand"
                         Click="ConnectBtn_Click"/>
+                <Button x:Name="DirectoryBtn" Content="🖧 Computers" Style="{StaticResource ToolBtn}"
+                        Margin="8,0,0,0" Click="DirectoryBtn_Click"
+                        ToolTip="Browse groups and pick a computer to connect to"/>
 
                 <!-- monitor picker: one numbered screen icon per remote display -->
                 <StackPanel x:Name="MonitorPanel" Orientation="Horizontal" Margin="16,0,0,0"
@@ -112,13 +115,24 @@
             <ScrollViewer x:Name="Scroller" Visibility="Collapsed" Background="#010409"
                           HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled"
                           Focusable="False" PreviewMouseWheel="Scroller_PreviewMouseWheel"
-                          MouseLeave="Scroller_MouseLeave">
-                <Image x:Name="RemoteImage" Stretch="Uniform" Focusable="True"
+                          MouseLeave="Scroller_MouseLeave"
+                          AllowDrop="True" DragOver="RemoteView_DragOver" Drop="RemoteView_Drop"
+                          DragLeave="RemoteView_DragLeave">
+                <Image x:Name="RemoteImage" Stretch="Uniform" Focusable="True" AllowDrop="True"
                        HorizontalAlignment="Center" VerticalAlignment="Center"
                        MouseMove="RemoteImage_MouseMove"
                        MouseDown="RemoteImage_MouseDown"
                        MouseUp="RemoteImage_MouseUp"/>
             </ScrollViewer>
+
+            <!-- shown while dragging files over the remote view -->
+            <Border x:Name="DropHint" Visibility="Collapsed" IsHitTestVisible="False"
+                    Background="#cc010409" BorderBrush="#58a6ff" BorderThickness="2"
+                    Margin="24" CornerRadius="12">
+                <TextBlock Text="⬇  Drop files to send them to the remote PC" Foreground="#58a6ff"
+                           FontSize="18" FontWeight="SemiBold"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
         </Grid>
     </Grid>
 </Window>

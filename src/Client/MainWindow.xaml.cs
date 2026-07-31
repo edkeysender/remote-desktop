@@ -13,6 +13,7 @@ public partial class MainWindow : Window
 
     private readonly Updater _updater = new("client", elevate: true);
     private UpdateInfo? _pendingUpdate;
+    private System.Windows.Threading.DispatcherTimer? _updateTimer;
 
     public MainWindow()
     {
@@ -21,16 +22,28 @@ public partial class MainWindow : Window
         ServerBox.Text = _config.ServerUrl;
         PwBox.Text = _config.FixedPassword ?? GeneratePassword();
         ShowUnattendedInfo();
-        Loaded += async (_, _) => await CheckForUpdateAsync();
+        Loaded += (_, _) => StartUpdateChecks();
+    }
+
+    // Check on launch, then every 5 minutes, so the button appears while the app is
+    // open (no relaunch needed). Stops polling once an update has been found.
+    private void StartUpdateChecks()
+    {
+        _ = CheckForUpdateAsync();
+        _updateTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMinutes(5) };
+        _updateTimer.Tick += async (_, _) => await CheckForUpdateAsync();
+        _updateTimer.Start();
     }
 
     private async Task CheckForUpdateAsync()
     {
+        if (_pendingUpdate != null) { _updateTimer?.Stop(); return; }
         var url = ServerBox.Text.Trim();
         if (url.Length == 0) return;
         var info = await _updater.CheckAsync(url);
         if (info == null) return;
         _pendingUpdate = info;
+        _updateTimer?.Stop();
         UpdateBtn.Content = $"⬇ Update to v{info.Version}";
         UpdateBtn.ToolTip = string.IsNullOrWhiteSpace(info.Notes) ? null : info.Notes;
         UpdateBtn.Visibility = Visibility.Visible;

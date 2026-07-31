@@ -15,6 +15,9 @@ public sealed class AppConfig
     /// <summary>Client only: if set, used instead of a random per-launch password.</summary>
     public string? FixedPassword { get; set; }
 
+    /// <summary>Master only: password for the server's group directory (same as the admin password).</summary>
+    public string? DirectoryPassword { get; set; }
+
     // ---- unattended (machine) fields ----
     /// <summary>Stable host token → the server maps it to a fixed ID across restarts.</summary>
     public string? HostToken { get; set; }

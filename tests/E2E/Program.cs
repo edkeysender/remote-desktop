@@ -199,6 +199,20 @@ if (!string.IsNullOrEmpty(updDir))
     Check(await new Updater("master", false).CheckAsync(SERVER) is null, "no update offered when manifest is older");
 }
 
+// --- admin directory: the online host shows up in /directory (auth) ---
+// Gated on E2E_ADMIN_PASSWORD (must match the server's ADMIN_PASSWORD).
+var adminPw = Environment.GetEnvironmentVariable("E2E_ADMIN_PASSWORD");
+if (!string.IsNullOrEmpty(adminPw))
+{
+    var dir = await new DirectoryClient().FetchAsync(SERVER, adminPw);
+    Check(dir.Clients.Any(c => c.Id == id2 && c.Online),
+        $"directory lists the online host ({dir.Clients.Count} clients, {dir.Groups.Count} groups)");
+
+    try { await new DirectoryClient().FetchAsync(SERVER, "definitely-wrong"); Check(false, "directory rejects a bad password"); }
+    catch (UnauthorizedAccessException) { Check(true, "directory rejects a bad password"); }
+    catch { Check(false, "directory rejects a bad password (unexpected error)"); }
+}
+
 await viewer.CloseAsync();
 await host.StopAsync();
 Environment.Exit(Finish());
