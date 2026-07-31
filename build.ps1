@@ -102,7 +102,7 @@ Get-ChildItem "$root\installer\dist\*.exe" | ForEach-Object {
 
 # ---- optional: push the update package to the Pi -----------------------------------
 if ($PushTo) {
-    Write-Host "`n== Pushing update to $PushTo:$PiUpdateDir ==" -ForegroundColor Cyan
+    Write-Host "`n== Pushing update to ${PushTo}:$PiUpdateDir ==" -ForegroundColor Cyan
     & ssh $PushTo "mkdir -p $PiUpdateDir"
     if ($LASTEXITCODE -ne 0) { throw "ssh mkdir failed (exit $LASTEXITCODE)." }
     & scp "$upd\*" "${PushTo}:$PiUpdateDir/"
