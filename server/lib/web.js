@@ -29,7 +29,9 @@ export function buildWebApp({ relayStatus }) {
 
   const requireUser = (req, res, next) => req.user ? next() : res.status(401).json({ error: 'not signed in' });
   const requireAdmin = (req, res, next) =>
-    req.user?.role === 'admin' ? next() : res.status(403).json({ error: 'admin only' });
+    store.isManager(req.user) ? next() : res.status(403).json({ error: 'admin only' });
+  const requireAuditor = (req, res, next) =>
+    store.canAudit(req.user) ? next() : res.status(403).json({ error: 'not permitted' });
 
   const setSession = (res, userId) => {
     const token = issueToken(userId);
@@ -173,8 +175,8 @@ export function buildWebApp({ relayStatus }) {
     };
   };
 
-  // Admin: every computer in the org.
-  app.get('/api/computers', requireUser, requireAdmin, (req, res) =>
+  // Managers + auditors: read every computer in the org (auditors read-only).
+  app.get('/api/computers', requireUser, requireAuditor, (req, res) =>
     res.json(store.listComputers(req.user.orgId).map(decorate)));
 
   app.patch('/api/computers/:deviceToken', requireUser, requireAdmin, (req, res) => {
@@ -210,10 +212,10 @@ export function buildWebApp({ relayStatus }) {
 
   // ------------------------------- audit + sessions (admin) -------------------------------
 
-  app.get('/api/audit', requireUser, requireAdmin, (req, res) =>
+  app.get('/api/audit', requireUser, requireAuditor, (req, res) =>
     res.json(store.listEvents(req.user.orgId, 300)));
 
-  app.get('/api/sessions', requireUser, requireAdmin, (req, res) =>
+  app.get('/api/sessions', requireUser, requireAuditor, (req, res) =>
     res.json(store.listSessions(req.user.orgId, 200)));
 
   // Any user: the groups + computers they're allowed to connect to (desktop picker).

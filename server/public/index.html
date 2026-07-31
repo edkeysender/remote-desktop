@@ -138,8 +138,13 @@ async function renderAccept(token){
 
 // ---------- shell ----------
 function renderShell(){
-  const admin=me.user.role==='admin';
-  const nav=[['devices','Devices'],...(admin?[['groups','Groups'],['users','Users'],['enroll','Enrollment'],['sessions','Sessions'],['activity','Activity']]:[])];
+  const role=me.user.role;
+  const manager=role==='owner'||role==='admin';
+  const auditor=manager||role==='viewer';
+  const admin=manager;   // legacy alias used below
+  const nav=[['devices','Devices'],
+    ...(manager?[['groups','Groups'],['users','Users'],['enroll','Enrollment']]:[]),
+    ...(auditor?[['sessions','Sessions'],['activity','Activity']]:[])];
   const el=$(`<div class="shell">
     <aside class="sidebar">
       ${brand}
@@ -152,34 +157,38 @@ function renderShell(){
   const navEl=el.querySelector('#nav');
   nav.forEach(([k,label])=>{const b=$(`<button class="nav-item ${k===tab?'active':''}">${label}</button>`);b.onclick=()=>{tab=k;renderShell();};navEl.appendChild(b);});
   el.querySelector('#out').onclick=async()=>{await api('/api/logout','POST');me=null;renderAuth();};
-  if(!admin) tab='devices';
+  const valid=nav.map(n=>n[0]); if(!valid.includes(tab)) tab='devices';
   ({devices:viewDevices,groups:viewGroups,users:viewUsers,enroll:viewEnroll,sessions:viewSessions,activity:viewActivity}[tab]||viewDevices)();
 }
 const view=()=>document.getElementById('view');
 
 async function viewDevices(){
-  const admin=me.user.role==='admin';
-  const [comps,groups]=admin?[await api('/api/computers'),await api('/api/groups')]:[(await api('/api/my-computers')).computers,(await api('/api/my-computers')).groups];
+  const role=me.user.role; const manager=role==='owner'||role==='admin';
+  const canEdit=manager, canConnect=role!=='viewer';
+  let comps,groups;
+  if(manager||role==='viewer'){ comps=await api('/api/computers'); groups=await api('/api/groups'); }
+  else { const mc=await api('/api/my-computers'); comps=mc.computers; groups=mc.groups; }
   const gname=Object.fromEntries(groups.map(g=>[g.id,g.name]));
   const cards=comps.map(c=>{
     const on=c.online; const stt=on?(c.busy?'<span class="led b"></span>In session':'<span class="led g"></span>Online'):'<span class="led r"></span>Offline';
-    const group=admin?`<select class="gsel" data-t="${esc(c.deviceToken)}" style="margin-top:8px">
+    const group=canEdit?`<select class="gsel" data-t="${esc(c.deviceToken)}" style="margin-top:8px">
         <option value="">— no group —</option>${groups.map(g=>`<option value="${g.id}" ${g.id===c.groupId?'selected':''}>${esc(g.name)}</option>`).join('')}</select>`
       :(c.groupId?`<span class="tag">${esc(gname[c.groupId]||'')}</span>`:'');
-    const name=admin?`<input class="cname" data-t="${esc(c.deviceToken)}" value="${esc(c.name)}" style="font-weight:600">`:esc(c.name);
+    const name=canEdit?`<input class="cname" data-t="${esc(c.deviceToken)}" value="${esc(c.name)}" style="font-weight:600">`:esc(c.name);
+    const action=canConnect
+      ? `<button class="grad" ${on?'':'disabled'} data-copy="${on?esc(c.relayId):''}">${on?'Copy ID to connect':'Offline'}</button>`
+      : `<button class="ghost" disabled>View only</button>`;
     return `<article class="dev">
       <div class="dev-screen ${on?'':'off'}"><div class="scan"></div><span class="st">${stt}</span></div>
       <div class="dev-body">
-        <div class="dev-name">${admin?'':esc(c.name)} ${admin?'':(c.groupId?`<span class="tag">${esc(gname[c.groupId]||'')}</span>`:'')}</div>
-        ${admin?name:''}
+        <div class="dev-name">${canEdit?'':esc(c.name)} ${canEdit?'':(c.groupId?`<span class="tag">${esc(gname[c.groupId]||'')}</span>`:'')}</div>
+        ${canEdit?name:''}
         <div class="dev-id mono">${on?fmtId(c.relayId):'<span class="muted" style="font-size:.8rem">'+fmtAgo(c.lastSeen)+'</span>'}</div>
-        ${admin?group:''}
-        <div class="dev-actions">
-          <button class="grad" ${on?'':'disabled'} data-copy="${on?esc(c.relayId):''}">${on?'Copy ID to connect':'Offline'}</button>
-        </div>
+        ${canEdit?group:''}
+        <div class="dev-actions">${action}</div>
       </div></article>`;
   }).join('');
-  view().replaceChildren($(`<div><div class="head"><h1>Devices</h1><div class="sp"></div>${admin?'<button class="primary" id="add">+ Add computer</button>':''}</div>
+  view().replaceChildren($(`<div><div class="head"><h1>Devices</h1><div class="sp"></div>${manager?'<button class="primary" id="add">+ Add computer</button>':''}</div>
     ${comps.length?`<div class="grid">${cards}</div>`:'<div class="card empty">No computers yet. On a PC, open FTD Remote → sign in, or enroll it with a token (Enrollment tab).</div>'}</div>`));
   view().querySelectorAll('.gsel').forEach(s=>s.onchange=()=>api('/api/computers/'+encodeURIComponent(s.dataset.t),'PATCH',{groupId:s.value||null}));
   view().querySelectorAll('.cname').forEach(i=>i.onchange=()=>api('/api/computers/'+encodeURIComponent(i.dataset.t),'PATCH',{name:i.value}));
@@ -199,17 +208,23 @@ async function viewGroups(){
 
 async function viewUsers(){
   const [users,groups,invites]=[await api('/api/users'),await api('/api/groups'),await api('/api/invites')];
+  const ROLES=['admin','technician','operator','viewer'];
   const urows=users.map(u=>{const chips=groups.map(g=>`<span class="chip ${(u.groupIds||[]).includes(g.id)?'sel':''}" data-u="${u.id}" data-g="${g.id}">${esc(g.name)}</span>`).join(' ')||'<span class="muted">no groups</span>';
     const self=u.id===me.user.id;
-    return `<tr><td>${esc(u.name)}<div class="muted">${esc(u.email)}</div></td><td>${esc(u.role)}${self?' (you)':''}</td><td>${u.role==='admin'?'<span class="muted">all devices</span>':chips}</td><td style="text-align:right">${self?'':`<button class="danger sm" data-du="${u.id}">Remove</button>`}</td></tr>`;}).join('');
+    const roleCell=(self||u.role==='owner')?esc(u.role)+(self?' (you)':'')
+      :`<select class="rsel" data-u="${u.id}">${ROLES.map(r=>`<option ${u.role===r?'selected':''}>${r}</option>`).join('')}</select>`;
+    const groupsCell=(u.role==='owner'||u.role==='admin')?'<span class="muted">all devices</span>'
+      :u.role==='viewer'?'<span class="muted">view only</span>':chips;
+    return `<tr><td>${esc(u.name)}<div class="muted">${esc(u.email)}</div></td><td>${roleCell}</td><td>${groupsCell}</td><td style="text-align:right">${self?'':`<button class="danger sm" data-du="${u.id}">Remove</button>`}</td></tr>`;}).join('');
   const irows=invites.map(i=>`<tr><td>${esc(i.email)}</td><td>${esc(i.role)}</td><td><span class="linkbox">${esc(i.url)}</span></td><td style="text-align:right"><button class="sm" data-cp="${esc(i.url)}">Copy</button> <button class="danger sm" data-rv="${i.token}">Revoke</button></td></tr>`).join('');
   view().replaceChildren($(`<div><div class="head"><h1>Users</h1></div>
     <div class="card"><table><thead><tr><th>User</th><th style="width:80px">Role</th><th>Groups (click to toggle)</th><th></th></tr></thead><tbody>${urows}</tbody></table></div>
     <div class="head" style="margin-top:22px"><h1 style="font-size:1.1rem">Invite a user</h1></div>
-    <div class="card"><div class="rowline"><input id="ie" type="email" placeholder="person@example.com"><select id="ir" style="max-width:140px"><option value="user">user</option><option value="admin">admin</option></select><button class="primary" id="inv">Create link</button></div>
+    <div class="card"><div class="rowline"><input id="ie" type="email" placeholder="person@example.com"><select id="ir" style="max-width:140px">${ROLES.map(r=>`<option ${r==='operator'?'selected':''}>${r}</option>`).join('')}</select><button class="primary" id="inv">Create link</button></div>
       <div id="inew" style="margin-top:8px;color:var(--ok)"></div>
       ${invites.length?`<table style="margin-top:8px"><tbody>${irows}</tbody></table>`:''}</div></div>`));
   view().querySelectorAll('.chip').forEach(c=>c.onclick=async()=>{const u=users.find(x=>x.id===c.dataset.u);const set=new Set(u.groupIds||[]);const g=c.dataset.g;set.has(g)?set.delete(g):set.add(g);u.groupIds=[...set];await api('/api/users/'+u.id,'PATCH',{groupIds:u.groupIds});viewUsers();});
+  view().querySelectorAll('.rsel').forEach(s=>s.onchange=async()=>{await api('/api/users/'+s.dataset.u,'PATCH',{role:s.value});viewUsers();});
   view().querySelectorAll('[data-du]').forEach(b=>b.onclick=async()=>{if(confirm('Remove user?')){await api('/api/users/'+b.dataset.du,'DELETE');viewUsers();}});
   view().querySelector('#inv').onclick=async()=>{const e=val('ie').trim();if(!e)return;try{const inv=await api('/api/invites','POST',{email:e,role:val('ir')});view().querySelector('#inew').innerHTML='Invite link: <span class="linkbox">'+esc(inv.url)+'</span>';viewUsers();}catch(x){view().querySelector('#inew').innerHTML='<span class="err">'+esc(x.message)+'</span>';}};
   view().querySelectorAll('[data-cp]').forEach(b=>b.onclick=()=>navigator.clipboard?.writeText(b.dataset.cp));

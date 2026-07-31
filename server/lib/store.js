@@ -38,6 +38,17 @@ load();
 const id = (p) => p + randomBytes(6).toString('hex');
 const now = () => Date.now();
 
+// Role model (plan §1). 'owner' is the org creator (immutable, full control).
+// Assignable roles, most→least privilege:
+//   admin      — manage org (users, groups, devices, tokens); connect to all devices
+//   technician — connect + full session tools on devices in their groups
+//   operator   — connect (view/control) devices in their groups
+//   viewer     — read-only: dashboards, sessions, audit; cannot connect
+export const ROLES = ['admin', 'technician', 'operator', 'viewer'];
+const normRole = (r) => (ROLES.includes(r) ? r : 'operator');
+export const isManager = (user) => user && (user.role === 'owner' || user.role === 'admin');
+export const canAudit = (user) => isManager(user) || user?.role === 'viewer';
+
 // ------------------------------- audit log & sessions -------------------------------
 
 /** Append an audit event (org-scoped). type e.g. 'login','session.start','user.role'. */
@@ -102,7 +113,7 @@ export function createOrgWithOwner({ orgName, email, name, passHash }) {
   db.orgs[org.id] = org;
   const user = {
     id: id('usr_'), orgId: org.id, email: email.toLowerCase(), name: name || email,
-    passHash, role: 'admin', groupIds: [], createdAt: now(),
+    passHash, role: 'owner', groupIds: [], createdAt: now(),
   };
   db.users[user.id] = user;
   save();
@@ -113,7 +124,7 @@ export function createOrgWithOwner({ orgName, email, name, passHash }) {
 export function createUser({ orgId, email, name, passHash, role }) {
   const user = {
     id: id('usr_'), orgId, email: email.toLowerCase(), name: name || email,
-    passHash, role: role === 'admin' ? 'admin' : 'user', groupIds: [], createdAt: now(),
+    passHash, role: normRole(role), groupIds: [], createdAt: now(),
   };
   db.users[user.id] = user;
   save();
@@ -135,8 +146,8 @@ export function setUserGroups(userId, groupIds) {
 
 export function setUserRole(userId, role) {
   const u = db.users[userId];
-  if (!u) return null;
-  u.role = role === 'admin' ? 'admin' : 'user';
+  if (!u || u.role === 'owner') return null;   // owner role is immutable
+  u.role = normRole(role);
   save();
   return u;
 }
@@ -148,7 +159,7 @@ export function deleteUser(userId) { delete db.users[userId]; save(); }
 export function createInvite({ orgId, email, role, invitedBy }) {
   const token = randomBytes(24).toString('hex');
   db.invites[token] = {
-    token, orgId, email: (email || '').toLowerCase(), role: role === 'admin' ? 'admin' : 'user',
+    token, orgId, email: (email || '').toLowerCase(), role: normRole(role),
     invitedBy, createdAt: now(), acceptedBy: null,
   };
   save();
@@ -283,10 +294,11 @@ export function renameComputer(deviceToken, orgId, name) {
   return c;
 }
 
-// Can `user` connect to the computer identified by its device token?
+// Can `user` connect to the computer identified by its device token? (permission matrix)
 export function userCanAccessComputer(user, deviceToken) {
   const c = db.computers[deviceToken];
   if (!c || c.orgId !== user.orgId) return false;
-  if (user.role === 'admin') return true;
-  return !!c.groupId && (user.groupIds || []).includes(c.groupId);
+  if (isManager(user)) return true;             // owner/admin → all devices
+  if (user.role === 'viewer') return false;     // auditor → read-only, no control
+  return !!c.groupId && (user.groupIds || []).includes(c.groupId);  // technician/operator → their groups
 }
