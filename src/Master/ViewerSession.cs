@@ -31,6 +31,9 @@ public sealed class ViewerSession : IDisposable
     public event Action<List<RemoteMonitor>, int>? Monitors;  // available monitors, current index
     public event Action<string?>? Closed;
 
+    /// <summary>File send/receive over the session's "file" data channel.</summary>
+    public FileTransferChannel Files { get; } = new();
+
     public async Task ConnectAsync(string serverUrl, string id, string password)
     {
         _conn.JsonReceived += OnJson;
@@ -96,6 +99,8 @@ public sealed class ViewerSession : IDisposable
 
         _pc.ondatachannel += chan =>
         {
+            // The host opens two channels: "input" for control, "file" for transfers.
+            if (chan.label == "file") { Files.Attach(chan); return; }
             _inputChannel = chan;
             // On the answerer, the received channel's onopen does not reliably fire
             // (SIPSorcery), so poll IsOpened to detect readiness. Keep onopen too.
@@ -160,6 +165,7 @@ public sealed class ViewerSession : IDisposable
 
     public async Task CloseAsync()
     {
+        Files.Detach();
         try { await _conn.SendJsonAsync(new { t = "bye" }); } catch { }
         try { _pc?.Close("closed by user"); } catch { }
         await _conn.CloseAsync();
@@ -167,6 +173,7 @@ public sealed class ViewerSession : IDisposable
 
     public void Dispose()
     {
+        Files.Detach();
         try { _pc?.Close("disposed"); } catch { }
         _conn.Dispose();
     }

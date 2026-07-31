@@ -28,6 +28,7 @@ public sealed class HostSession : IDisposable
     private ScreenCapture? _capture;
     private RTCPeerConnection? _pc;
     private RTCDataChannel? _inputChannel;
+    private RTCDataChannel? _fileChannel;
     private VpxVideoEncoder? _encoder;
     private CancellationTokenSource? _pumpCts;
     private Task? _pumpTask;
@@ -40,6 +41,9 @@ public sealed class HostSession : IDisposable
     public event Action<string>? IdAssigned;
     public event Action<string>? Status;
     public event Action<bool>? SessionActive;
+
+    /// <summary>File send/receive over the session's "file" data channel.</summary>
+    public FileTransferChannel Files { get; } = new();
 
     public HostSession(string serverUrl, string password, int fps = 15, string? token = null)
     {
@@ -125,6 +129,11 @@ public sealed class HostSession : IDisposable
         // Host creates the input channel; master sends input back over it.
         _inputChannel = await _pc.createDataChannel("input", null);
         _inputChannel.onmessage += (_, _, data) => InjectInput(data);
+
+        // Second channel for file transfer, kept separate so a big transfer can
+        // never stall input events behind it.
+        _fileChannel = await _pc.createDataChannel("file", null);
+        Files.Attach(_fileChannel);
 
         _pc.onicecandidate += c =>
         {
@@ -253,9 +262,11 @@ public sealed class HostSession : IDisposable
     {
         _pcConnected = false;
         StopPump();                                 // guarantees the pump loop has exited
+        Files.Detach();
+        try { _fileChannel?.close(); } catch { }
         try { _inputChannel?.close(); } catch { }
         try { _pc?.Close("session ended"); } catch { }
-        _inputChannel = null; _pc = null;
+        _inputChannel = null; _fileChannel = null; _pc = null;
         lock (_encLock) { _encoder?.Dispose(); _encoder = null; }
     }
 

@@ -58,6 +58,19 @@ Text frames are JSON with a `t` (type) field. Binary frames are JPEG image data
 | master→host   | `{t:"answer", sdp}` | master's SDP answer |
 | either        | `{t:"ice", candidate}` | trickled ICE candidate |
 
+**File transfer** — on a second host-created data channel labelled `file`
+(separate from `input` so a large transfer can't stall input events). Reliable +
+ordered SCTP, so the protocol is minimal; one transfer at a time in either
+direction (binary chunks carry no id). Implemented once in
+`Shared/FileTransferChannel.cs`, used by both sides.
+| From | Message | Meaning |
+|------|---------|---------|
+| sender   | `{t:"begin", name, size}` | announce one file |
+| sender   | *binary* (16 KB chunks)   | file bytes, in order |
+| sender   | `{t:"end"}`               | all bytes sent |
+| receiver | `{t:"ack", n}`            | bytes received — sender stalls at >1 MB unacked |
+| receiver | `{t:"done"}` / `{t:"err", msg}` | saved ok (to Downloads; Public Downloads under SYSTEM) / failed |
+
 **Media / input**
 | From        | Payload | Meaning |
 |-------------|---------|---------|
@@ -87,7 +100,12 @@ either side doesn't corrupt them; the host maps 0..1 → virtual-desktop absolut
   is detected via `RTCDataChannel.IsOpened`. Codec teardown is lock-guarded against the
   capture pump (a mid-encode dispose is an uncatchable native AccessViolation).
 - **Phase 3 — quality:** DXGI Desktop Duplication w/ dirty-rects, QuickSync H.264,
-  multi-monitor, clipboard sync, file transfer, adaptive bitrate.
+  adaptive bitrate, clipboard sync. Done so far: multi-monitor (numbered screen-icon
+  picker in the master toolbar, `selmon` over signaling), **file transfer** (both
+  directions over a dedicated `file` data channel), and **viewer zoom** — Fit mode
+  scales to the window; 50/100/150/200 % render at pixel scale inside a ScrollViewer
+  with edge-pan (push the pointer against a viewport edge) + Ctrl+wheel zoom, so a
+  4K remote stays operable on a smaller viewer screen.
 - **Phase 4 — product (IN PROGRESS):** host as a **Windows Service** (survives logout,
   works at the lock screen / UAC secure desktop). `src/Service` is a LocalSystem
   `BackgroundService` (`Supervisor`) that keeps one capture worker — `FtdRemoteClient.exe

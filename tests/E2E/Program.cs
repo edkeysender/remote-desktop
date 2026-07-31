@@ -1,3 +1,4 @@
+using System.IO;
 using System.Runtime.InteropServices;
 using RemoteDesktop.Client;
 using RemoteDesktop.Master;
@@ -90,6 +91,45 @@ if (monitors is { Count: >= 1 })
     bool ok = await WaitUntil(() => framesDecoded > b2 + 3 && lastW == target.Width && lastH == target.Height, 8000);
     Check(ok, $"switched to specific monitor Index={target.Index}: got {lastW}x{lastH}, expected {target.Width}x{target.Height}");
 }
+
+// --- file transfer over the dedicated "file" data channel, both directions ---
+var tmpDir = Path.Combine(Path.GetTempPath(), "ftd-e2e-files");
+if (Directory.Exists(tmpDir)) Directory.Delete(tmpDir, recursive: true);
+Directory.CreateDirectory(tmpDir);
+host.Files.SaveDirectory = Path.Combine(tmpDir, "host-rx");
+viewer.Files.SaveDirectory = Path.Combine(tmpDir, "viewer-rx");
+
+// 3 MB of noise: enough to exercise chunking + the ack window, quick to move locally.
+var payload = new byte[3 * 1024 * 1024 + 12345];
+new Random(42).NextBytes(payload);
+var srcPath = Path.Combine(tmpDir, "blob.bin");
+File.WriteAllBytes(srcPath, payload);
+
+Check(await WaitUntil(() => viewer.Files.IsOpen, 10000), "file data channel opened");
+
+var hostRx = new TaskCompletionSource<string>();
+host.Files.ReceiveCompleted += (_, path) => hostRx.TrySetResult(path);
+await viewer.Files.SendFileAsync(srcPath);
+var hostSaved = await WaitOr(hostRx.Task, 20000);
+Check(hostSaved is not null && File.ReadAllBytes(hostSaved).AsSpan().SequenceEqual(payload),
+    $"file master->host transferred intact ({payload.Length} bytes -> {hostSaved})");
+
+var viewerRx = new TaskCompletionSource<string>();
+viewer.Files.ReceiveCompleted += (_, path) => viewerRx.TrySetResult(path);
+await host.Files.SendFileAsync(srcPath);
+var viewerSaved = await WaitOr(viewerRx.Task, 20000);
+Check(viewerSaved is not null && File.ReadAllBytes(viewerSaved).AsSpan().SequenceEqual(payload),
+    $"file host->master transferred intact ({payload.Length} bytes -> {viewerSaved})");
+
+// name collision: sending the same file again must land as "blob (1).bin", not clobber
+var hostRx2 = new TaskCompletionSource<string>();
+host.Files.ReceiveCompleted += (_, path) => hostRx2.TrySetResult(path);
+await viewer.Files.SendFileAsync(srcPath);
+var second = await WaitOr(hostRx2.Task, 20000);
+Check(second is not null && second != hostSaved && File.Exists(hostSaved),
+    $"second send kept both copies ({Path.GetFileName(second ?? "?")})");
+
+try { Directory.Delete(tmpDir, recursive: true); } catch { }
 
 await viewer.CloseAsync();
 await host.StopAsync();

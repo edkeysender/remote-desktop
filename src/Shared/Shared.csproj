@@ -5,4 +5,8 @@
     <Nullable>enable</Nullable>
     <RootNamespace>RemoteDesktop.Shared</RootNamespace>
   </PropertyGroup>
+  <ItemGroup>
+    <PackageReference Include="SIPSorcery" Version="10.0.13" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="9.0.0" />
+  </ItemGroup>
 </Project>

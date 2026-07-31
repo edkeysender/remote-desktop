@@ -66,6 +66,9 @@ public partial class MainWindow : Window
         _session.IdAssigned += id => Dispatcher.Invoke(() => IdBox.Text = FormatId(id));
         _session.Status += s => Dispatcher.Invoke(() => SetStatus(s));
         _session.SessionActive += active => Dispatcher.Invoke(() => ShowBanner(active));
+        _session.Files.ReceiveStarted += (n, _) => Dispatcher.Invoke(() => SetStatus($"Receiving {n}…"));
+        _session.Files.ReceiveCompleted += (n, path) => Dispatcher.Invoke(() => SetStatus($"Received {n} → {path}"));
+        _session.Files.Error += msg => Dispatcher.Invoke(() => SetStatus("File transfer failed: " + msg));
 
         try
         {
@@ -101,6 +104,25 @@ public partial class MainWindow : Window
 
     private void ShowBanner(bool active)
         => Banner.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
+
+    private async void SendFileBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (_session is not { } session) return;
+        var dlg = new Microsoft.Win32.OpenFileDialog { Title = "Send a file to the viewer" };
+        if (dlg.ShowDialog(this) != true) return;
+        SendFileBtn.IsEnabled = false;
+        try
+        {
+            SetStatus($"Sending {System.IO.Path.GetFileName(dlg.FileName)}…");
+            await session.Files.SendFileAsync(dlg.FileName);
+            SetStatus($"Sent {System.IO.Path.GetFileName(dlg.FileName)} ✓");
+        }
+        catch (Exception ex)
+        {
+            SetStatus("Send failed: " + ex.Message);
+        }
+        finally { SendFileBtn.IsEnabled = true; }
+    }
 
     private void SetStatus(string s) => StatusText.Text = s;
 
