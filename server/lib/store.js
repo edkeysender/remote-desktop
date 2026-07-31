@@ -285,6 +285,25 @@ export function touchComputer(deviceToken) {
   if (c) { c.lastSeen = now(); save(); }
 }
 
+// Live health metrics from a host. Kept in memory (not persisted — ephemeral), with
+// edge-triggered alerts logged to the audit trail when a metric crosses its threshold.
+const ALERT_THRESHOLD = { cpu: 95, mem: 95, disk: 95 };
+export function updateMetrics(deviceToken, m) {
+  const c = db.computers[deviceToken];
+  if (!c) return;
+  c.metrics = { cpu: m.cpu | 0, mem: m.mem | 0, disk: m.disk | 0, ts: now() };
+  c._alerting = c._alerting || {};
+  for (const k of ['cpu', 'mem', 'disk']) {
+    const over = c.metrics[k] >= ALERT_THRESHOLD[k];
+    if (over && !c._alerting[k]) {
+      c._alerting[k] = true;
+      logEvent(c.orgId, 'alert', { target: c.name, detail: `${k.toUpperCase()} ${c.metrics[k]}%` }); // logEvent saves
+    } else if (!over) {
+      c._alerting[k] = false;
+    }
+  }
+}
+
 export function listComputers(orgId) {
   return Object.entries(db.computers)
     .filter(([, c]) => c.orgId === orgId)

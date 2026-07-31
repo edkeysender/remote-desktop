@@ -172,6 +172,7 @@ export function buildWebApp({ relayStatus }) {
     return {
       deviceToken: c.deviceToken, name: c.name, groupId: c.groupId,
       relayId: st.online ? c.relayId : null, online: st.online, busy: st.busy, lastSeen: c.lastSeen,
+      metrics: st.online ? (c.metrics || null) : null,
     };
   };
 

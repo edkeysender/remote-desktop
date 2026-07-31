@@ -41,6 +41,9 @@ public sealed class HostSession : IDisposable
     private List<MonitorInfo> _monitors = new();
     private int _currentMon;                     // -1 = all monitors, else index into _monitors
 
+    private readonly SystemMetrics _metrics = new();
+    private System.Threading.Timer? _metricsTimer;   // periodic health report over signaling
+
     public event Action<string>? IdAssigned;
     public event Action<string?>? OrgAssigned;   // org name this host is claimed into (null = none)
     public event Action<string>? Status;
@@ -82,6 +85,7 @@ public sealed class HostSession : IDisposable
                 OrgAssigned?.Invoke(root.TryGetProperty("org", out var o) && o.ValueKind == JsonValueKind.Object
                     ? o.GetProperty("name").GetString() : null);
                 Status?.Invoke("Ready — waiting for a connection");
+                StartMetrics();
                 break;
 
             case "connect-request":
@@ -270,6 +274,28 @@ public sealed class HostSession : IDisposable
         catch { /* ignore malformed input packet */ }
     }
 
+    // Report host health (CPU/mem/disk) over signaling every 5s while registered, so the
+    // dashboard shows live metrics even when no viewer is connected.
+    private void StartMetrics()
+    {
+        _metricsTimer ??= new System.Threading.Timer(_ =>
+        {
+            try
+            {
+                if (_conn == null) return;
+                var (cpu, mem, disk) = _metrics.Sample();
+                _ = _conn.SendJsonAsync(new { t = "metrics", cpu, mem, disk });
+            }
+            catch { /* transient; try again next tick */ }
+        }, null, TimeSpan.Zero, TimeSpan.FromSeconds(5));
+    }
+
+    private void StopMetrics()
+    {
+        _metricsTimer?.Dispose();
+        _metricsTimer = null;
+    }
+
     private void TearDownPeer()
     {
         _pcConnected = false;
@@ -284,12 +310,14 @@ public sealed class HostSession : IDisposable
 
     public async Task StopAsync()
     {
+        StopMetrics();
         TearDownPeer();
         if (_conn != null) await _conn.CloseAsync();
     }
 
     public void Dispose()
     {
+        StopMetrics();
         TearDownPeer();
         _conn?.Dispose();
         _capture?.Dispose();

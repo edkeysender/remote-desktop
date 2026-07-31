@@ -465,6 +465,15 @@ wss.on('connection', (ws, req) => {
         break;
       }
 
+      case 'metrics': {                      // host health report (not relayed)
+        if (ws.role === 'host' && ws.id) {
+          const entry = hosts.get(ws.id);
+          if (entry?.orgId && entry.deviceToken)
+            store.updateMetrics(entry.deviceToken, { cpu: msg.cpu, mem: msg.mem, disk: msg.disk });
+        }
+        break;
+      }
+
       // Everything else is session traffic: relay to the paired peer.
       // viewer->host: input + control.  host->viewer: {t:"screen",...} etc.
       // NOTE: guard the peer explicitly — `a?.b?.readyState === a.b.OPEN` still
