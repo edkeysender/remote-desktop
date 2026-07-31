@@ -139,7 +139,7 @@ async function renderAccept(token){
 // ---------- shell ----------
 function renderShell(){
   const admin=me.user.role==='admin';
-  const nav=[['devices','Devices'],...(admin?[['groups','Groups'],['users','Users'],['enroll','Enrollment']]:[])];
+  const nav=[['devices','Devices'],...(admin?[['groups','Groups'],['users','Users'],['enroll','Enrollment'],['sessions','Sessions'],['activity','Activity']]:[])];
   const el=$(`<div class="shell">
     <aside class="sidebar">
       ${brand}
@@ -153,7 +153,7 @@ function renderShell(){
   nav.forEach(([k,label])=>{const b=$(`<button class="nav-item ${k===tab?'active':''}">${label}</button>`);b.onclick=()=>{tab=k;renderShell();};navEl.appendChild(b);});
   el.querySelector('#out').onclick=async()=>{await api('/api/logout','POST');me=null;renderAuth();};
   if(!admin) tab='devices';
-  ({devices:viewDevices,groups:viewGroups,users:viewUsers,enroll:viewEnroll}[tab]||viewDevices)();
+  ({devices:viewDevices,groups:viewGroups,users:viewUsers,enroll:viewEnroll,sessions:viewSessions,activity:viewActivity}[tab]||viewDevices)();
 }
 const view=()=>document.getElementById('view');
 
@@ -227,6 +227,38 @@ async function viewEnroll(){
   view().querySelector('#gen').onclick=async()=>{const inv=await api('/api/enroll-tokens','POST',{label:val('el'),groupId:val('eg')||null});view().querySelector('#gnew').innerHTML='New token: <span class="linkbox">'+esc(inv.token)+'</span>';viewEnroll();};
   view().querySelectorAll('[data-cp]').forEach(b=>b.onclick=()=>navigator.clipboard?.writeText(b.dataset.cp));
   view().querySelectorAll('[data-rv]').forEach(b=>b.onclick=async()=>{await api('/api/enroll-tokens/'+encodeURIComponent(b.dataset.rv),'DELETE');viewEnroll();});
+}
+
+function fmtTime(ts){ if(!ts) return '—'; const d=new Date(ts); return d.toLocaleString(); }
+function dur(a,b){ if(!a) return '—'; const s=Math.max(0,((b||Date.now())-a)/1000);
+  const h=Math.floor(s/3600),m=Math.floor(s%3600/60),ss=Math.floor(s%60);
+  return h?`${h}h ${m}m`:(m?`${m}m ${ss}s`:`${ss}s`); }
+
+async function viewSessions(){
+  const rows=await api('/api/sessions');
+  const body=rows.map(s=>`<tr>
+    <td>${esc(s.computerName||s.relayId)}</td>
+    <td>${esc(s.viewerEmail||'(password)')}</td>
+    <td class="muted">${fmtTime(s.startedAt)}</td>
+    <td>${s.endedAt?dur(s.startedAt,s.endedAt):'<span class="pill accent"><span class="led b"></span>live</span>'}</td>
+  </tr>`).join('');
+  view().replaceChildren($(`<div><div class="head"><h1>Sessions</h1><div class="sp"></div><button class="ghost sm" id="rf">Refresh</button></div>
+    <div class="card">${rows.length?`<table><thead><tr><th>Computer</th><th>Who</th><th>Started</th><th>Duration</th></tr></thead><tbody>${body}</tbody></table>`:'<div class="empty">No sessions recorded yet.</div>'}</div></div>`));
+  view().querySelector('#rf').onclick=viewSessions;
+}
+
+async function viewActivity(){
+  const rows=await api('/api/audit');
+  const label={'org.create':'Organization created',login:'Signed in','session.start':'Session started','session.end':'Session ended','computer.enroll':'Computer enrolled','user.invite':'User invited','user.join':'User joined','user.role':'Role changed','user.groups':'Groups changed','group.create':'Group created','group.delete':'Group deleted','enroll.token':'Enrollment token'};
+  const body=rows.map(e=>`<tr>
+    <td class="muted" style="white-space:nowrap">${fmtTime(e.ts)}</td>
+    <td>${esc(label[e.type]||e.type)}</td>
+    <td>${esc(e.actorEmail||'—')}</td>
+    <td class="muted">${esc([e.target,e.detail].filter(Boolean).join(' · '))}</td>
+  </tr>`).join('');
+  view().replaceChildren($(`<div><div class="head"><h1>Activity</h1><div class="sp"></div><button class="ghost sm" id="rf">Refresh</button></div>
+    <div class="card">${rows.length?`<table><thead><tr><th>Time</th><th>Event</th><th>Actor</th><th>Detail</th></tr></thead><tbody>${body}</tbody></table>`:'<div class="empty">No activity yet.</div>'}</div></div>`));
+  view().querySelector('#rf').onclick=viewActivity;
 }
 
 window.addEventListener('popstate',boot);

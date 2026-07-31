@@ -50,6 +50,7 @@ export function buildWebApp({ relayStatus }) {
     if (String(password).length < 8) return res.status(400).json({ error: 'password must be at least 8 characters' });
     if (store.emailTaken(email)) return res.status(409).json({ error: 'that email is already registered' });
     const { org, user } = store.createOrgWithOwner({ orgName, email, name, passHash: await hashPassword(password) });
+    store.logEvent(org.id, 'org.create', { actorEmail: user.email, target: org.name });
     const token = setSession(res, user.id);
     res.json({ token, user: publicUser(user), org: { id: org.id, name: org.name } });
   });
@@ -61,6 +62,7 @@ export function buildWebApp({ relayStatus }) {
       return res.status(401).json({ error: 'wrong email or password' });
     const token = setSession(res, user.id);
     const org = store.getOrg(user.orgId);
+    store.logEvent(user.orgId, 'login', { actorEmail: user.email });
     res.json({ token, user: publicUser(user), org: { id: org.id, name: org.name } });
   });
 
@@ -86,6 +88,7 @@ export function buildWebApp({ relayStatus }) {
   app.post('/api/invites', requireUser, requireAdmin, (req, res) => {
     const { email, role } = req.body || {};
     const inv = store.createInvite({ orgId: req.user.orgId, email, role, invitedBy: req.user.id });
+    store.logEvent(req.user.orgId, 'user.invite', { actorEmail: req.user.email, target: inv.email, detail: `role ${inv.role}` });
     res.json({ token: inv.token, email: inv.email, role: inv.role, url: inviteUrl(req, inv.token) });
   });
 
@@ -112,6 +115,7 @@ export function buildWebApp({ relayStatus }) {
     if (store.emailTaken(email)) return res.status(409).json({ error: 'that email is already registered' });
     const user = store.createUser({ orgId: inv.orgId, email, name, passHash: await hashPassword(password), role: inv.role });
     store.acceptInvite(token, user.id);
+    store.logEvent(inv.orgId, 'user.join', { actorEmail: user.email, detail: `role ${user.role}` });
     const t = setSession(res, user.id);
     const org = store.getOrg(user.orgId);
     res.json({ token: t, user: publicUser(user), org: { id: org.id, name: org.name } });
@@ -120,8 +124,11 @@ export function buildWebApp({ relayStatus }) {
   // ------------------------------- groups -------------------------------
 
   app.get('/api/groups', requireUser, (req, res) => res.json(store.listGroups(req.user.orgId)));
-  app.post('/api/groups', requireUser, requireAdmin, (req, res) =>
-    res.json(store.createGroup(req.user.orgId, (req.body?.name || '').trim())));
+  app.post('/api/groups', requireUser, requireAdmin, (req, res) => {
+    const g = store.createGroup(req.user.orgId, (req.body?.name || '').trim());
+    store.logEvent(req.user.orgId, 'group.create', { actorEmail: req.user.email, target: g.name });
+    res.json(g);
+  });
   app.patch('/api/groups/:id', requireUser, requireAdmin, (req, res) => {
     const g = store.renameGroup(req.params.id, req.user.orgId, (req.body?.name || '').trim());
     g ? res.json(g) : res.status(404).json({ error: 'no such group' });
@@ -138,8 +145,14 @@ export function buildWebApp({ relayStatus }) {
   app.patch('/api/users/:id', requireUser, requireAdmin, (req, res) => {
     const target = store.getUser(req.params.id);
     if (!target || target.orgId !== req.user.orgId) return res.status(404).json({ error: 'no such user' });
-    if (Array.isArray(req.body?.groupIds)) store.setUserGroups(target.id, req.body.groupIds);
-    if (req.body?.role && target.id !== req.user.id) store.setUserRole(target.id, req.body.role); // can't demote self
+    if (Array.isArray(req.body?.groupIds)) {
+      store.setUserGroups(target.id, req.body.groupIds);
+      store.logEvent(req.user.orgId, 'user.groups', { actorEmail: req.user.email, target: target.email });
+    }
+    if (req.body?.role && target.id !== req.user.id) {
+      store.setUserRole(target.id, req.body.role); // can't demote self
+      store.logEvent(req.user.orgId, 'user.role', { actorEmail: req.user.email, target: target.email, detail: req.body.role });
+    }
     res.json(publicUser(store.getUser(target.id)));
   });
   app.delete('/api/users/:id', requireUser, requireAdmin, (req, res) => {
@@ -186,6 +199,7 @@ export function buildWebApp({ relayStatus }) {
     const e = store.createEnrollToken(req.user.orgId, {
       groupId: req.body?.groupId || null, label: req.body?.label || '', createdBy: req.user.id,
     });
+    store.logEvent(req.user.orgId, 'enroll.token', { actorEmail: req.user.email, target: e.label || '(token)' });
     res.json({ token: e.token, label: e.label, groupId: e.groupId });
   });
 
@@ -193,6 +207,14 @@ export function buildWebApp({ relayStatus }) {
     store.revokeEnrollToken(req.params.token, req.user.orgId);
     res.json({ ok: true });
   });
+
+  // ------------------------------- audit + sessions (admin) -------------------------------
+
+  app.get('/api/audit', requireUser, requireAdmin, (req, res) =>
+    res.json(store.listEvents(req.user.orgId, 300)));
+
+  app.get('/api/sessions', requireUser, requireAdmin, (req, res) =>
+    res.json(store.listSessions(req.user.orgId, 200)));
 
   // Any user: the groups + computers they're allowed to connect to (desktop picker).
   app.get('/api/my-computers', requireUser, (req, res) => {

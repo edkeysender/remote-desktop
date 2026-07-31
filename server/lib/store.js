@@ -18,7 +18,11 @@ import { resolve, join } from 'path';
 const DATA_DIR = resolve(process.env.DATA_DIR || './data');
 const DB_FILE = join(DATA_DIR, 'db.json');
 
-const empty = () => ({ orgs: {}, users: {}, invites: {}, groups: {}, computers: {}, enrollTokens: {} });
+const empty = () => ({
+  orgs: {}, users: {}, invites: {}, groups: {}, computers: {}, enrollTokens: {},
+  events: [], sessions: [],
+});
+const MAX_EVENTS = 5000, MAX_SESSIONS = 2000;
 let db = empty();
 
 function load() {
@@ -33,6 +37,49 @@ load();
 
 const id = (p) => p + randomBytes(6).toString('hex');
 const now = () => Date.now();
+
+// ------------------------------- audit log & sessions -------------------------------
+
+/** Append an audit event (org-scoped). type e.g. 'login','session.start','user.role'. */
+export function logEvent(orgId, type, { actorEmail = null, target = null, detail = null } = {}) {
+  if (!orgId) return;
+  db.events.push({ id: id('ev_'), orgId, ts: now(), type, actorEmail, target, detail });
+  if (db.events.length > MAX_EVENTS) db.events.splice(0, db.events.length - MAX_EVENTS);
+  save();
+}
+
+export function listEvents(orgId, limit = 200) {
+  return db.events.filter((e) => e.orgId === orgId).slice(-limit).reverse();
+}
+
+/** Open a session record when a viewer is paired to a host. Returns its id. */
+export function startSession({ orgId, deviceToken, relayId, computerName, viewerEmail, mode }) {
+  const s = {
+    id: id('ses_'), orgId, deviceToken, relayId,
+    computerName: computerName || null, viewerEmail: viewerEmail || null,
+    mode: mode || 'remote', startedAt: now(), endedAt: null,
+  };
+  db.sessions.push(s);
+  if (db.sessions.length > MAX_SESSIONS) db.sessions.splice(0, db.sessions.length - MAX_SESSIONS);
+  save();
+  return s.id;
+}
+
+export function endSession(sessionId) {
+  const s = db.sessions.find((x) => x.id === sessionId);
+  if (s && !s.endedAt) { s.endedAt = now(); save(); }
+}
+
+export function listSessions(orgId, limit = 200) {
+  return db.sessions.filter((s) => s.orgId === orgId).slice(-limit).reverse();
+}
+
+/** On boot, no session can still be live — close any left open by a previous run. */
+export function closeOpenSessions() {
+  let changed = false;
+  for (const s of db.sessions) if (!s.endedAt) { s.endedAt = now(); changed = true; }
+  if (changed) save();
+}
 
 // ------------------------------- orgs / users -------------------------------
 

@@ -68,6 +68,7 @@ function saveAdmin() {
   catch (e) { console.error('[server] could not save admin store:', e.message); }
 }
 loadAdmin();
+store.closeOpenSessions();   // a fresh boot means nothing is still live
 
 // Ensure a metadata record exists for an id (so it persists after going offline).
 function ensureClientMeta(id) {
@@ -279,6 +280,14 @@ function send(ws, obj) {
   if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj));
 }
 
+// Close a viewer's session record (once) and log it. Safe to call twice.
+function endViewerSession(viewer) {
+  if (!viewer || !viewer._sessionId) return;
+  store.endSession(viewer._sessionId);
+  if (viewer._orgId) store.logEvent(viewer._orgId, 'session.end', { actorEmail: viewer._viewerEmail, target: viewer._compName });
+  viewer._sessionId = null;
+}
+
 // True if the session token belongs to a user allowed to connect to this host's
 // computer (same org, and admin or a shared group). Used for password-less connect.
 function accountAuthorized(authToken, entry) {
@@ -342,9 +351,11 @@ wss.on('connection', (ws, req) => {
           if (et) { claimOrgId = et.orgId; enrollGroup = et.groupId; }
         }
         if (claimOrgId && token) {
+          const existed = !!store.findComputerByToken(token);
           store.upsertComputer({ deviceToken: token, orgId: claimOrgId, defaultName: msg.name || 'Computer', relayId: id, groupId: enrollGroup });
           org = store.getOrg(claimOrgId);
           hosts.get(id).orgId = claimOrgId;
+          if (!existed) store.logEvent(claimOrgId, 'computer.enroll', { target: msg.name || id, detail: msg.enroll ? 'via token' : 'via sign-in' });
         }
         send(ws, { t: 'registered', id, org: org ? { id: org.id, name: org.name } : null });
         console.log(`[server] host registered id=${id}${token ? ' (persistent)' : ''}${org ? ` org=${org.name}` : ''}`);
@@ -360,6 +371,9 @@ wss.on('connection', (ws, req) => {
         pending.set(rid, ws);
         ws._rid = rid;
         ws._hostId = String(msg.id);
+        // Remember who is viewing (for session history) when account-authenticated.
+        const vuser = msg.auth ? store.getUser(verifyToken(msg.auth) || '') : null;
+        ws._viewerEmail = vuser?.email ?? null;
         // Three ways to be authorized (host then accepts without the per-client password):
         //  • legacy admin password proven to the relay (0.2.x directory picker), or
         //  • an account session whose user may access this computer (org + group), or
@@ -381,6 +395,17 @@ wss.on('connection', (ws, req) => {
           entry.viewer = viewer;
           viewer.id = ws.id;
           send(viewer, { t: 'connected' });
+          // Record a session (org-scoped) for history/audit when the host is enrolled.
+          if (entry.orgId) {
+            const comp = entry.deviceToken ? store.findComputerByToken(entry.deviceToken) : null;
+            viewer._orgId = entry.orgId;
+            viewer._compName = comp?.name || ws.id;
+            viewer._sessionId = store.startSession({
+              orgId: entry.orgId, deviceToken: entry.deviceToken, relayId: ws.id,
+              computerName: viewer._compName, viewerEmail: viewer._viewerEmail, mode: 'remote',
+            });
+            store.logEvent(entry.orgId, 'session.start', { actorEmail: viewer._viewerEmail, target: viewer._compName });
+          }
           console.log(`[server] viewer paired to host id=${ws.id}`);
         } else {
           send(viewer, { t: 'rejected', reason: 'wrong password' });
@@ -410,13 +435,17 @@ wss.on('connection', (ws, req) => {
   ws.on('close', () => {
     if (ws.role === 'host' && ws.id) {
       const entry = hosts.get(ws.id);
-      if (entry?.viewer) send(entry.viewer, { t: 'bye', reason: 'host disconnected' });
+      if (entry?.viewer) {
+        endViewerSession(entry.viewer);
+        send(entry.viewer, { t: 'bye', reason: 'host disconnected' });
+      }
       hosts.delete(ws.id);
       ensureClientMeta(ws.id).lastSeen = Date.now();
       saveAdmin();
       console.log(`[server] host id=${ws.id} gone`);
     } else if (ws.role === 'viewer' && ws.id) {
       const entry = hosts.get(ws.id);
+      endViewerSession(ws);
       if (entry) {
         entry.viewer = null;
         send(entry.ws, { t: 'bye', reason: 'viewer disconnected' });
