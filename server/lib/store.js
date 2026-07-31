@@ -107,9 +107,27 @@ export function findUserByEmail(email) {
 export function getUser(userId) { return db.users[userId] || null; }
 export function getOrg(orgId) { return db.orgs[orgId] || null; }
 
+// ---- platform (super-admin) views ----
+export const PLANS = ['trial', 'cloud', 'self-hosted'];
+export function setOrgPlan(orgId, plan) {
+  const o = db.orgs[orgId];
+  if (o && PLANS.includes(plan)) { o.plan = plan; save(); }
+  return o;
+}
+/** Per-org summary counts for the platform console. */
+export function platformOrgs() {
+  const users = {}, comps = {};
+  for (const u of Object.values(db.users)) users[u.orgId] = (users[u.orgId] || 0) + 1;
+  for (const c of Object.values(db.computers)) comps[c.orgId] = (comps[c.orgId] || 0) + 1;
+  return Object.values(db.orgs).map((o) => ({
+    id: o.id, name: o.name, plan: o.plan || 'trial', createdAt: o.createdAt,
+    users: users[o.id] || 0, computers: comps[o.id] || 0,
+  }));
+}
+
 // Create a brand-new org with its first (admin/owner) user.
 export function createOrgWithOwner({ orgName, email, name, passHash }) {
-  const org = { id: id('org_'), name: orgName, createdAt: now() };
+  const org = { id: id('org_'), name: orgName, plan: 'trial', createdAt: now() };
   db.orgs[org.id] = org;
   const user = {
     id: id('usr_'), orgId: org.id, email: email.toLowerCase(), name: name || email,

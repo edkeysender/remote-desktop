@@ -1,0 +1,77 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Hangar HQ — Platform Console</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<style>
+:root{--ink:#0B0C15;--ink-2:#141623;--paper:#F5F6F9;--card:#fff;--line:#E8E9F0;--text:#0B0C15;--muted:#6E7185;
+  --accent:#5B5BF5;--grad:linear-gradient(135deg,#5B5BF5,#9D5CFF 55%,#3EC8FF 120%);--ok:#1FC98B;--warn:#FFAA1D;--danger:#F5484D;
+  --r-lg:22px;--r-md:14px;--shadow:0 1px 2px rgba(11,12,21,.04),0 8px 24px rgba(11,12,21,.06)}
+*{margin:0;padding:0;box-sizing:border-box}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--paper);color:var(--text);-webkit-font-smoothing:antialiased}
+h1,h2{font-family:'Schibsted Grotesk',system-ui,sans-serif;letter-spacing:-.02em}
+.mono{font-family:'JetBrains Mono',monospace}
+.top{display:flex;align-items:center;gap:12px;padding:16px 28px;background:var(--ink);color:#fff}
+.mark{width:32px;height:32px;border-radius:10px;background:var(--grad);display:grid;place-items:center}
+.top .name{font-family:'Schibsted Grotesk';font-weight:800;font-size:1.2rem}
+.hq{font-family:'JetBrains Mono';font-size:.6rem;font-weight:600;letter-spacing:.14em;color:#9FE8FF;background:rgba(62,200,255,.12);border:1px solid rgba(62,200,255,.3);padding:3px 9px;border-radius:999px}
+.top .sp{flex:1}.top .up{font-size:.78rem;color:rgba(255,255,255,.6)}
+main{max-width:1120px;margin:0 auto;padding:24px 28px 48px}
+.kpis{display:grid;grid-template-columns:repeat(5,1fr);gap:14px;margin-bottom:22px}
+.kpi{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow);padding:18px 20px}
+.kpi.dark{background:var(--ink);color:#fff}
+.kpi .l{font-size:.74rem;color:var(--muted)}.kpi.dark .l{color:rgba(255,255,255,.6)}
+.kpi .v{font-family:'Schibsted Grotesk';font-weight:800;font-size:1.9rem;margin-top:6px}
+h2{font-size:1.1rem;margin:6px 0 12px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow);overflow:hidden}
+table{width:100%;border-collapse:collapse;font-size:.88rem}
+th{text-align:left;font-size:.68rem;letter-spacing:.06em;text-transform:uppercase;color:var(--muted);padding:13px 18px;border-bottom:1px solid var(--line);background:#FBFBFD}
+td{padding:13px 18px;border-bottom:1px solid var(--line)}
+tr:last-child td{border-bottom:none}
+.led{width:8px;height:8px;border-radius:50%;display:inline-block;margin-right:6px}
+.g{background:var(--ok)}.r{background:#c9ccd6}
+.plan{background:#fff;border:1px solid var(--line);border-radius:8px;padding:5px 8px;font:inherit}
+.pill{font-size:.7rem;font-weight:600;padding:2px 9px;border-radius:999px;background:#EEE;color:#333}
+.tick{color:var(--muted);font-size:.76rem}
+</style>
+</head>
+<body>
+<div class="top"><div class="mark"><svg viewBox="0 0 24 24" width="17" height="17" fill="none"><path d="M3 18 L12 4 L21 18 M7.5 18 L12 11 L16.5 18" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
+  <span class="name">Hangar</span><span class="hq">HQ · PLATFORM</span><span class="sp"></span><span class="up" id="up"></span></div>
+<main>
+  <div class="kpis" id="kpis"></div>
+  <h2>Relay / server</h2>
+  <div class="card" id="server" style="padding:16px 18px;margin-bottom:22px"></div>
+  <h2>Organizations</h2>
+  <div class="card"><table><thead><tr><th>Organization</th><th>Plan</th><th>Users</th><th>Devices</th><th>Online</th><th>Created</th></tr></thead><tbody id="orgs"></tbody></table></div>
+</main>
+<script>
+const PLANS=['trial','cloud','self-hosted'];
+async function api(p,m='GET',b){const r=await fetch(p,{method:m,headers:b?{'Content-Type':'application/json'}:undefined,body:b?JSON.stringify(b):undefined});if(!r.ok)throw new Error('HTTP '+r.status);return r.headers.get('content-type')?.includes('json')?r.json():null;}
+const esc=(s)=>(s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+function fmtUp(s){const d=Math.floor(s/86400),h=Math.floor(s%86400/3600),m=Math.floor(s%3600/60);return d?`${d}d ${h}h`:(h?`${h}h ${m}m`:`${m}m`);}
+async function load(){
+  let st; try{st=await api('/platform/api/state');}catch(e){document.getElementById('up').textContent='error: '+e.message;return;}
+  document.getElementById('up').textContent='updated '+new Date().toLocaleTimeString();
+  const t=st.totals;
+  document.getElementById('kpis').innerHTML=[
+    ['Organizations',t.orgs,''],['Users',t.users,''],['Devices',t.computers,''],
+    ['Online now',t.online,'dark'],['Active sessions',t.activeSessions,'dark']
+  ].map(([l,v,c])=>`<div class="kpi ${c}"><div class="l">${l}</div><div class="v">${v}</div></div>`).join('');
+  document.getElementById('server').innerHTML=`<span class="led g"></span><b>This relay</b> · uptime ${fmtUp(st.server.uptimeSec)} · ${st.server.hostsOnline} hosts connected · Node ${esc(st.server.node)}`;
+  document.getElementById('orgs').innerHTML=st.orgs.map(o=>`<tr>
+    <td><b>${esc(o.name)}</b><div class="mono tick">${esc(o.id)}</div></td>
+    <td><select class="plan" data-id="${esc(o.id)}">${PLANS.map(p=>`<option ${o.plan===p?'selected':''}>${p}</option>`).join('')}</select></td>
+    <td>${o.users}</td><td>${o.computers}</td>
+    <td>${o.online?`<span class="led g"></span>${o.online}`:'<span class="led r"></span>0'}</td>
+    <td class="tick">${o.createdAt?new Date(o.createdAt).toLocaleDateString():'—'}</td></tr>`).join('')
+    ||'<tr><td colspan="6" class="tick" style="padding:22px;text-align:center">No organizations yet.</td></tr>';
+  document.querySelectorAll('.plan').forEach(s=>s.onchange=()=>api('/platform/api/orgs/'+encodeURIComponent(s.dataset.id),'POST',{plan:s.value}));
+}
+load();setInterval(load,4000);
+</script>
+</body>
+</html>

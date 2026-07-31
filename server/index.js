@@ -27,6 +27,8 @@ const UPDATE_DIR = resolve(process.env.UPDATE_DIR || './update');
 // Admin panel: persisted groups + client metadata, and the panel password.
 const ADMIN_FILE = process.env.ADMIN_FILE || 'admin.json';
 const ADMIN_PASSWORD = process.env.ADMIN_PASSWORD || 'admin';
+// Platform console (super-admin across all orgs) password.
+const PLATFORM_PASSWORD = process.env.PLATFORM_PASSWORD || 'platform';
 
 // Persistent host identity: a host may present a stable `token` (stored on its
 // machine) to be assigned the SAME ID every time — this is what makes unattended
@@ -101,6 +103,17 @@ async function legacyRoutes(req, res, next) {
     return;
   }
 
+  // Platform console (super-admin across all orgs), Basic-auth with PLATFORM_PASSWORD.
+  if (url.pathname === '/platform' || url.pathname.startsWith('/platform/')) {
+    if (!checkBasic(req, PLATFORM_PASSWORD)) {
+      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Hangar HQ"' }).end('auth required');
+      return;
+    }
+    try { await handlePlatform(req, res, url); }
+    catch (e) { sendJson(res, { error: e.message }, 500); }
+    return;
+  }
+
   if (url.pathname === '/health') { res.writeHead(200).end('ok'); return; }
 
   if (req.method === 'GET' && url.pathname === '/update/manifest.json')
@@ -148,12 +161,14 @@ function isAdminPassword(pw) {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-function checkAuth(req) {
+function checkBasic(req, expected) {
   const m = /^Basic (.+)$/.exec(req.headers['authorization'] || '');
   if (!m) return false;
   const pass = Buffer.from(m[1], 'base64').toString().split(':').slice(1).join(':');
-  return isAdminPassword(pass);
+  const a = Buffer.from(pass), b = Buffer.from(expected);
+  return a.length === b.length && timingSafeEqual(a, b);
 }
+function checkAuth(req) { return checkBasic(req, ADMIN_PASSWORD); }
 
 function sendJson(res, obj, code = 200) {
   res.writeHead(code, { 'Content-Type': 'application/json', 'Cache-Control': 'no-cache' });
@@ -253,14 +268,51 @@ async function handleAdmin(req, res, url) {
   res.writeHead(404).end();
 }
 
+// ------------------------------- platform console -------------------------------
+
+async function handlePlatform(req, res, url) {
+  if (url.pathname === '/platform' || url.pathname === '/platform/')
+    return serveFile(res, join(__dirname, 'platform.html'), 'text/html; charset=utf-8');
+
+  if (url.pathname === '/platform/api/state' && req.method === 'GET') {
+    const orgs = store.platformOrgs();
+    const onlineByOrg = {}; let activeSessions = 0;
+    for (const entry of hosts.values()) {
+      if (entry.orgId) onlineByOrg[entry.orgId] = (onlineByOrg[entry.orgId] || 0) + 1;
+      if (entry.viewer) activeSessions++;
+    }
+    orgs.forEach((o) => { o.online = onlineByOrg[o.id] || 0; });
+    const totals = {
+      orgs: orgs.length,
+      users: orgs.reduce((a, o) => a + o.users, 0),
+      computers: orgs.reduce((a, o) => a + o.computers, 0),
+      online: hosts.size, activeSessions,
+    };
+    const server = { uptimeSec: Math.floor(process.uptime()), hostsOnline: hosts.size, node: process.version };
+    return sendJson(res, { orgs, totals, server });
+  }
+
+  const m = /^\/platform\/api\/orgs\/([^/]+)$/.exec(url.pathname);
+  if (m && req.method === 'POST') {
+    const body = await readBody(req);
+    const o = store.setOrgPlan(decodeURIComponent(m[1]), body.plan);
+    return o ? sendJson(res, { ok: true, plan: o.plan }) : sendJson(res, { error: 'no such org' }, 404);
+  }
+
+  res.writeHead(404).end();
+}
+
 const wss = new WebSocketServer({ server: http });
 http.listen(PORT, () => {
   console.log(`[server] signaling/relay listening on ws://0.0.0.0:${PORT}`);
   console.log(`[server] update artifacts served from ${UPDATE_DIR}`);
   console.log(`[server] web app (accounts) at http://0.0.0.0:${PORT}/`);
+  console.log(`[server] platform console at http://0.0.0.0:${PORT}/platform`);
   console.log(`[server] legacy admin panel at http://0.0.0.0:${PORT}/admin`);
   if (ADMIN_PASSWORD === 'admin')
     console.warn('[server] WARNING: admin password is the default "admin" — set ADMIN_PASSWORD to secure it.');
+  if (PLATFORM_PASSWORD === 'platform')
+    console.warn('[server] WARNING: platform password is the default "platform" — set PLATFORM_PASSWORD to secure it.');
 });
 
 // Safety net: an unexpected error on one connection must never crash the relay and
