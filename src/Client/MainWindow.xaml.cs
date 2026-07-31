@@ -146,25 +146,6 @@ public partial class MainWindow : Window
     private void ShowBanner(bool active)
         => Banner.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
 
-    private async void SendFileBtn_Click(object sender, RoutedEventArgs e)
-    {
-        if (_session is not { } session) return;
-        var dlg = new Microsoft.Win32.OpenFileDialog { Title = "Send a file to the viewer" };
-        if (dlg.ShowDialog(this) != true) return;
-        SendFileBtn.IsEnabled = false;
-        try
-        {
-            SetStatus($"Sending {System.IO.Path.GetFileName(dlg.FileName)}…");
-            await session.Files.SendFileAsync(dlg.FileName);
-            SetStatus($"Sent {System.IO.Path.GetFileName(dlg.FileName)} ✓");
-        }
-        catch (Exception ex)
-        {
-            SetStatus("Send failed: " + ex.Message);
-        }
-        finally { SendFileBtn.IsEnabled = true; }
-    }
-
     private void SetStatus(string s) => StatusText.Text = s;
 
     private static string FormatId(string id)

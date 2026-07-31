@@ -70,18 +70,9 @@
 
         <Border Grid.Row="3" x:Name="Banner" Background="#12261a" CornerRadius="8" Padding="12,8"
                 Margin="0,0,0,12" Visibility="Collapsed">
-            <Grid>
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*"/>
-                    <ColumnDefinition Width="Auto"/>
-                </Grid.ColumnDefinitions>
-                <TextBlock Grid.Column="0" x:Name="BannerText" Text="● SESSION ACTIVE — someone is viewing this screen"
-                           Foreground="#3fb950" FontWeight="SemiBold" FontSize="13" VerticalAlignment="Center"
-                           TextWrapping="Wrap"/>
-                <Button Grid.Column="1" x:Name="SendFileBtn" Content="📁 Send file" Margin="10,0,0,0"
-                        Background="#21262d" Foreground="#e6edf3" BorderThickness="0" Cursor="Hand"
-                        Padding="10,4" Click="SendFileBtn_Click"/>
-            </Grid>
+            <TextBlock x:Name="BannerText" Text="● SESSION ACTIVE — someone is viewing this screen"
+                       Foreground="#3fb950" FontWeight="SemiBold" FontSize="13"
+                       TextWrapping="Wrap"/>
         </Border>
 
         <StackPanel Grid.Row="4">

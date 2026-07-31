@@ -23,6 +23,12 @@ public partial class MainWindow : Window
     private double _zoom;               // 0 = fit-to-window, else pixel scale factor
     private int _lastFilePct = -1;      // throttle file progress updates to whole percents
 
+    // Edge-pan: a capped velocity applied on a timer, so pan speed is independent of how
+    // often the mouse moves (previously it scrolled per MouseMove event → far too fast).
+    private double _panVx, _panVy;      // px/second
+    private System.Windows.Threading.DispatcherTimer? _panTimer;
+    private readonly Stopwatch _panClock = new();
+
     private static readonly Color Accent = Color.FromRgb(0x1f, 0x6f, 0xeb);
     private static readonly Color AccentBorder = Color.FromRgb(0x58, 0xa6, 0xff);
     private static readonly Color IdleBg = Color.FromRgb(0x0d, 0x11, 0x17);
@@ -124,7 +130,8 @@ public partial class MainWindow : Window
         Hint.Visibility = Visibility.Collapsed;
         Scroller.Visibility = Visibility.Visible;
         ZoomBox.IsEnabled = true;
-        SendFileBtn.IsEnabled = true;
+        TransferBtn.IsEnabled = true;
+        WinKeyBtn.IsEnabled = true;
         RemoteImage.Focus();
         foreach (var c in new UIElement[] { ServerBox, IdBox, PwBox }) c.IsEnabled = false;
     }
@@ -139,6 +146,7 @@ public partial class MainWindow : Window
     private void Cleanup()
     {
         _connected = false;
+        StopPan();
         _session?.Dispose();
         _session = null;
         ConnectBtn.Content = "Connect";
@@ -150,7 +158,10 @@ public partial class MainWindow : Window
         MonitorPanel.Children.Clear();
         _monitors.Clear();
         ZoomBox.IsEnabled = false;
-        SendFileBtn.IsEnabled = false;
+        TransferBtn.IsEnabled = false;
+        WinKeyBtn.IsEnabled = false;
+        _browser?.Close();
+        _browser = null;
         _lastFilePct = -1;
         foreach (var c in new UIElement[] { ServerBox, IdBox, PwBox }) c.IsEnabled = true;
     }
@@ -215,6 +226,7 @@ public partial class MainWindow : Window
         if (Scroller == null) return;
         if (_zoom <= 0)
         {
+            StopPan();
             Scroller.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
             Scroller.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
             RemoteImage.Stretch = Stretch.Uniform;
@@ -279,7 +291,7 @@ public partial class MainWindow : Window
     private void RemoteImage_MouseMove(object sender, MouseEventArgs e)
     {
         if (!_connected) return;
-        if (_zoom > 0) EdgePan(e);
+        if (_zoom > 0) UpdateEdgePan(e);
         long now = _moveClock.ElapsedMilliseconds;
         if (now - _lastMoveMs < 12) return;   // ~80 Hz
         _lastMoveMs = now;
@@ -287,26 +299,57 @@ public partial class MainWindow : Window
         _session!.MouseMove(x, y);
     }
 
+    // Max edge-pan speed in pixels/second at the very edge of the viewport; it eases in
+    // from zero across a band so nudging the edge pans gently.
+    private const double PanMaxSpeed = 650;
+    private const double PanBand = 60;
+
     /// <summary>
-    /// When zoomed past the window, pushing the pointer into a band near a viewport
-    /// edge pans the view in that direction (speed grows toward the edge).
+    /// When zoomed past the window, set the pan velocity from how far the pointer is into
+    /// the edge band. A timer applies it, so speed doesn't depend on mouse-move frequency.
     /// </summary>
-    private void EdgePan(MouseEventArgs e)
+    private void UpdateEdgePan(MouseEventArgs e)
     {
-        const double band = 48, maxStep = 26;
         var p = e.GetPosition(Scroller);
         double vw = Scroller.ViewportWidth, vh = Scroller.ViewportHeight;
-        if (vw <= 0 || vh <= 0) return;
+        if (vw <= 0 || vh <= 0) { StopPan(); return; }
 
-        double dx = 0, dy = 0;
-        if (p.X < band) dx = -(band - p.X);
-        else if (p.X > vw - band) dx = p.X - (vw - band);
-        if (p.Y < band) dy = -(band - p.Y);
-        else if (p.Y > vh - band) dy = p.Y - (vh - band);
+        double fx = 0, fy = 0;   // -1..1 fraction into the band
+        if (p.X < PanBand) fx = -(PanBand - p.X) / PanBand;
+        else if (p.X > vw - PanBand) fx = (p.X - (vw - PanBand)) / PanBand;
+        if (p.Y < PanBand) fy = -(PanBand - p.Y) / PanBand;
+        else if (p.Y > vh - PanBand) fy = (p.Y - (vh - PanBand)) / PanBand;
 
-        if (dx != 0) Scroller.ScrollToHorizontalOffset(Scroller.HorizontalOffset + Math.Clamp(dx / band, -1, 1) * maxStep);
-        if (dy != 0) Scroller.ScrollToVerticalOffset(Scroller.VerticalOffset + Math.Clamp(dy / band, -1, 1) * maxStep);
+        _panVx = Math.Clamp(fx, -1, 1) * PanMaxSpeed;
+        _panVy = Math.Clamp(fy, -1, 1) * PanMaxSpeed;
+
+        if (_panVx == 0 && _panVy == 0) return;   // let the timer coast to a stop
+        if (_panTimer == null)
+        {
+            _panClock.Restart();
+            _panTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(16) };
+            _panTimer.Tick += PanTick;
+            _panTimer.Start();
+        }
     }
+
+    private void PanTick(object? sender, EventArgs e)
+    {
+        double dt = _panClock.Elapsed.TotalSeconds;
+        _panClock.Restart();
+        if (_panVx == 0 && _panVy == 0) { StopPan(); return; }
+        if (_panVx != 0) Scroller.ScrollToHorizontalOffset(Scroller.HorizontalOffset + _panVx * dt);
+        if (_panVy != 0) Scroller.ScrollToVerticalOffset(Scroller.VerticalOffset + _panVy * dt);
+    }
+
+    private void StopPan()
+    {
+        _panVx = _panVy = 0;
+        _panTimer?.Stop();
+        _panTimer = null;
+    }
+
+    private void Scroller_MouseLeave(object sender, MouseEventArgs e) => StopPan();
 
     private void RemoteImage_MouseDown(object sender, MouseButtonEventArgs e)
     {
@@ -328,30 +371,27 @@ public partial class MainWindow : Window
         MouseButton.Left => 0, MouseButton.Right => 1, MouseButton.Middle => 2, _ => 0
     };
 
-    // ---- file transfer ----
+    // ---- file transfer: open the remote file browser (download + upload) ----
 
-    private async void SendFileBtn_Click(object sender, RoutedEventArgs e)
+    private RemoteBrowserWindow? _browser;
+
+    private void TransferBtn_Click(object sender, RoutedEventArgs e)
     {
         if (_session is not { } session) return;
-        var dlg = new Microsoft.Win32.OpenFileDialog { Title = "Send a file to the remote machine" };
-        if (dlg.ShowDialog(this) != true) return;
+        if (_browser is { IsLoaded: true }) { _browser.Activate(); return; }
+        _browser = new RemoteBrowserWindow(session) { Owner = this };
+        _browser.Closed += (_, _) => _browser = null;
+        _browser.Show();
+    }
 
-        SendFileBtn.IsEnabled = false;
-        _lastFilePct = -1;
-        try
-        {
-            await session.Files.SendFileAsync(dlg.FileName);
-            SetStatus($"Sent {Path.GetFileName(dlg.FileName)} ✓ (saved to remote Downloads)");
-        }
-        catch (Exception ex)
-        {
-            SetStatus("Send failed: " + ex.Message);
-        }
-        finally
-        {
-            _lastFilePct = -1;
-            SendFileBtn.IsEnabled = _connected;
-        }
+    // ---- Windows (Start) key: tap ⊞ on the remote PC ----
+    private void WinKeyBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (!_connected) return;
+        const int VK_LWIN = 0x5B;
+        _session!.KeyVirtual(VK_LWIN, true);
+        _session!.KeyVirtual(VK_LWIN, false);
+        RemoteImage.Focus();
     }
 
     private void FileProgress(string verb, string name, long done, long total)

@@ -62,18 +62,28 @@ Text frames are JSON with a `t` (type) field. Binary frames are JPEG image data
 | master→host   | `{t:"answer", sdp}` | master's SDP answer |
 | either        | `{t:"ice", candidate}` | trickled ICE candidate |
 
-**File transfer** — on a second host-created data channel labelled `file`
-(separate from `input` so a large transfer can't stall input events). Reliable +
-ordered SCTP, so the protocol is minimal; one transfer at a time in either
-direction (binary chunks carry no id). Implemented once in
-`Shared/FileTransferChannel.cs`, used by both sides.
+**File transfer + remote browsing** — on a second host-created data channel labelled
+`file` (separate from `input` so a large transfer can't stall input events). Reliable
++ ordered SCTP, so the protocol is minimal; one transfer at a time in either direction
+(binary chunks carry no id). Implemented once in `Shared/FileTransferChannel.cs`, used
+by both sides. All transfers are **driven from the master** — the client has no transfer
+UI, it only answers listing/pull requests and receives uploads. The master's "Transfer
+files" button opens a remote file browser (`Master/RemoteBrowserWindow`).
 | From | Message | Meaning |
 |------|---------|---------|
-| sender   | `{t:"begin", name, size}` | announce one file |
+| sender   | `{t:"begin", name, size, dest?}` | announce one file (`dest` = target dir, else Downloads) |
 | sender   | *binary* (16 KB chunks)   | file bytes, in order |
 | sender   | `{t:"end"}`               | all bytes sent |
 | receiver | `{t:"ack", n}`            | bytes received — sender stalls at >1 MB unacked |
 | receiver | `{t:"done"}` / `{t:"err", msg}` | saved ok (to Downloads; Public Downloads under SYSTEM) / failed |
+| master   | `{t:"ls", path}`          | list a remote directory (`""` = drive list) |
+| client   | `{t:"ls-ok", path, entries:[{n,d,s}]}` / `{t:"ls-err", path, msg}` | listing / error |
+| master   | `{t:"get", path}`         | pull a remote file (client replies with `begin`/chunks/`end`) |
+| client   | `{t:"get-err", msg}`      | the pull couldn't start |
+
+Exposing the client's whole filesystem to the master is consistent with the trust model
+(the master already has full mouse/keyboard control). Remote names are stripped to bare
+filenames on save, and uploads only write into an already-existing target directory.
 
 **Media / input**
 | From        | Payload | Meaning |
@@ -105,11 +115,13 @@ either side doesn't corrupt them; the host maps 0..1 → virtual-desktop absolut
   capture pump (a mid-encode dispose is an uncatchable native AccessViolation).
 - **Phase 3 — quality:** DXGI Desktop Duplication w/ dirty-rects, QuickSync H.264,
   adaptive bitrate, clipboard sync. Done so far: multi-monitor (numbered screen-icon
-  picker in the master toolbar, `selmon` over signaling), **file transfer** (both
-  directions over a dedicated `file` data channel), and **viewer zoom** — Fit mode
-  scales to the window; 50/100/150/200 % render at pixel scale inside a ScrollViewer
-  with edge-pan (push the pointer against a viewport edge) + Ctrl+wheel zoom, so a
-  4K remote stays operable on a smaller viewer screen.
+  picker in the master toolbar, `selmon` over signaling; only the selected monitor is
+  captured/encoded/streamed — "All monitors" is the sole multi-capture mode),
+  **file transfer + remote file browser** (master-driven, both directions over the
+  `file` data channel), a **Windows-key (Start) button** in the master toolbar, and
+  **viewer zoom** — Fit mode scales to the window; 50/100/150/200 % render at pixel
+  scale inside a ScrollViewer with capped time-based edge-pan (push the pointer against
+  a viewport edge) + Ctrl+wheel zoom, so a 4K remote stays operable on a smaller viewer.
 - **Phase 4 — product (IN PROGRESS):** host as a **Windows Service** (survives logout,
   works at the lock screen / UAC secure desktop). `src/Service` is a LocalSystem
   `BackgroundService` (`Supervisor`) that keeps one capture worker — `FtdRemoteClient.exe

@@ -82,8 +82,12 @@
                     <ComboBoxItem Content="200 %" Tag="2"/>
                 </ComboBox>
 
-                <Button x:Name="SendFileBtn" Content="📁 Send file" Style="{StaticResource ToolBtn}"
-                        Margin="14,0,0,0" IsEnabled="False" Click="SendFileBtn_Click"/>
+                <Button x:Name="WinKeyBtn" Content="⊞ Win" Style="{StaticResource ToolBtn}"
+                        Margin="14,0,0,0" IsEnabled="False" Click="WinKeyBtn_Click"
+                        ToolTip="Send the Windows (Start) key to the remote PC"/>
+                <Button x:Name="TransferBtn" Content="📁 Transfer files" Style="{StaticResource ToolBtn}"
+                        Margin="6,0,0,0" IsEnabled="False" Click="TransferBtn_Click"
+                        ToolTip="Browse the remote PC's files — download or upload"/>
 
                 <Button x:Name="UpdateBtn" Content="⬇ Update available" Margin="14,0,0,0"
                         Background="#9e6a03" Foreground="White" BorderThickness="0" Cursor="Hand"
@@ -107,7 +111,8 @@
                  ScrollViewer pans (scrollbars, or just push the pointer against an edge). -->
             <ScrollViewer x:Name="Scroller" Visibility="Collapsed" Background="#010409"
                           HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled"
-                          Focusable="False" PreviewMouseWheel="Scroller_PreviewMouseWheel">
+                          Focusable="False" PreviewMouseWheel="Scroller_PreviewMouseWheel"
+                          MouseLeave="Scroller_MouseLeave">
                 <Image x:Name="RemoteImage" Stretch="Uniform" Focusable="True"
                        HorizontalAlignment="Center" VerticalAlignment="Center"
                        MouseMove="RemoteImage_MouseMove"

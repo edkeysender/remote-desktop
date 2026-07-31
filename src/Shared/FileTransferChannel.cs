@@ -5,15 +5,28 @@ using SIPSorcery.Net;
 
 namespace RemoteDesktop.Shared;
 
+/// <summary>One entry in a remote directory listing.</summary>
+public sealed record FsEntry(string Name, bool IsDir, long Size);
+
+/// <summary>A remote directory listing. <see cref="Path"/> is "" for the drive list ("This PC").</summary>
+public sealed record FsListing(string Path, IReadOnlyList<FsEntry> Entries);
+
 /// <summary>
-/// Bidirectional file transfer over a dedicated WebRTC data channel ("file").
-/// The channel is reliable + ordered (SCTP default), so the protocol is simple:
+/// Bidirectional file transfer + remote file browsing over a dedicated WebRTC data
+/// channel ("file"). The channel is reliable + ordered (SCTP default), so the protocol
+/// is simple:
 ///
-///   sender   → {"t":"begin","name","size"}   announce one file
-///   sender   → binary chunks (16 KB)          file bytes, in order
-///   sender   → {"t":"end"}                    all bytes sent
-///   receiver → {"t":"ack","n":bytes}          progress ack, drives sender's window
-///   receiver → {"t":"done"} / {"t":"err"}     saved ok / failed
+///   sender   → {"t":"begin","name","size","dest"?}  announce one file (dest = target dir)
+///   sender   → binary chunks (16 KB)                 file bytes, in order
+///   sender   → {"t":"end"}                           all bytes sent
+///   receiver → {"t":"ack","n":bytes}                 progress ack, drives sender's window
+///   receiver → {"t":"done"} / {"t":"err"}            saved ok / failed
+///
+/// Remote browsing (master drives it; the client answers from its own filesystem):
+///   master   → {"t":"ls","path"}          list a directory ("" = drives)
+///   client   → {"t":"ls-ok","path","entries":[{n,d,s}]} / {"t":"ls-err","path","msg"}
+///   master   → {"t":"get","path"}         pull a remote file (client replies with begin/…)
+///   client   → {"t":"get-err","msg"}      the pull could not start
 ///
 /// One transfer at a time on the channel (either direction) — binary chunks carry
 /// no id, so interleaving would be ambiguous. App-level acks provide flow control
@@ -40,6 +53,10 @@ public sealed class FileTransferChannel
     private string? _rxName;
     private long _rxSize, _rxReceived, _rxLastAck;
 
+    // --- pull state (master waiting on a file it requested with "get") ---
+    private TaskCompletionSource<string>? _pullTcs;
+    private string? _pullSaveAs;                      // explicit save path for the pulled file
+
     /// <summary>Where received files are written. Defaults to the user's Downloads folder.</summary>
     public string SaveDirectory { get; set; } = DefaultSaveDirectory();
 
@@ -48,6 +65,8 @@ public sealed class FileTransferChannel
     public event Action<string, string>? ReceiveCompleted;          // name, saved path
     public event Action<string, long, long>? SendProgress;          // name, sent, total
     public event Action<string>? Error;
+    public event Action<FsListing>? ListingReceived;                // master: a remote directory arrived
+    public event Action<string, string>? ListingError;             // master: path, error message
 
     public bool IsOpen => _chan is { IsOpened: true };
 
@@ -65,11 +84,16 @@ public sealed class FileTransferChannel
         _chan = null;
         AbortReceive();
         _txDone?.TrySetResult(false);
+        _pullTcs?.TrySetException(new IOException("Session ended."));
     }
 
     // ------------------------------- sending -------------------------------
 
-    public async Task SendFileAsync(string path, CancellationToken ct = default)
+    /// <summary>
+    /// Send a local file to the peer. <paramref name="destDir"/>, if given, asks the
+    /// receiver to save into that (already-existing) directory instead of its Downloads.
+    /// </summary>
+    public async Task SendFileAsync(string path, string? destDir = null, CancellationToken ct = default)
     {
         var chan = _chan;
         if (chan is not { IsOpened: true }) throw new InvalidOperationException("File channel is not open.");
@@ -83,7 +107,7 @@ public sealed class FileTransferChannel
             _txError = null;
             _txDone = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
-            chan.send(JsonSerializer.Serialize(new { t = "begin", name, size }));
+            chan.send(JsonSerializer.Serialize(new { t = "begin", name, size, dest = destDir }));
 
             using var fs = File.OpenRead(path);
             var buf = new byte[ChunkSize];
@@ -114,6 +138,44 @@ public sealed class FileTransferChannel
         finally
         {
             Interlocked.Exchange(ref _sending, 0);
+        }
+    }
+
+    // ---------------------- remote browsing / pull (master) ----------------------
+
+    /// <summary>Ask the peer for a directory listing ("" = the drive list). Master side.</summary>
+    public void RequestListing(string path)
+    {
+        _chan?.send(JsonSerializer.Serialize(new { t = "ls", path }));
+    }
+
+    /// <summary>
+    /// Pull a remote file to this machine and return the local path it was saved to.
+    /// <paramref name="saveAsPath"/> forces an exact destination; otherwise it lands in
+    /// <see cref="SaveDirectory"/>. Master side.
+    /// </summary>
+    public async Task<string> DownloadAsync(string remotePath, string? saveAsPath = null, CancellationToken ct = default)
+    {
+        var chan = _chan;
+        if (chan is not { IsOpened: true }) throw new InvalidOperationException("File channel is not open.");
+        if (_pullTcs != null || _rxStream != null) throw new InvalidOperationException("A transfer is already in progress.");
+
+        _pullSaveAs = saveAsPath;
+        _pullTcs = new TaskCompletionSource<string>(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            chan.send(JsonSerializer.Serialize(new { t = "get", path = remotePath }));
+            using (ct.Register(() => _pullTcs?.TrySetCanceled()))
+            {
+                var done = await Task.WhenAny(_pullTcs.Task, Task.Delay(TimeSpan.FromMinutes(30), ct));
+                if (done != _pullTcs.Task) throw new IOException("Download timed out.");
+                return await _pullTcs.Task;
+            }
+        }
+        finally
+        {
+            _pullTcs = null;
+            _pullSaveAs = null;
         }
     }
 
@@ -149,23 +211,38 @@ public sealed class FileTransferChannel
                 var name = Path.GetFileName(r.GetProperty("name").GetString() ?? "file");
                 foreach (var c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
                 if (name.Length == 0) name = "file";
-                Directory.CreateDirectory(SaveDirectory);
-                _rxPath = UniquePath(SaveDirectory, name);
-                _rxName = name;
+
+                if (_pullSaveAs != null)
+                {
+                    // A pull we initiated with an explicit destination path.
+                    Directory.CreateDirectory(Path.GetDirectoryName(_pullSaveAs)!);
+                    _rxPath = _pullSaveAs;
+                }
+                else
+                {
+                    // A push: honor a requested (existing) target dir, else Downloads.
+                    var dest = r.TryGetProperty("dest", out var dv) && dv.ValueKind == JsonValueKind.String ? dv.GetString() : null;
+                    var dir = !string.IsNullOrEmpty(dest) && Directory.Exists(dest) ? dest! : SaveDirectory;
+                    Directory.CreateDirectory(dir);
+                    _rxPath = UniquePath(dir, name);
+                }
+                _rxName = Path.GetFileName(_rxPath);
                 _rxSize = r.GetProperty("size").GetInt64();
                 _rxReceived = 0; _rxLastAck = 0;
                 _rxStream = new FileStream(_rxPath, FileMode.CreateNew, FileAccess.Write);
-                ReceiveStarted?.Invoke(name, _rxSize);
+                ReceiveStarted?.Invoke(_rxName, _rxSize);
                 break;
             }
             case "end":
             {
                 if (_rxStream == null) break;
                 _rxStream.Dispose(); _rxStream = null;
+                var savedPath = _rxPath!; var savedName = _rxName!;
                 _chan?.send(JsonSerializer.Serialize(new { t = "ack", n = _rxReceived }));
                 _chan?.send("""{"t":"done"}""");
-                ReceiveCompleted?.Invoke(_rxName!, _rxPath!);
                 _rxPath = null; _rxName = null;
+                ReceiveCompleted?.Invoke(savedName, savedPath);
+                _pullTcs?.TrySetResult(savedPath);   // unblock DownloadAsync, if this was a pull
                 break;
             }
             case "ack":
@@ -178,6 +255,77 @@ public sealed class FileTransferChannel
                 _txError = r.TryGetProperty("msg", out var m) ? m.GetString() : "remote error";
                 _txDone?.TrySetResult(false);
                 break;
+
+            // ---- remote browsing: the client answers, the master consumes ----
+            case "ls":
+                SendListing(r.GetProperty("path").GetString() ?? "");
+                break;
+            case "ls-ok":
+            {
+                var p = r.GetProperty("path").GetString() ?? "";
+                var entries = new List<FsEntry>();
+                foreach (var e in r.GetProperty("entries").EnumerateArray())
+                    entries.Add(new FsEntry(
+                        e.GetProperty("n").GetString() ?? "",
+                        e.GetProperty("d").GetBoolean(),
+                        e.TryGetProperty("s", out var sz) ? sz.GetInt64() : 0));
+                ListingReceived?.Invoke(new FsListing(p, entries));
+                break;
+            }
+            case "ls-err":
+                ListingError?.Invoke(
+                    r.GetProperty("path").GetString() ?? "",
+                    r.TryGetProperty("msg", out var lm) ? lm.GetString() ?? "" : "");
+                break;
+            case "get":
+                _ = HandleGetAsync(r.GetProperty("path").GetString() ?? "");
+                break;
+            case "get-err":
+                _pullTcs?.TrySetException(new IOException(
+                    r.TryGetProperty("msg", out var gm) ? gm.GetString() : "remote error"));
+                break;
+        }
+    }
+
+    // ---- client side: answer a listing request from its own filesystem ----
+    private void SendListing(string path)
+    {
+        try
+        {
+            object payload;
+            if (string.IsNullOrEmpty(path))
+            {
+                var drives = DriveInfo.GetDrives()
+                    .Where(dr => dr.IsReady)
+                    .Select(dr => new { n = dr.Name, d = true, s = 0L });
+                payload = new { t = "ls-ok", path = "", entries = drives };
+            }
+            else
+            {
+                var dirs = Directory.GetDirectories(path)
+                    .Select(p => new { n = Path.GetFileName(p), d = true, s = 0L });
+                var files = Directory.GetFiles(path).Select(p =>
+                {
+                    long len = 0; try { len = new FileInfo(p).Length; } catch { }
+                    return new { n = Path.GetFileName(p), d = false, s = len };
+                });
+                payload = new { t = "ls-ok", path, entries = dirs.Concat(files) };
+            }
+            _chan?.send(JsonSerializer.Serialize(payload));
+        }
+        catch (Exception ex)
+        {
+            try { _chan?.send(JsonSerializer.Serialize(new { t = "ls-err", path, msg = ex.Message })); } catch { }
+        }
+    }
+
+    // ---- client side: serve a pull request by sending the file back ----
+    private async Task HandleGetAsync(string path)
+    {
+        try { await SendFileAsync(path); }
+        catch (Exception ex)
+        {
+            try { _chan?.send(JsonSerializer.Serialize(new { t = "get-err", msg = ex.Message })); } catch { }
         }
     }
 
@@ -196,6 +344,7 @@ public sealed class FileTransferChannel
 
     private void AbortReceive()
     {
+        _pullTcs?.TrySetException(new IOException("Transfer aborted."));
         var s = _rxStream; _rxStream = null;
         if (s == null) return;
         try { s.Dispose(); } catch { }

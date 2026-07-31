@@ -130,6 +130,29 @@ var second = await WaitOr(hostRx2.Task, 20000);
 Check(second is not null && second != hostSaved && File.Exists(hostSaved),
     $"second send kept both copies ({Path.GetFileName(second ?? "?")})");
 
+// --- remote browsing + pull: viewer lists a host directory, then downloads a file ---
+var browseDir = Path.Combine(tmpDir, "remote-src");
+Directory.CreateDirectory(browseDir);
+var remoteFile = Path.Combine(browseDir, "pulled.bin");
+var remoteBytes = new byte[1024 * 1024 + 77];
+new Random(99).NextBytes(remoteBytes);
+File.WriteAllBytes(remoteFile, remoteBytes);
+
+FsListing? listing = null;
+var listReady = new TaskCompletionSource<bool>();
+void OnList(FsListing l) { listing = l; listReady.TrySetResult(true); }
+viewer.Files.ListingReceived += OnList;
+viewer.Files.RequestListing(browseDir);
+await WaitBool(listReady.Task, 8000);
+viewer.Files.ListingReceived -= OnList;
+Check(listing is not null && listing.Entries.Any(en => en.Name == "pulled.bin" && !en.IsDir),
+    $"remote listing returned the file ({listing?.Entries.Count ?? 0} entries)");
+
+var pullDest = Path.Combine(tmpDir, "pulled-copy.bin");
+var pulled = await viewer.Files.DownloadAsync(remoteFile, pullDest);
+Check(File.Exists(pulled) && File.ReadAllBytes(pulled).AsSpan().SequenceEqual(remoteBytes),
+    $"remote file pulled + intact ({remoteBytes.Length} bytes -> {pulled})");
+
 try { Directory.Delete(tmpDir, recursive: true); } catch { }
 
 // --- auto-update: manifest check + hash-verified download over the server's HTTP side ---
