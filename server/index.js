@@ -8,10 +8,14 @@
 
 import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
+import express from 'express';
 import { randomBytes, timingSafeEqual } from 'crypto';
 import { readFileSync, writeFileSync, existsSync, createReadStream, statSync } from 'fs';
 import { resolve, join, basename, extname, dirname } from 'path';
 import { fileURLToPath } from 'url';
+import { buildWebApp } from './lib/web.js';
+import { verifyToken } from './lib/auth.js';
+import * as store from './lib/store.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -79,10 +83,13 @@ function ensureClientMeta(id) {
 //   *    /admin, /admin/api/*        → admin panel + API (auth)
 // Everything else 404s. The WebSocket upgrade is handled by the wss below.
 const ALLOWED_EXT = new Set(['.json', '.exe', '.zip']);
-const http = createServer(async (req, res) => {
+
+// Legacy endpoints kept for backward compatibility with 0.2.x apps: liveness, app
+// auto-update, and the original admin-password panel/directory. Anything not matched
+// here falls through (next) to the account-based web app below.
+async function legacyRoutes(req, res, next) {
   const url = new URL(req.url, 'http://localhost');
 
-  // ---- admin panel + API and the master directory (all password-protected) ----
   if (url.pathname === '/admin' || url.pathname.startsWith('/admin/') || url.pathname === '/directory') {
     if (!checkAuth(req)) {
       res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="FTD Admin"' }).end('auth required');
@@ -93,20 +100,27 @@ const http = createServer(async (req, res) => {
     return;
   }
 
-  // ---- public GET endpoints ----
-  if (req.method !== 'GET') { res.writeHead(405).end(); return; }
   if (url.pathname === '/health') { res.writeHead(200).end('ok'); return; }
 
-  if (url.pathname === '/update/manifest.json') return serveFile(res, join(UPDATE_DIR, 'manifest.json'), 'application/json');
-  if (url.pathname.startsWith('/update/')) {
+  if (req.method === 'GET' && url.pathname === '/update/manifest.json')
+    return serveFile(res, join(UPDATE_DIR, 'manifest.json'), 'application/json');
+  if (req.method === 'GET' && url.pathname.startsWith('/update/')) {
     // basename() strips any path components, so "../" can't escape UPDATE_DIR.
     const name = basename(decodeURIComponent(url.pathname.slice('/update/'.length)));
     if (!name || !ALLOWED_EXT.has(extname(name).toLowerCase())) { res.writeHead(404).end(); return; }
     const type = extname(name) === '.json' ? 'application/json' : 'application/octet-stream';
     return serveFile(res, join(UPDATE_DIR, name), type);
   }
-  res.writeHead(404).end();
-});
+
+  next();   // hand off to the account-based control-plane web app
+}
+
+const relayStatus = (relayId) => ({ online: hosts.has(relayId), busy: !!hosts.get(relayId)?.viewer });
+
+const app = express();
+app.use(legacyRoutes);
+app.use(buildWebApp({ relayStatus }));
+const http = createServer(app);
 
 function serveFile(res, path, type) {
   let st;
@@ -242,7 +256,8 @@ const wss = new WebSocketServer({ server: http });
 http.listen(PORT, () => {
   console.log(`[server] signaling/relay listening on ws://0.0.0.0:${PORT}`);
   console.log(`[server] update artifacts served from ${UPDATE_DIR}`);
-  console.log(`[server] admin panel at http://0.0.0.0:${PORT}/admin`);
+  console.log(`[server] web app (accounts) at http://0.0.0.0:${PORT}/`);
+  console.log(`[server] legacy admin panel at http://0.0.0.0:${PORT}/admin`);
   if (ADMIN_PASSWORD === 'admin')
     console.warn('[server] WARNING: admin password is the default "admin" — set ADMIN_PASSWORD to secure it.');
 });
@@ -262,6 +277,15 @@ function newId() {
 
 function send(ws, obj) {
   if (ws && ws.readyState === ws.OPEN) ws.send(JSON.stringify(obj));
+}
+
+// True if the session token belongs to a user allowed to connect to this host's
+// computer (same org, and admin or a shared group). Used for password-less connect.
+function accountAuthorized(authToken, entry) {
+  if (!authToken || !entry?.deviceToken) return false;
+  const uid = verifyToken(authToken);
+  const user = uid ? store.getUser(uid) : null;
+  return !!user && store.userCanAccessComputer(user, entry.deviceToken);
 }
 
 wss.on('connection', (ws, req) => {
@@ -300,12 +324,24 @@ wss.on('connection', (ws, req) => {
         }
         ws.role = 'host';
         ws.id = id;
-        hosts.set(id, { ws, viewer: null, ip: ws._ip, since: Date.now() });
+        ws._deviceToken = token;
+        hosts.set(id, { ws, viewer: null, ip: ws._ip, since: Date.now(), deviceToken: token });
         const meta = ensureClientMeta(id);
         meta.lastSeen = Date.now();
         saveAdmin();
-        send(ws, { t: 'registered', id });
-        console.log(`[server] host registered id=${id}${token ? ' (persistent)' : ''}`);
+
+        // Account claim: a host that signs in (auth token) links this device to its org,
+        // so the computer shows up in that org's list and access control applies.
+        let org = null;
+        const uid = msg.auth ? verifyToken(msg.auth) : null;
+        const user = uid ? store.getUser(uid) : null;
+        if (user && token) {
+          const c = store.upsertComputer({ deviceToken: token, orgId: user.orgId, defaultName: msg.name || 'Computer', relayId: id });
+          org = store.getOrg(user.orgId);
+          if (c) hosts.get(id).orgId = user.orgId;
+        }
+        send(ws, { t: 'registered', id, org: org ? { id: org.id, name: org.name } : null });
+        console.log(`[server] host registered id=${id}${token ? ' (persistent)' : ''}${org ? ` org=${org.name}` : ''}`);
         break;
       }
 
@@ -318,11 +354,13 @@ wss.on('connection', (ws, req) => {
         pending.set(rid, ws);
         ws._rid = rid;
         ws._hostId = String(msg.id);
-        // Normal path: host verifies the password locally; server never sees the truth.
-        // Admin path: a viewer that proves the admin password to the RELAY is vouched
-        // for (admin:true) so the host may accept without the per-client password —
-        // this is what lets the Master connect from the directory without a prompt.
-        const admin = msg.admin === true && isAdminPassword(msg.adminPassword);
+        // Three ways to be authorized (host then accepts without the per-client password):
+        //  • legacy admin password proven to the relay (0.2.x directory picker), or
+        //  • an account session whose user may access this computer (org + group), or
+        //  • otherwise the host verifies the per-client password itself (normal path).
+        const admin =
+          (msg.admin === true && isAdminPassword(msg.adminPassword)) ||
+          accountAuthorized(msg.auth, entry);
         send(entry.ws, { t: 'connect-request', rid, password: msg.password ?? '', admin });
         break;
       }

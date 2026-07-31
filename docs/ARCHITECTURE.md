@@ -18,12 +18,21 @@ Responsibilities:
   (version + per-component file list) and `GET /update/<file>` (published exes),
   from `UPDATE_DIR` (default `./update`). `build.ps1` stages that directory and can
   scp it to the Pi. The Windows apps poll the manifest and offer an in-app update.
-- Host an **admin panel** (`server/admin.html` at `/admin`) and a JSON API
-  (`/admin/api/*`) to view every connection (online/in-session/offline, IP, last
-  seen), create/rename/delete **groups**, and assign clients to groups + name them.
-  A read-only **`/directory`** endpoint feeds the Master's computer picker. All three
-  are HTTP-Basic protected by `ADMIN_PASSWORD` (default `admin` — set it!). State
-  persists in `admin.json` (`{groups, clients:{id:{name,groupId,lastSeen}}}`).
+- Host a **multi-tenant account web app** (Express, `server/lib/*` + `server/public/`)
+  at `/`: register an org (owner=admin), sign in, invite users (link tokens), create
+  groups, assign users to groups, and manage computers. Auth is bcrypt + HMAC-signed
+  session tokens (cookie for the web, `Bearer` for the desktop app). Data is JSON files
+  under `DATA_DIR` (`db.json` + `session-secret`). Access rule: a user may connect to a
+  computer iff same org AND (admin OR shares a group with it).
+    - A **host claims a computer by signing in**: `register` carries `{token(device),
+      auth}`; the relay links that device to the caller's org and it appears in the org's
+      computer list.
+    - **Password-less connect by membership**: `connect` carries `{id, auth}`; the relay
+      authorizes (org + group) and vouches to the host (`admin:true`), which then accepts
+      without the per-client password. `GET /api/my-computers` gives a user their allowed
+      groups+computers for the desktop picker.
+  - The legacy `ADMIN_PASSWORD` admin panel (`/admin`) and `/directory` are kept for
+    backward compatibility with 0.2.x apps; the account system supersedes them.
 
 ### 2. Host (`host/`, C# .NET 8, Windows-only)
 Runs on the controlled machine.

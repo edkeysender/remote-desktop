@@ -1,0 +1,198 @@
+// The authenticated control-plane web app (Express): registration, login, invites,
+// groups, users, and computers — all scoped to the caller's org. Mounted by index.js
+// onto the shared HTTP server. `deps.relayStatus(relayId)` reports live online/busy.
+
+import express from 'express';
+import { fileURLToPath } from 'url';
+import { dirname, join } from 'path';
+import * as store from './store.js';
+import {
+  hashPassword, verifyPassword, issueToken, verifyToken, parseCookies, SESSION_COOKIE,
+} from './auth.js';
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const PUBLIC_DIR = join(__dirname, '..', 'public');
+
+export function buildWebApp({ relayStatus }) {
+  const app = express.Router();
+  app.use(express.json());
+
+  // Attach req.user from the session cookie or a Bearer token (desktop app).
+  app.use((req, _res, next) => {
+    let token = parseCookies(req)[SESSION_COOKIE];
+    const auth = req.headers['authorization'];
+    if (!token && auth?.startsWith('Bearer ')) token = auth.slice(7);
+    const userId = token ? verifyToken(token) : null;
+    req.user = userId ? store.getUser(userId) : null;
+    next();
+  });
+
+  const requireUser = (req, res, next) => req.user ? next() : res.status(401).json({ error: 'not signed in' });
+  const requireAdmin = (req, res, next) =>
+    req.user?.role === 'admin' ? next() : res.status(403).json({ error: 'admin only' });
+
+  const setSession = (res, userId) => {
+    const token = issueToken(userId);
+    res.cookie?.(SESSION_COOKIE, token, { httpOnly: true, sameSite: 'lax', maxAge: 30 * 864e5 });
+    // Router has no res.cookie without cookie middleware; set header directly.
+    res.setHeader('Set-Cookie',
+      `${SESSION_COOKIE}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${30 * 86400}`);
+    return token;
+  };
+
+  const publicUser = (u) => ({ id: u.id, email: u.email, name: u.name, role: u.role, groupIds: u.groupIds || [] });
+
+  // ------------------------------- auth -------------------------------
+
+  app.post('/api/register', async (req, res) => {
+    const { orgName, email, name, password } = req.body || {};
+    if (!orgName || !email || !password) return res.status(400).json({ error: 'orgName, email, password required' });
+    if (String(password).length < 8) return res.status(400).json({ error: 'password must be at least 8 characters' });
+    if (store.emailTaken(email)) return res.status(409).json({ error: 'that email is already registered' });
+    const { org, user } = store.createOrgWithOwner({ orgName, email, name, passHash: await hashPassword(password) });
+    const token = setSession(res, user.id);
+    res.json({ token, user: publicUser(user), org: { id: org.id, name: org.name } });
+  });
+
+  app.post('/api/login', async (req, res) => {
+    const { email, password } = req.body || {};
+    const user = store.findUserByEmail(email || '');
+    if (!user || !(await verifyPassword(password || '', user.passHash)))
+      return res.status(401).json({ error: 'wrong email or password' });
+    const token = setSession(res, user.id);
+    const org = store.getOrg(user.orgId);
+    res.json({ token, user: publicUser(user), org: { id: org.id, name: org.name } });
+  });
+
+  app.post('/api/logout', (req, res) => {
+    res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; HttpOnly; Path=/; Max-Age=0`);
+    res.json({ ok: true });
+  });
+
+  app.get('/api/me', requireUser, (req, res) => {
+    const org = store.getOrg(req.user.orgId);
+    res.json({ user: publicUser(req.user), org: { id: org.id, name: org.name } });
+  });
+
+  // ------------------------------- invites -------------------------------
+
+  app.get('/api/invites', requireUser, requireAdmin, (req, res) => {
+    res.json(store.listInvites(req.user.orgId).map((i) => ({
+      token: i.token, email: i.email, role: i.role, createdAt: i.createdAt,
+      url: inviteUrl(req, i.token),
+    })));
+  });
+
+  app.post('/api/invites', requireUser, requireAdmin, (req, res) => {
+    const { email, role } = req.body || {};
+    const inv = store.createInvite({ orgId: req.user.orgId, email, role, invitedBy: req.user.id });
+    res.json({ token: inv.token, email: inv.email, role: inv.role, url: inviteUrl(req, inv.token) });
+  });
+
+  app.delete('/api/invites/:token', requireUser, requireAdmin, (req, res) => {
+    store.revokeInvite(req.params.token, req.user.orgId);
+    res.json({ ok: true });
+  });
+
+  // Public: look up an invite so the accept page can show who/where.
+  app.get('/api/invite/:token', (req, res) => {
+    const inv = store.getInvite(req.params.token);
+    if (!inv) return res.status(404).json({ error: 'invite not found or already used' });
+    const org = store.getOrg(inv.orgId);
+    res.json({ email: inv.email, role: inv.role, orgName: org?.name || '' });
+  });
+
+  app.post('/api/accept-invite', async (req, res) => {
+    const { token, name, password } = req.body || {};
+    const inv = store.getInvite(token);
+    if (!inv) return res.status(404).json({ error: 'invite not found or already used' });
+    const email = inv.email;
+    if (!email) return res.status(400).json({ error: 'invite has no email' });
+    if (String(password || '').length < 8) return res.status(400).json({ error: 'password must be at least 8 characters' });
+    if (store.emailTaken(email)) return res.status(409).json({ error: 'that email is already registered' });
+    const user = store.createUser({ orgId: inv.orgId, email, name, passHash: await hashPassword(password), role: inv.role });
+    store.acceptInvite(token, user.id);
+    const t = setSession(res, user.id);
+    const org = store.getOrg(user.orgId);
+    res.json({ token: t, user: publicUser(user), org: { id: org.id, name: org.name } });
+  });
+
+  // ------------------------------- groups -------------------------------
+
+  app.get('/api/groups', requireUser, (req, res) => res.json(store.listGroups(req.user.orgId)));
+  app.post('/api/groups', requireUser, requireAdmin, (req, res) =>
+    res.json(store.createGroup(req.user.orgId, (req.body?.name || '').trim())));
+  app.patch('/api/groups/:id', requireUser, requireAdmin, (req, res) => {
+    const g = store.renameGroup(req.params.id, req.user.orgId, (req.body?.name || '').trim());
+    g ? res.json(g) : res.status(404).json({ error: 'no such group' });
+  });
+  app.delete('/api/groups/:id', requireUser, requireAdmin, (req, res) => {
+    store.deleteGroup(req.params.id, req.user.orgId);
+    res.json({ ok: true });
+  });
+
+  // ------------------------------- users -------------------------------
+
+  app.get('/api/users', requireUser, requireAdmin, (req, res) =>
+    res.json(store.listUsers(req.user.orgId).map(publicUser)));
+  app.patch('/api/users/:id', requireUser, requireAdmin, (req, res) => {
+    const target = store.getUser(req.params.id);
+    if (!target || target.orgId !== req.user.orgId) return res.status(404).json({ error: 'no such user' });
+    if (Array.isArray(req.body?.groupIds)) store.setUserGroups(target.id, req.body.groupIds);
+    if (req.body?.role && target.id !== req.user.id) store.setUserRole(target.id, req.body.role); // can't demote self
+    res.json(publicUser(store.getUser(target.id)));
+  });
+  app.delete('/api/users/:id', requireUser, requireAdmin, (req, res) => {
+    const target = store.getUser(req.params.id);
+    if (!target || target.orgId !== req.user.orgId || target.id === req.user.id)
+      return res.status(400).json({ error: 'cannot delete' });
+    store.deleteUser(target.id);
+    res.json({ ok: true });
+  });
+
+  // ------------------------------- computers -------------------------------
+
+  const decorate = (c) => {
+    const st = relayStatus(c.relayId) || { online: false, busy: false };
+    return {
+      deviceToken: c.deviceToken, name: c.name, groupId: c.groupId,
+      relayId: st.online ? c.relayId : null, online: st.online, busy: st.busy, lastSeen: c.lastSeen,
+    };
+  };
+
+  // Admin: every computer in the org.
+  app.get('/api/computers', requireUser, requireAdmin, (req, res) =>
+    res.json(store.listComputers(req.user.orgId).map(decorate)));
+
+  app.patch('/api/computers/:deviceToken', requireUser, requireAdmin, (req, res) => {
+    const dt = req.params.deviceToken;
+    if (typeof req.body?.name === 'string') store.renameComputer(dt, req.user.orgId, req.body.name.trim());
+    if ('groupId' in (req.body || {})) store.setComputerGroup(dt, req.user.orgId, req.body.groupId || null);
+    const c = store.findComputerByToken(dt);
+    c && c.orgId === req.user.orgId ? res.json(decorate(c)) : res.status(404).json({ error: 'no such computer' });
+  });
+
+  // Any user: the groups + computers they're allowed to connect to (desktop picker).
+  app.get('/api/my-computers', requireUser, (req, res) => {
+    const groups = store.listGroups(req.user.orgId);
+    const computers = store.listComputers(req.user.orgId)
+      .filter((c) => store.userCanAccessComputer(req.user, c.deviceToken))
+      .map(decorate);
+    res.json({ groups, computers, admin: req.user.role === 'admin' });
+  });
+
+  // ------------------------------- static SPA -------------------------------
+
+  app.use(express.static(PUBLIC_DIR));
+  // Client-side routes fall back to the SPA shell.
+  app.get(['/', '/login', '/invite/:token', '/app', '/app/*'], (_req, res) =>
+    res.sendFile(join(PUBLIC_DIR, 'index.html')));
+
+  return app;
+}
+
+function inviteUrl(req, token) {
+  const proto = req.headers['x-forwarded-proto'] || req.protocol || 'http';
+  const host = req.headers['host'];
+  return `${proto}://${host}/invite/${token}`;
+}

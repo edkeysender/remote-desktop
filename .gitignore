@@ -19,6 +19,9 @@ docker/turnserver.local.conf
 idmap.json
 # Server runtime state: admin groups + client metadata
 admin.json
+# Server runtime state: accounts/orgs/groups DB + session secret
+server/data/
+data/
 # Update artifacts served by the Pi (published exes + manifest)
 server/update/
 update/
