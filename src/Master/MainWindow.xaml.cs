@@ -40,6 +40,7 @@ public partial class MainWindow : Window
         ServerBox.Text = _config.ServerUrl;
         HostPwBox.Text = _config.FixedPassword;
         EmailBox.Text = _config.AccountEmail ?? "";
+        EnrollBox.Text = _config.EnrollToken ?? "";
 
         Loaded += async (_, _) =>
         {
@@ -97,6 +98,15 @@ public partial class MainWindow : Window
         StartHosting();                    // re-register anonymously
     }
 
+    private void EnrollBtn_Click(object sender, RoutedEventArgs e)
+    {
+        var tok = EnrollBox.Text.Trim();
+        _config.EnrollToken = tok.Length == 0 ? null : tok;
+        _config.Save("app");
+        HostStatus.Text = tok.Length == 0 ? "Enrollment cleared." : "Enrolling this computer…";
+        StartHosting();   // re-register with the enrollment token; org shows once claimed
+    }
+
     private void RegisterLink_Click(object sender, RoutedEventArgs e)
     {
         try
@@ -152,16 +162,28 @@ public partial class MainWindow : Window
         var server = ServerBox.Text.Trim();
         var pw = HostPwBox.Text.Trim();
         var auth = _acct?.Token ?? "";
+        // auth (signed-in) wins; otherwise fall back to a saved enrollment token.
+        var enroll = string.IsNullOrEmpty(auth) ? (_config.EnrollToken ?? "") : "";
+        var authKey = auth + "|" + enroll;
         if (pw.Length == 0) { HostStatus.Text = "Set a password to allow connections."; return; }
-        if (server == _appliedServer && pw == _appliedPw && auth == _appliedAuth && _hostCts != null) return;
+        if (server == _appliedServer && pw == _appliedPw && authKey == _appliedAuth && _hostCts != null) return;
 
-        _appliedServer = server; _appliedPw = pw; _appliedAuth = auth;
+        _appliedServer = server; _appliedPw = pw; _appliedAuth = authKey;
         _hostCts?.Cancel();
         _hostCts = new CancellationTokenSource();
-        _ = HostLoopAsync(server, pw, _config.HostToken!, _acct?.Token, _hostCts.Token);
+        _ = HostLoopAsync(server, pw, _config.HostToken!, _acct?.Token,
+                          string.IsNullOrEmpty(enroll) ? null : enroll, _hostCts.Token);
     }
 
-    private async Task HostLoopAsync(string server, string pw, string token, string? authToken, CancellationToken ct)
+    // Reflect the org this PC is claimed into (via sign-in or enrollment token).
+    private void ReflectHostOrg(string? org)
+    {
+        HostOrgText.Text = string.IsNullOrEmpty(org) ? "Not enrolled in an organization." : $"Enrolled in {org}.";
+        HostOrgText.Foreground = string.IsNullOrEmpty(org)
+            ? System.Windows.Media.Brushes.Gray : System.Windows.Media.Brushes.MediumSeaGreen;
+    }
+
+    private async Task HostLoopAsync(string server, string pw, string token, string? authToken, string? enrollToken, CancellationToken ct)
     {
         while (!ct.IsCancellationRequested)
         {
@@ -169,9 +191,10 @@ public partial class MainWindow : Window
             var down = new TaskCompletionSource();
             try
             {
-                session = new HostSession(server, pw, token: token, authToken: authToken, hostName: Environment.MachineName);
+                session = new HostSession(server, pw, token: token, authToken: authToken, hostName: Environment.MachineName, enrollToken: enrollToken);
                 _host = session;
                 session.IdAssigned += id => Dispatcher.Invoke(() => IdBox.Text = FormatId(id));
+                session.OrgAssigned += org => Dispatcher.Invoke(() => ReflectHostOrg(org));
                 session.Status += s => Dispatcher.Invoke(() => HostStatus.Text = s);
                 session.Status += s => { if (s.StartsWith("Disconnected", StringComparison.OrdinalIgnoreCase)) down.TrySetResult(); };
                 await session.StartAsync();

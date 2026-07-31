@@ -3,293 +3,233 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>FTD Remote</title>
+<title>Hangar</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
 <style>
-  :root { color-scheme: dark; }
-  * { box-sizing: border-box; }
-  body { margin: 0; background: #010409; color: #e6edf3;
-         font: 14px/1.5 -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif; }
-  a { color: #58a6ff; }
-  h1 { font-size: 18px; margin: 0; } h2 { font-size: 13px; text-transform: uppercase; letter-spacing:.04em; color:#8b949e; margin: 22px 0 10px; }
-  header { display:flex; align-items:center; gap:12px; padding:14px 20px; background:#161b22; border-bottom:1px solid #30363d; }
-  header .spacer { flex:1; }
-  .badge { font-size:11px; padding:1px 8px; border-radius:20px; background:#1f6feb33; color:#58a6ff; border:1px solid #1f6feb55; }
-  main { max-width: 1000px; margin: 0 auto; padding: 20px; }
-  .center { max-width: 400px; margin: 8vh auto; padding: 0 20px; }
-  .card { background:#0d1117; border:1px solid #30363d; border-radius:10px; padding:18px; }
-  label { display:block; color:#8b949e; font-size:12px; margin:10px 0 4px; }
-  input, select, button { font: inherit; }
-  input, select { width:100%; background:#010409; color:#e6edf3; border:1px solid #30363d; border-radius:6px; padding:8px 10px; }
-  input.inline, select.inline { width:auto; display:inline-block; }
-  button { background:#21262d; color:#e6edf3; border:1px solid #30363d; border-radius:6px; padding:8px 14px; cursor:pointer; }
-  button.primary { background:#238636; border-color:#238636; color:#fff; width:100%; margin-top:14px; }
-  button.small { padding:5px 10px; }
-  button.danger { background:transparent; border-color:#6e2b28; color:#f85149; }
-  button:hover { filter:brightness(1.15); }
-  .tabs { display:flex; gap:6px; margin: 4px 0 4px; }
-  .tabs button { background:transparent; border:0; color:#8b949e; padding:8px 12px; border-bottom:2px solid transparent; border-radius:0; }
-  .tabs button.active { color:#e6edf3; border-bottom-color:#1f6feb; }
-  table { width:100%; border-collapse:collapse; }
-  th,td { text-align:left; padding:9px 10px; border-bottom:1px solid #21262d; vertical-align:middle; }
-  th { color:#8b949e; font-size:12px; }
-  .muted { color:#8b949e; } .err { color:#f85149; min-height:18px; margin-top:8px; }
-  .ok { color:#3fb950; }
-  .dot { width:9px;height:9px;border-radius:50%;display:inline-block;margin-right:6px;vertical-align:middle; }
-  .on{background:#3fb950;} .off{background:#6e7681;} .busy{background:#d29922;}
-  .row { display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
-  .chip { font-size:12px; background:#161b22; border:1px solid #30363d; border-radius:20px; padding:2px 9px; cursor:pointer; user-select:none; }
-  .chip.sel { background:#1f6feb33; border-color:#1f6feb; color:#58a6ff; }
-  .link { word-break:break-all; font-family:Consolas,monospace; font-size:12px; background:#161b22; padding:8px; border-radius:6px; }
-  .brand { font-weight:700; letter-spacing:.02em; }
+:root{
+  --ink:#0B0C15; --ink-soft:#1A1C2B; --paper:#F5F6F9; --card:#FFFFFF; --line:#E8E9F0;
+  --text:#0B0C15; --muted:#6E7185; --accent:#5B5BF5; --accent-soft:#EEEEFE;
+  --grad:linear-gradient(135deg,#5B5BF5 0%,#9D5CFF 55%,#3EC8FF 120%);
+  --ok:#1FC98B; --warn:#FFAA1D; --danger:#F5484D;
+  --r-lg:22px; --r-md:14px; --r-pill:999px;
+  --shadow:0 1px 2px rgba(11,12,21,.04),0 8px 24px rgba(11,12,21,.06);
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{font-size:15px}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--paper);color:var(--text);-webkit-font-smoothing:antialiased}
+h1,h2,h3,.display{font-family:'Schibsted Grotesk',system-ui,sans-serif;letter-spacing:-.02em}
+.mono{font-family:'JetBrains Mono',ui-monospace,monospace}
+a{color:var(--accent);text-decoration:none}
+button,input,select{font-family:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+input,select{width:100%;background:#fff;border:1px solid var(--line);border-radius:10px;padding:10px 12px;color:var(--text)}
+label{display:block;font-size:.72rem;font-weight:600;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);margin:12px 0 5px}
+button{cursor:pointer;border:1px solid var(--line);background:#fff;color:var(--text);border-radius:var(--r-pill);padding:9px 16px;font-weight:600;font-size:.88rem;transition:transform .15s,box-shadow .15s,background .15s}
+button:hover{transform:translateY(-1px)}
+button.primary{background:var(--ink);color:#fff;border-color:var(--ink)}
+button.grad{background:var(--grad);color:#fff;border:none}
+button.ghost{background:#fff}
+button.danger{background:#fff;border-color:#F3C2C4;color:var(--danger)}
+button.sm{padding:6px 12px;font-size:.8rem}
+.brand{display:flex;align-items:center;gap:10px}
+.brand-mark{width:34px;height:34px;border-radius:11px;background:var(--grad);display:grid;place-items:center;flex:none}
+.brand-name{font-family:'Schibsted Grotesk';font-weight:800;font-size:1.25rem}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:.7rem;font-weight:600;padding:3px 10px;border-radius:var(--r-pill)}
+.pill.accent{background:var(--accent-soft);color:var(--accent)}
+.led{width:8px;height:8px;border-radius:50%}
+.led.g{background:var(--ok);box-shadow:0 0 8px rgba(31,201,139,.8)} .led.r{background:var(--danger)} .led.b{background:#3EC8FF;box-shadow:0 0 8px rgba(62,200,255,.7)}
+.err{color:var(--danger);min-height:18px;margin-top:8px;font-size:.85rem}
+.muted{color:var(--muted)}
+
+/* auth */
+.center{max-width:400px;margin:8vh auto;padding:0 20px}
+.card{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow);padding:22px}
+.tabs{display:flex;gap:4px;margin-bottom:8px}
+.tabs button{border:0;background:transparent;color:var(--muted);border-radius:0;border-bottom:2px solid transparent;padding:8px 10px}
+.tabs button.active{color:var(--text);border-bottom-color:var(--accent)}
+
+/* app shell */
+.shell{display:grid;grid-template-columns:248px 1fr;min-height:100vh}
+.sidebar{background:var(--card);border-right:1px solid var(--line);padding:22px 16px;display:flex;flex-direction:column;gap:6px;position:sticky;top:0;height:100vh}
+.org-chip{margin:6px 4px 14px;padding:10px 12px;background:var(--paper);border-radius:var(--r-md);display:flex;align-items:center;gap:10px}
+.org-avatar{width:30px;height:30px;border-radius:9px;background:var(--ink);color:#fff;display:grid;place-items:center;font-family:'Schibsted Grotesk';font-weight:700;font-size:.72rem;flex:none}
+.nav-item{display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:12px;font-weight:500;font-size:.9rem;color:var(--muted);border:0;background:transparent;width:100%;text-align:left}
+.nav-item:hover{background:var(--paper);color:var(--text);transform:none}
+.nav-item.active{background:var(--accent-soft);color:var(--accent);font-weight:600}
+.sidebar-foot{margin-top:auto;padding-top:12px;border-top:1px solid var(--line);font-size:.8rem}
+.main{padding:24px 32px 48px;max-width:1180px;width:100%}
+.head{display:flex;align-items:center;gap:12px;margin-bottom:20px}
+.head h1{font-size:1.4rem;font-weight:800} .head .sp{flex:1}
+
+/* device grid */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:16px}
+.dev{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:var(--shadow);overflow:hidden;display:flex;flex-direction:column;transition:transform .18s,box-shadow .18s}
+.dev:hover{transform:translateY(-3px);box-shadow:0 4px 8px rgba(11,12,21,.06),0 20px 40px rgba(11,12,21,.12)}
+.dev-screen{height:104px;position:relative;background:linear-gradient(160deg,#171930,#0B0C15 70%);overflow:hidden}
+.dev-screen.off{background:linear-gradient(160deg,#1E1F26,#101116 75%)}
+.dev-screen .scan{position:absolute;inset:0;opacity:.5;background:repeating-linear-gradient(0deg,transparent 0 3px,rgba(255,255,255,.02) 3px 4px)}
+.st{position:absolute;top:12px;left:12px;display:flex;align-items:center;gap:6px;background:rgba(11,12,21,.55);backdrop-filter:blur(6px);border:1px solid rgba(255,255,255,.12);color:#fff;font-size:.68rem;font-weight:600;padding:4px 10px;border-radius:var(--r-pill)}
+.dev-body{padding:15px 16px 16px;display:flex;flex-direction:column;gap:5px;flex:1}
+.dev-name{font-weight:600;font-size:.95rem;display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+.tag{font-size:.66rem;font-weight:600;color:var(--accent);background:var(--accent-soft);padding:3px 8px;border-radius:var(--r-pill)}
+.dev-id{font-family:'JetBrains Mono';font-weight:600;font-size:1.02rem;letter-spacing:.06em;margin-top:4px}
+.dev-actions{display:flex;gap:8px;margin-top:12px}
+.dev-actions .grad{flex:1;padding:8px 0}
+.rowline{display:flex;align-items:center;gap:10px;padding:11px 0;border-top:1px solid var(--line)}
+.rowline:first-child{border-top:0}
+.linkbox{word-break:break-all;font-family:'JetBrains Mono';font-size:.78rem;background:var(--paper);border:1px solid var(--line);padding:8px 10px;border-radius:8px}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:10px 8px;border-bottom:1px solid var(--line);font-size:.86rem;vertical-align:middle}
+th{color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.05em}
+.chip{font-size:.72rem;background:var(--paper);border:1px solid var(--line);border-radius:20px;padding:2px 9px;cursor:pointer}
+.chip.sel{background:var(--accent-soft);border-color:var(--accent);color:var(--accent)}
+.empty{color:var(--muted);padding:24px;text-align:center}
+@media(max-width:820px){.shell{grid-template-columns:1fr}.sidebar{display:none}.main{padding:16px}}
 </style>
 </head>
 <body>
 <div id="app"></div>
 <script>
-const $ = (h) => { const t=document.createElement('template'); t.innerHTML=h.trim(); return t.content.firstChild; };
-const esc = (s) => (s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
-let me = null;   // {user, org}
-let tab = 'computers';
+const $=(h)=>{const t=document.createElement('template');t.innerHTML=h.trim();return t.content.firstChild;};
+const esc=(s)=>(s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const fmtId=(id)=>id&&/^\d{9}$/.test(id)?`${id.slice(0,3)} ${id.slice(3,6)} ${id.slice(6)}`:(id||'—');
+let me=null, tab='devices';
 
-async function api(path, method='GET', body) {
-  const r = await fetch(path, {
-    method, credentials:'same-origin',
-    headers: body ? {'Content-Type':'application/json'} : undefined,
-    body: body ? JSON.stringify(body) : undefined,
-  });
-  const ct = r.headers.get('content-type')||'';
-  const data = ct.includes('json') ? await r.json() : null;
-  if (!r.ok) throw new Error(data?.error || ('HTTP '+r.status));
-  return data;
+async function api(path,method='GET',body){
+  const r=await fetch(path,{method,credentials:'same-origin',headers:body?{'Content-Type':'application/json'}:undefined,body:body?JSON.stringify(body):undefined});
+  const ct=r.headers.get('content-type')||''; const d=ct.includes('json')?await r.json():null;
+  if(!r.ok) throw new Error(d?.error||('HTTP '+r.status)); return d;
+}
+const val=(id)=>document.getElementById(id).value;
+function fmtAgo(ts){if(!ts)return '—';const s=Math.max(0,(Date.now()-ts)/1000);
+  if(s<60)return Math.floor(s)+'s ago';if(s<3600)return Math.floor(s/60)+'m ago';if(s<86400)return Math.floor(s/3600)+'h ago';return Math.floor(s/86400)+'d ago';}
+const brand=`<div class="brand"><div class="brand-mark"><svg viewBox="0 0 24 24" width="18" height="18" fill="none"><path d="M3 18 L12 4 L21 18 M7.5 18 L12 11 L16.5 18" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg></div><span class="brand-name">Hangar</span></div>`;
+
+function inviteToken(){const m=location.pathname.match(/^\/invite\/([^/]+)/);return m?m[1]:null;}
+async function boot(){
+  const tok=inviteToken(); if(tok) return renderAccept(tok);
+  try{ me=await api('/api/me'); renderShell(); }catch{ renderAuth(); }
 }
 
-function inviteToken() {
-  const m = location.pathname.match(/^\/invite\/([^/]+)/);
-  return m ? m[1] : null;
+// ---------- auth ----------
+function renderAuth(){
+  const el=$(`<div class="center">${brand}<p class="muted" style="margin:8px 0 16px">Remote control & fleet management.</p>
+    <div class="card"><div class="tabs"><button id="ti" class="active">Sign in</button><button id="tc">Create account</button></div><div id="f"></div></div></div>`);
+  document.getElementById('app').replaceChildren(el); const f=el.querySelector('#f');
+  const signin=()=>{el.querySelector('#ti').classList.add('active');el.querySelector('#tc').classList.remove('active');
+    f.replaceChildren($(`<div><label>Email</label><input id="email" type="email"><label>Password</label><input id="pw" type="password">
+      <button class="primary" id="go" style="width:100%;margin-top:14px">Sign in</button><div class="err" id="e"></div></div>`));
+    f.querySelector('#go').onclick=async()=>{try{me=await api('/api/login','POST',{email:val('email'),password:val('pw')});history.pushState({},'','/');renderShell();}catch(x){f.querySelector('#e').textContent=x.message;}};};
+  const create=()=>{el.querySelector('#tc').classList.add('active');el.querySelector('#ti').classList.remove('active');
+    f.replaceChildren($(`<div><label>Organization name</label><input id="org"><label>Your name</label><input id="name"><label>Email</label><input id="email" type="email"><label>Password (min 8)</label><input id="pw" type="password">
+      <button class="primary" id="go" style="width:100%;margin-top:14px">Create account</button><div class="err" id="e"></div></div>`));
+    f.querySelector('#go').onclick=async()=>{try{me=await api('/api/register','POST',{orgName:val('org'),name:val('name'),email:val('email'),password:val('pw')});history.pushState({},'','/');renderShell();}catch(x){f.querySelector('#e').textContent=x.message;}};};
+  el.querySelector('#ti').onclick=signin; el.querySelector('#tc').onclick=create; signin();
 }
-
-async function boot() {
-  const tok = inviteToken();
-  if (tok) return renderAccept(tok);
-  try { me = await api('/api/me'); renderDashboard(); }
-  catch { renderAuth(); }
-}
-
-// ------------------------------- auth -------------------------------
-
-function renderAuth() {
-  const el = $(`<div class="center">
-    <h1 class="brand">🖥 FTD Remote</h1>
-    <p class="muted">Sign in or create an organization account.</p>
-    <div class="card">
-      <div class="tabs">
-        <button id="tSignin" class="active">Sign in</button>
-        <button id="tCreate">Create account</button>
-      </div>
-      <div id="form"></div>
-    </div>
-  </div>`);
+async function renderAccept(token){
+  let info; try{info=await api('/api/invite/'+token);}catch(x){document.getElementById('app').replaceChildren($(`<div class="center">${brand}<div class="card"><p class="err">${esc(x.message)}</p><a href="/">Go to sign in</a></div></div>`));return;}
+  const el=$(`<div class="center">${brand}<p class="muted" style="margin:8px 0 16px">Join <b>${esc(info.orgName)}</b> as <b>${esc(info.email)}</b>.</p>
+    <div class="card"><label>Your name</label><input id="name"><label>Choose a password (min 8)</label><input id="pw" type="password">
+      <button class="primary" id="go" style="width:100%;margin-top:14px">Join</button><div class="err" id="e"></div></div></div>`);
   document.getElementById('app').replaceChildren(el);
-  const form = el.querySelector('#form');
-  const showSignin = () => {
-    el.querySelector('#tSignin').classList.add('active'); el.querySelector('#tCreate').classList.remove('active');
-    form.replaceChildren($(`<div>
-      <label>Email</label><input id="email" type="email" autocomplete="username">
-      <label>Password</label><input id="pw" type="password" autocomplete="current-password">
-      <button class="primary" id="go">Sign in</button>
-      <div class="err" id="err"></div>
-    </div>`));
-    form.querySelector('#go').onclick = async () => {
-      try { me = await api('/api/login','POST',{ email:val('email'), password:val('pw') }); history.pushState({},'', '/'); renderDashboard(); }
-      catch(e){ form.querySelector('#err').textContent = e.message; }
-    };
-  };
-  const showCreate = () => {
-    el.querySelector('#tCreate').classList.add('active'); el.querySelector('#tSignin').classList.remove('active');
-    form.replaceChildren($(`<div>
-      <label>Organization name</label><input id="org">
-      <label>Your name</label><input id="name">
-      <label>Email</label><input id="email" type="email" autocomplete="username">
-      <label>Password (min 8)</label><input id="pw" type="password" autocomplete="new-password">
-      <button class="primary" id="go">Create account</button>
-      <div class="err" id="err"></div>
-    </div>`));
-    form.querySelector('#go').onclick = async () => {
-      try { me = await api('/api/register','POST',{ orgName:val('org'), name:val('name'), email:val('email'), password:val('pw') }); history.pushState({},'', '/'); renderDashboard(); }
-      catch(e){ form.querySelector('#err').textContent = e.message; }
-    };
-  };
-  el.querySelector('#tSignin').onclick = showSignin;
-  el.querySelector('#tCreate').onclick = showCreate;
-  showSignin();
+  el.querySelector('#go').onclick=async()=>{try{me=await api('/api/accept-invite','POST',{token,name:val('name'),password:val('pw')});history.pushState({},'','/');renderShell();}catch(x){el.querySelector('#e').textContent=x.message;}};
 }
 
-async function renderAccept(token) {
-  let info;
-  try { info = await api('/api/invite/'+token); }
-  catch(e){ document.getElementById('app').replaceChildren($(`<div class="center"><div class="card"><p class="err">${esc(e.message)}</p><a href="/">Go to sign in</a></div></div>`)); return; }
-  const el = $(`<div class="center">
-    <h1 class="brand">🖥 FTD Remote</h1>
-    <p class="muted">You've been invited to join <b>${esc(info.orgName)}</b> as <b>${esc(info.email)}</b>.</p>
-    <div class="card">
-      <label>Your name</label><input id="name">
-      <label>Choose a password (min 8)</label><input id="pw" type="password" autocomplete="new-password">
-      <button class="primary" id="go">Join</button>
-      <div class="err" id="err"></div>
-    </div>
-  </div>`);
+// ---------- shell ----------
+function renderShell(){
+  const admin=me.user.role==='admin';
+  const nav=[['devices','Devices'],...(admin?[['groups','Groups'],['users','Users'],['enroll','Enrollment']]:[])];
+  const el=$(`<div class="shell">
+    <aside class="sidebar">
+      ${brand}
+      <div class="org-chip"><div class="org-avatar">${esc((me.org.name||'?').slice(0,2).toUpperCase())}</div><div><div style="font-weight:600;font-size:.85rem">${esc(me.org.name)}</div><div class="muted" style="font-size:.72rem">${esc(me.user.role)}</div></div></div>
+      <div id="nav"></div>
+      <div class="sidebar-foot"><div style="font-weight:600">${esc(me.user.email)}</div><button class="ghost sm" id="out" style="margin-top:8px">Sign out</button></div>
+    </aside>
+    <main class="main"><div id="view"></div></main></div>`);
   document.getElementById('app').replaceChildren(el);
-  el.querySelector('#go').onclick = async () => {
-    try { me = await api('/api/accept-invite','POST',{ token, name:val('name'), password:val('pw') }); history.pushState({},'', '/'); renderDashboard(); }
-    catch(e){ el.querySelector('#err').textContent = e.message; }
-  };
+  const navEl=el.querySelector('#nav');
+  nav.forEach(([k,label])=>{const b=$(`<button class="nav-item ${k===tab?'active':''}">${label}</button>`);b.onclick=()=>{tab=k;renderShell();};navEl.appendChild(b);});
+  el.querySelector('#out').onclick=async()=>{await api('/api/logout','POST');me=null;renderAuth();};
+  if(!admin) tab='devices';
+  ({devices:viewDevices,groups:viewGroups,users:viewUsers,enroll:viewEnroll}[tab]||viewDevices)();
 }
+const view=()=>document.getElementById('view');
 
-// ------------------------------- dashboard -------------------------------
-
-function renderDashboard() {
-  const admin = me.user.role === 'admin';
-  const el = $(`<div>
-    <header>
-      <h1 class="brand">🖥 FTD Remote</h1>
-      <span class="badge">${esc(me.org.name)}</span>
-      <span class="spacer"></span>
-      <span class="muted">${esc(me.user.email)} · ${esc(me.user.role)}</span>
-      <button class="small" id="logout">Sign out</button>
-    </header>
-    <main>
-      <div class="tabs" id="tabs">
-        <button data-t="computers">Computers</button>
-        ${admin?'<button data-t="groups">Groups</button>':''}
-        ${admin?'<button data-t="users">Users &amp; invites</button>':''}
-      </div>
-      <div id="view"></div>
-    </main>
-  </div>`);
-  document.getElementById('app').replaceChildren(el);
-  el.querySelector('#logout').onclick = async () => { await api('/api/logout','POST'); me=null; renderAuth(); };
-  el.querySelectorAll('#tabs button').forEach(b => b.onclick = () => { tab = b.dataset.t; paintTabs(); });
-  if (!admin) tab = 'computers';
-  paintTabs();
-
-  function paintTabs() {
-    el.querySelectorAll('#tabs button').forEach(b => b.classList.toggle('active', b.dataset.t===tab));
-    if (tab==='groups') viewGroups(); else if (tab==='users') viewUsers(); else viewComputers();
-  }
-}
-
-const view = () => document.getElementById('view');
-
-async function viewComputers() {
-  const admin = me.user.role === 'admin';
-  const [comps, groups] = admin
-    ? [await api('/api/computers'), await api('/api/groups')]
-    : [ (await api('/api/my-computers')).computers, (await api('/api/my-computers')).groups ];
-  const gname = Object.fromEntries(groups.map(g=>[g.id,g.name]));
-  const rows = comps.map(c => {
-    const status = c.online ? (c.busy?'<span class="dot busy"></span>In session':'<span class="dot on"></span>Online') : '<span class="dot off"></span>Offline';
-    const groupCell = admin
-      ? `<select class="inline gsel" data-t="${esc(c.deviceToken)}">
-           <option value="">— none —</option>
-           ${groups.map(g=>`<option value="${g.id}" ${g.id===c.groupId?'selected':''}>${esc(g.name)}</option>`).join('')}
-         </select>`
-      : esc(gname[c.groupId]||'—');
-    const nameCell = admin
-      ? `<input class="inline cname" style="width:200px" data-t="${esc(c.deviceToken)}" value="${esc(c.name)}">`
-      : esc(c.name);
-    return `<tr><td>${status}</td><td>${nameCell}</td><td>${groupCell}</td><td class="muted">${c.online?'now':fmtAgo(c.lastSeen)}</td></tr>`;
+async function viewDevices(){
+  const admin=me.user.role==='admin';
+  const [comps,groups]=admin?[await api('/api/computers'),await api('/api/groups')]:[(await api('/api/my-computers')).computers,(await api('/api/my-computers')).groups];
+  const gname=Object.fromEntries(groups.map(g=>[g.id,g.name]));
+  const cards=comps.map(c=>{
+    const on=c.online; const stt=on?(c.busy?'<span class="led b"></span>In session':'<span class="led g"></span>Online'):'<span class="led r"></span>Offline';
+    const group=admin?`<select class="gsel" data-t="${esc(c.deviceToken)}" style="margin-top:8px">
+        <option value="">— no group —</option>${groups.map(g=>`<option value="${g.id}" ${g.id===c.groupId?'selected':''}>${esc(g.name)}</option>`).join('')}</select>`
+      :(c.groupId?`<span class="tag">${esc(gname[c.groupId]||'')}</span>`:'');
+    const name=admin?`<input class="cname" data-t="${esc(c.deviceToken)}" value="${esc(c.name)}" style="font-weight:600">`:esc(c.name);
+    return `<article class="dev">
+      <div class="dev-screen ${on?'':'off'}"><div class="scan"></div><span class="st">${stt}</span></div>
+      <div class="dev-body">
+        <div class="dev-name">${admin?'':esc(c.name)} ${admin?'':(c.groupId?`<span class="tag">${esc(gname[c.groupId]||'')}</span>`:'')}</div>
+        ${admin?name:''}
+        <div class="dev-id mono">${on?fmtId(c.relayId):'<span class="muted" style="font-size:.8rem">'+fmtAgo(c.lastSeen)+'</span>'}</div>
+        ${admin?group:''}
+        <div class="dev-actions">
+          <button class="grad" ${on?'':'disabled'} data-copy="${on?esc(c.relayId):''}">${on?'Copy ID to connect':'Offline'}</button>
+        </div>
+      </div></article>`;
   }).join('');
-  view().replaceChildren($(`<div>
-    <h2>Computers</h2>
-    <div class="card"><table>
-      <thead><tr><th style="width:120px">Status</th><th>Name</th><th style="width:180px">Group</th><th style="width:120px">Last seen</th></tr></thead>
-      <tbody>${rows || '<tr><td colspan="4" class="muted">No computers yet. Sign in on the desktop app to add this PC.</td></tr>'}</tbody>
-    </table></div>
-  </div>`));
-  if (admin) {
-    view().querySelectorAll('.gsel').forEach(s => s.onchange = () => api('/api/computers/'+encodeURIComponent(s.dataset.t),'PATCH',{ groupId: s.value||null }));
-    view().querySelectorAll('.cname').forEach(i => i.onchange = () => api('/api/computers/'+encodeURIComponent(i.dataset.t),'PATCH',{ name: i.value }));
-  }
+  view().replaceChildren($(`<div><div class="head"><h1>Devices</h1><div class="sp"></div>${admin?'<button class="primary" id="add">+ Add computer</button>':''}</div>
+    ${comps.length?`<div class="grid">${cards}</div>`:'<div class="card empty">No computers yet. On a PC, open FTD Remote → sign in, or enroll it with a token (Enrollment tab).</div>'}</div>`));
+  view().querySelectorAll('.gsel').forEach(s=>s.onchange=()=>api('/api/computers/'+encodeURIComponent(s.dataset.t),'PATCH',{groupId:s.value||null}));
+  view().querySelectorAll('.cname').forEach(i=>i.onchange=()=>api('/api/computers/'+encodeURIComponent(i.dataset.t),'PATCH',{name:i.value}));
+  view().querySelectorAll('[data-copy]').forEach(b=>b.onclick=()=>{if(b.dataset.copy){navigator.clipboard?.writeText(b.dataset.copy);b.textContent='Copied — open FTD Remote';setTimeout(()=>b.textContent='Copy ID to connect',1500);}});
+  const add=view().querySelector('#add'); if(add) add.onclick=()=>{tab='enroll';renderShell();};
 }
 
-async function viewGroups() {
-  const groups = await api('/api/groups');
-  const rows = groups.map(g=>`<tr>
-    <td><input class="inline gname" style="width:260px" data-id="${g.id}" value="${esc(g.name)}"></td>
-    <td style="text-align:right"><button class="small danger" data-del="${g.id}">Delete</button></td>
-  </tr>`).join('');
-  view().replaceChildren($(`<div>
-    <h2>Groups</h2>
-    <div class="card">
-      <table><tbody>${rows||'<tr><td class="muted">No groups yet.</td></tr>'}</tbody></table>
-      <div class="row" style="margin-top:12px">
-        <input class="inline" id="newg" placeholder="New group name" style="width:260px">
-        <button id="addg">Add group</button>
-      </div>
-    </div>
-  </div>`));
-  view().querySelector('#addg').onclick = async () => { const n=val('newg').trim(); if(n){ await api('/api/groups','POST',{name:n}); viewGroups(); } };
-  view().querySelectorAll('.gname').forEach(i => i.onchange = () => api('/api/groups/'+i.dataset.id,'PATCH',{name:i.value}));
-  view().querySelectorAll('[data-del]').forEach(b => b.onclick = async () => { if(confirm('Delete this group?')){ await api('/api/groups/'+b.dataset.del,'DELETE'); viewGroups(); } });
+async function viewGroups(){
+  const groups=await api('/api/groups');
+  view().replaceChildren($(`<div><div class="head"><h1>Groups</h1></div>
+    <div class="card"><table><tbody>${groups.map(g=>`<tr><td><input class="gn" data-id="${g.id}" value="${esc(g.name)}"></td><td style="text-align:right;width:110px"><button class="danger sm" data-del="${g.id}">Delete</button></td></tr>`).join('')||'<tr><td class="muted">No groups yet.</td></tr>'}</tbody></table>
+      <div class="rowline"><input id="ng" placeholder="New group name"><button class="primary" id="ag">Add</button></div></div></div>`));
+  view().querySelector('#ag').onclick=async()=>{const n=val('ng').trim();if(n){await api('/api/groups','POST',{name:n});viewGroups();}};
+  view().querySelectorAll('.gn').forEach(i=>i.onchange=()=>api('/api/groups/'+i.dataset.id,'PATCH',{name:i.value}));
+  view().querySelectorAll('[data-del]').forEach(b=>b.onclick=async()=>{if(confirm('Delete this group?')){await api('/api/groups/'+b.dataset.del,'DELETE');viewGroups();}});
 }
 
-async function viewUsers() {
-  const [users, groups, invites] = [await api('/api/users'), await api('/api/groups'), await api('/api/invites')];
-  const userRows = users.map(u => {
-    const chips = groups.map(g=>`<span class="chip ${ (u.groupIds||[]).includes(g.id)?'sel':''}" data-u="${u.id}" data-g="${g.id}">${esc(g.name)}</span>`).join(' ') || '<span class="muted">no groups</span>';
-    const isSelf = u.id===me.user.id;
-    return `<tr>
-      <td>${esc(u.name)}<div class="muted">${esc(u.email)}</div></td>
-      <td>${esc(u.role)}${isSelf?' <span class="muted">(you)</span>':''}</td>
-      <td>${u.role==='admin'?'<span class="muted">all computers</span>':chips}</td>
-      <td style="text-align:right">${isSelf?'':`<button class="small danger" data-deluser="${u.id}">Remove</button>`}</td>
-    </tr>`;
-  }).join('');
-  const inviteRows = invites.map(i=>`<tr>
-    <td>${esc(i.email)}</td><td>${esc(i.role)}</td>
-    <td><span class="link">${esc(i.url)}</span></td>
-    <td style="text-align:right"><button class="small" data-copy="${esc(i.url)}">Copy</button> <button class="small danger" data-revoke="${i.token}">Revoke</button></td>
-  </tr>`).join('');
-  view().replaceChildren($(`<div>
-    <h2>Users</h2>
-    <div class="card"><table>
-      <thead><tr><th>User</th><th style="width:90px">Role</th><th>Groups (click to toggle)</th><th></th></tr></thead>
-      <tbody>${userRows}</tbody>
-    </table></div>
-    <h2>Invite a user</h2>
-    <div class="card">
-      <div class="row">
-        <input class="inline" id="iemail" type="email" placeholder="person@example.com" style="width:260px">
-        <select class="inline" id="irole"><option value="user">user</option><option value="admin">admin</option></select>
-        <button id="invite">Create invite link</button>
-      </div>
-      <div id="invnew" class="ok" style="margin-top:10px"></div>
-      ${invites.length?`<h2>Pending invites</h2><table><tbody>${inviteRows}</tbody></table>`:''}
-    </div>
-  </div>`));
-  view().querySelectorAll('.chip').forEach(c => c.onclick = async () => {
-    const u = users.find(x=>x.id===c.dataset.u); const gid=c.dataset.g;
-    const set = new Set(u.groupIds||[]); set.has(gid)?set.delete(gid):set.add(gid);
-    u.groupIds=[...set]; await api('/api/users/'+u.id,'PATCH',{groupIds:u.groupIds}); viewUsers();
-  });
-  view().querySelectorAll('[data-deluser]').forEach(b => b.onclick = async () => { if(confirm('Remove this user?')){ await api('/api/users/'+b.dataset.deluser,'DELETE'); viewUsers(); } });
-  view().querySelector('#invite').onclick = async () => {
-    const email=val('iemail').trim(); if(!email) return;
-    try { const inv=await api('/api/invites','POST',{email,role:val('irole')});
-      view().querySelector('#invnew').innerHTML = 'Invite link: <span class="link">'+esc(inv.url)+'</span>'; viewUsers(); }
-    catch(e){ view().querySelector('#invnew').innerHTML='<span class="err">'+esc(e.message)+'</span>'; }
-  };
-  view().querySelectorAll('[data-copy]').forEach(b=>b.onclick=()=>navigator.clipboard?.writeText(b.dataset.copy));
-  view().querySelectorAll('[data-revoke]').forEach(b=>b.onclick=async()=>{ await api('/api/invites/'+b.dataset.revoke,'DELETE'); viewUsers(); });
+async function viewUsers(){
+  const [users,groups,invites]=[await api('/api/users'),await api('/api/groups'),await api('/api/invites')];
+  const urows=users.map(u=>{const chips=groups.map(g=>`<span class="chip ${(u.groupIds||[]).includes(g.id)?'sel':''}" data-u="${u.id}" data-g="${g.id}">${esc(g.name)}</span>`).join(' ')||'<span class="muted">no groups</span>';
+    const self=u.id===me.user.id;
+    return `<tr><td>${esc(u.name)}<div class="muted">${esc(u.email)}</div></td><td>${esc(u.role)}${self?' (you)':''}</td><td>${u.role==='admin'?'<span class="muted">all devices</span>':chips}</td><td style="text-align:right">${self?'':`<button class="danger sm" data-du="${u.id}">Remove</button>`}</td></tr>`;}).join('');
+  const irows=invites.map(i=>`<tr><td>${esc(i.email)}</td><td>${esc(i.role)}</td><td><span class="linkbox">${esc(i.url)}</span></td><td style="text-align:right"><button class="sm" data-cp="${esc(i.url)}">Copy</button> <button class="danger sm" data-rv="${i.token}">Revoke</button></td></tr>`).join('');
+  view().replaceChildren($(`<div><div class="head"><h1>Users</h1></div>
+    <div class="card"><table><thead><tr><th>User</th><th style="width:80px">Role</th><th>Groups (click to toggle)</th><th></th></tr></thead><tbody>${urows}</tbody></table></div>
+    <div class="head" style="margin-top:22px"><h1 style="font-size:1.1rem">Invite a user</h1></div>
+    <div class="card"><div class="rowline"><input id="ie" type="email" placeholder="person@example.com"><select id="ir" style="max-width:140px"><option value="user">user</option><option value="admin">admin</option></select><button class="primary" id="inv">Create link</button></div>
+      <div id="inew" style="margin-top:8px;color:var(--ok)"></div>
+      ${invites.length?`<table style="margin-top:8px"><tbody>${irows}</tbody></table>`:''}</div></div>`));
+  view().querySelectorAll('.chip').forEach(c=>c.onclick=async()=>{const u=users.find(x=>x.id===c.dataset.u);const set=new Set(u.groupIds||[]);const g=c.dataset.g;set.has(g)?set.delete(g):set.add(g);u.groupIds=[...set];await api('/api/users/'+u.id,'PATCH',{groupIds:u.groupIds});viewUsers();});
+  view().querySelectorAll('[data-du]').forEach(b=>b.onclick=async()=>{if(confirm('Remove user?')){await api('/api/users/'+b.dataset.du,'DELETE');viewUsers();}});
+  view().querySelector('#inv').onclick=async()=>{const e=val('ie').trim();if(!e)return;try{const inv=await api('/api/invites','POST',{email:e,role:val('ir')});view().querySelector('#inew').innerHTML='Invite link: <span class="linkbox">'+esc(inv.url)+'</span>';viewUsers();}catch(x){view().querySelector('#inew').innerHTML='<span class="err">'+esc(x.message)+'</span>';}};
+  view().querySelectorAll('[data-cp]').forEach(b=>b.onclick=()=>navigator.clipboard?.writeText(b.dataset.cp));
+  view().querySelectorAll('[data-rv]').forEach(b=>b.onclick=async()=>{await api('/api/invites/'+b.dataset.rv,'DELETE');viewUsers();});
 }
 
-// ------------------------------- utils -------------------------------
-const val = (id) => document.getElementById(id).value;
-function fmtAgo(ts){ if(!ts) return '—'; const s=Math.max(0,(Date.now()-ts)/1000);
-  if(s<60)return Math.floor(s)+'s ago'; if(s<3600)return Math.floor(s/60)+'m ago';
-  if(s<86400)return Math.floor(s/3600)+'h ago'; return Math.floor(s/86400)+'d ago'; }
+async function viewEnroll(){
+  const [toks,groups]=[await api('/api/enroll-tokens'),await api('/api/groups')];
+  const rows=toks.map(t=>`<tr><td>${esc(t.label||'—')}</td><td>${esc(t.groupName||'—')}</td><td><span class="linkbox">${esc(t.token)}</span></td><td style="text-align:right"><button class="sm" data-cp="${esc(t.token)}">Copy</button> <button class="danger sm" data-rv="${esc(t.token)}">Revoke</button></td></tr>`).join('');
+  view().replaceChildren($(`<div><div class="head"><h1>Enrollment</h1></div>
+    <div class="card"><p class="muted" style="margin-bottom:12px">Generate a token, then on the PC open <b>FTD Remote</b> → <b>Enroll this computer with a token</b> and paste it. The device appears here and is controllable through the relay — no per-PC password.</p>
+      <div class="rowline"><input id="el" placeholder="Label (e.g. Sim bay 3)"><select id="eg" style="max-width:180px"><option value="">— no group —</option>${groups.map(g=>`<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select><button class="primary" id="gen">Generate token</button></div>
+      <div id="gnew" style="margin-top:8px"></div>
+      ${toks.length?`<table style="margin-top:10px"><thead><tr><th>Label</th><th>Group</th><th>Token</th><th></th></tr></thead><tbody>${rows}</tbody></table>`:'<div class="empty">No enrollment tokens yet.</div>'}</div></div>`));
+  view().querySelector('#gen').onclick=async()=>{const inv=await api('/api/enroll-tokens','POST',{label:val('el'),groupId:val('eg')||null});view().querySelector('#gnew').innerHTML='New token: <span class="linkbox">'+esc(inv.token)+'</span>';viewEnroll();};
+  view().querySelectorAll('[data-cp]').forEach(b=>b.onclick=()=>navigator.clipboard?.writeText(b.dataset.cp));
+  view().querySelectorAll('[data-rv]').forEach(b=>b.onclick=async()=>{await api('/api/enroll-tokens/'+encodeURIComponent(b.dataset.rv),'DELETE');viewEnroll();});
+}
 
-window.addEventListener('popstate', boot);
+window.addEventListener('popstate',boot);
 boot();
 </script>
 </body>

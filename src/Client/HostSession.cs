@@ -24,6 +24,7 @@ public sealed class HostSession : IDisposable
     private readonly int _fps;
     private readonly string? _token;       // stable identity for unattended hosts (null = random ID)
     private readonly string? _authToken;   // account session → claims this PC into the org
+    private readonly string? _enrollToken; // pre-baked enrollment token → claims into an org (no login)
     private readonly string? _hostName;    // friendly computer name shown in the org list
 
     private SignalingConnection? _conn;
@@ -41,6 +42,7 @@ public sealed class HostSession : IDisposable
     private int _currentMon;                     // -1 = all monitors, else index into _monitors
 
     public event Action<string>? IdAssigned;
+    public event Action<string?>? OrgAssigned;   // org name this host is claimed into (null = none)
     public event Action<string>? Status;
     public event Action<bool>? SessionActive;
 
@@ -48,10 +50,10 @@ public sealed class HostSession : IDisposable
     public FileTransferChannel Files { get; } = new();
 
     public HostSession(string serverUrl, string password, int fps = 15, string? token = null,
-                       string? authToken = null, string? hostName = null)
+                       string? authToken = null, string? hostName = null, string? enrollToken = null)
     {
         _serverUrl = serverUrl; _password = password; _fps = fps; _token = token;
-        _authToken = authToken; _hostName = hostName;
+        _authToken = authToken; _hostName = hostName; _enrollToken = enrollToken;
     }
 
     public async Task StartAsync()
@@ -67,7 +69,7 @@ public sealed class HostSession : IDisposable
 
         Status?.Invoke("Connecting to server…");
         await _conn.ConnectAsync(_serverUrl);
-        await _conn.SendJsonAsync(new { t = "register", token = _token, auth = _authToken, name = _hostName });
+        await _conn.SendJsonAsync(new { t = "register", token = _token, auth = _authToken, enroll = _enrollToken, name = _hostName });
     }
 
     private void OnJson(JsonElement root)
@@ -77,6 +79,8 @@ public sealed class HostSession : IDisposable
         {
             case "registered":
                 IdAssigned?.Invoke(root.GetProperty("id").GetString() ?? "?");
+                OrgAssigned?.Invoke(root.TryGetProperty("org", out var o) && o.ValueKind == JsonValueKind.Object
+                    ? o.GetProperty("name").GetString() : null);
                 Status?.Invoke("Ready — waiting for a connection");
                 break;
 

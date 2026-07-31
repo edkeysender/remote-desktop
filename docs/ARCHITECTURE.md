@@ -27,6 +27,13 @@ Responsibilities:
     - A **host claims a computer by signing in**: `register` carries `{token(device),
       auth}`; the relay links that device to the caller's org and it appears in the org's
       computer list.
+    - **Or enrolls via a pre-baked token** (Hangar plan Phase 0): an admin generates an
+      enrollment token (optionally group-pinned) at `/api/enroll-tokens`; the app sends it
+      as `register {enroll}` and the PC is claimed into the org with no interactive login.
+      The dashboard (Hangar-branded: device grid, groups, users, enrollment) shows it
+      online and it's controllable through the relay by org members. This satisfies the
+      Phase 0 exit criteria in `claude/hangar-development-plan-with-html.md` §5 on the
+      existing stack (see that file for the full Rust/Go/Postgres target architecture).
     - **Password-less connect by membership**: `connect` carries `{id, auth}`; the relay
       authorizes (org + group) and vouches to the host (`admin:true`), which then accepts
       without the per-client password. `GET /api/my-computers` gives a user their allowed

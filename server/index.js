@@ -330,15 +330,21 @@ wss.on('connection', (ws, req) => {
         meta.lastSeen = Date.now();
         saveAdmin();
 
-        // Account claim: a host that signs in (auth token) links this device to its org,
-        // so the computer shows up in that org's list and access control applies.
-        let org = null;
+        // Claim this device into an org, two ways (both need the stable device token):
+        //  • a signed-in user's session token (auth), or
+        //  • a pre-baked enrollment token (enroll) — Phase 0 "enrolled via token".
+        let org = null, claimOrgId = null, enrollGroup = null;
         const uid = msg.auth ? verifyToken(msg.auth) : null;
         const user = uid ? store.getUser(uid) : null;
-        if (user && token) {
-          const c = store.upsertComputer({ deviceToken: token, orgId: user.orgId, defaultName: msg.name || 'Computer', relayId: id });
-          org = store.getOrg(user.orgId);
-          if (c) hosts.get(id).orgId = user.orgId;
+        if (user) claimOrgId = user.orgId;
+        else if (msg.enroll) {
+          const et = store.getEnrollToken(msg.enroll);
+          if (et) { claimOrgId = et.orgId; enrollGroup = et.groupId; }
+        }
+        if (claimOrgId && token) {
+          store.upsertComputer({ deviceToken: token, orgId: claimOrgId, defaultName: msg.name || 'Computer', relayId: id, groupId: enrollGroup });
+          org = store.getOrg(claimOrgId);
+          hosts.get(id).orgId = claimOrgId;
         }
         send(ws, { t: 'registered', id, org: org ? { id: org.id, name: org.name } : null });
         console.log(`[server] host registered id=${id}${token ? ' (persistent)' : ''}${org ? ` org=${org.name}` : ''}`);

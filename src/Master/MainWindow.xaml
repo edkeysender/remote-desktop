@@ -49,6 +49,7 @@
                             <TextBlock Text="PASSWORD (edit to set a fixed connection password)" Style="{StaticResource Lbl}"/>
                             <TextBox x:Name="HostPwBox" FontSize="18" FontFamily="Consolas" LostFocus="HostSettings_LostFocus"/>
                             <TextBlock x:Name="HostStatus" Text="Starting…" Foreground="#8b949e" Margin="0,12,0,0" TextWrapping="Wrap"/>
+                            <TextBlock x:Name="HostOrgText" Text="Not enrolled in an organization." Foreground="#6e7681" Margin="0,4,0,0" TextWrapping="Wrap"/>
                         </StackPanel>
                     </Border>
 
@@ -69,6 +70,15 @@
                                 <TextBlock Margin="0,10,0,0" TextWrapping="Wrap" Foreground="#8b949e" FontSize="12">
                                     <Run Text="No account?"/> <Hyperlink x:Name="RegisterLink" Click="RegisterLink_Click" Foreground="#58a6ff">Create one in your browser</Hyperlink><Run Text=", then sign in here."/>
                                 </TextBlock>
+
+                                <Border Background="#010409" BorderBrush="#30363d" BorderThickness="1" CornerRadius="8" Padding="12" Margin="0,14,0,0">
+                                    <StackPanel>
+                                        <TextBlock Text="Or enroll this computer with a token" Foreground="#8b949e" FontSize="12" FontWeight="SemiBold"/>
+                                        <TextBlock Text="Paste an enrollment token from your admin to add this PC to the organization without signing in." Foreground="#6e7681" FontSize="11" TextWrapping="Wrap" Margin="0,2,0,6"/>
+                                        <TextBox x:Name="EnrollBox" FontFamily="Consolas"/>
+                                        <Button x:Name="EnrollBtn" Style="{StaticResource Btn}" Content="Enroll" HorizontalAlignment="Left" Margin="0,8,0,0" Click="EnrollBtn_Click"/>
+                                    </StackPanel>
+                                </Border>
                             </StackPanel>
                             <!-- signed IN -->
                             <StackPanel x:Name="SignedInPanel" Visibility="Collapsed">

@@ -18,7 +18,7 @@ import { resolve, join } from 'path';
 const DATA_DIR = resolve(process.env.DATA_DIR || './data');
 const DB_FILE = join(DATA_DIR, 'db.json');
 
-const empty = () => ({ orgs: {}, users: {}, invites: {}, groups: {}, computers: {} });
+const empty = () => ({ orgs: {}, users: {}, invites: {}, groups: {}, computers: {}, enrollTokens: {} });
 let db = empty();
 
 function load() {
@@ -157,20 +157,48 @@ export function deleteGroup(groupId, orgId) {
   save();
 }
 
+// ------------------------------- enrollment tokens -------------------------------
+// A pre-baked token an admin hands to a machine so it enrolls into the org without an
+// interactive login (Phase 0). Reusable until revoked; optionally pins a target group.
+
+export function createEnrollToken(orgId, { groupId, label, createdBy }) {
+  const token = randomBytes(20).toString('hex');
+  db.enrollTokens[token] = {
+    token, orgId,
+    groupId: groupId && db.groups[groupId]?.orgId === orgId ? groupId : null,
+    label: (label || '').trim(), createdBy: createdBy || null, createdAt: now(),
+  };
+  save();
+  return db.enrollTokens[token];
+}
+
+export function getEnrollToken(token) { return db.enrollTokens[token] || null; }
+
+export function listEnrollTokens(orgId) {
+  return Object.values(db.enrollTokens).filter((e) => e.orgId === orgId);
+}
+
+export function revokeEnrollToken(token, orgId) {
+  const e = db.enrollTokens[token];
+  if (e && e.orgId === orgId) { delete db.enrollTokens[token]; save(); }
+}
+
 // ------------------------------- computers -------------------------------
 
 // Upsert the computer identified by its device token when it comes online under
 // an org (host signed in). Returns the record.
-export function upsertComputer({ deviceToken, orgId, defaultName, relayId }) {
+export function upsertComputer({ deviceToken, orgId, defaultName, relayId, groupId }) {
   let c = db.computers[deviceToken];
   if (!c) {
-    c = { orgId, name: defaultName || 'Computer', groupId: null, lastSeen: now(), relayId };
+    c = { orgId, name: defaultName || 'Computer', groupId: groupId || null, lastSeen: now(), relayId };
     db.computers[deviceToken] = c;
   } else {
     c.orgId = orgId;                 // (re)claim under this org
     c.relayId = relayId;
     c.lastSeen = now();
     if (!c.name) c.name = defaultName || 'Computer';
+    // An enrollment token may pin a group; apply only if not already grouped.
+    if (groupId && !c.groupId && db.groups[groupId]?.orgId === orgId) c.groupId = groupId;
   }
   save();
   return c;

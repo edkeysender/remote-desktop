@@ -172,6 +172,28 @@ export function buildWebApp({ relayStatus }) {
     c && c.orgId === req.user.orgId ? res.json(decorate(c)) : res.status(404).json({ error: 'no such computer' });
   });
 
+  // ------------------------------- enrollment tokens (admin) -------------------------------
+
+  app.get('/api/enroll-tokens', requireUser, requireAdmin, (req, res) => {
+    const gname = Object.fromEntries(store.listGroups(req.user.orgId).map((g) => [g.id, g.name]));
+    res.json(store.listEnrollTokens(req.user.orgId).map((e) => ({
+      token: e.token, label: e.label, groupId: e.groupId,
+      groupName: e.groupId ? gname[e.groupId] || null : null, createdAt: e.createdAt,
+    })));
+  });
+
+  app.post('/api/enroll-tokens', requireUser, requireAdmin, (req, res) => {
+    const e = store.createEnrollToken(req.user.orgId, {
+      groupId: req.body?.groupId || null, label: req.body?.label || '', createdBy: req.user.id,
+    });
+    res.json({ token: e.token, label: e.label, groupId: e.groupId });
+  });
+
+  app.delete('/api/enroll-tokens/:token', requireUser, requireAdmin, (req, res) => {
+    store.revokeEnrollToken(req.params.token, req.user.orgId);
+    res.json({ ok: true });
+  });
+
   // Any user: the groups + computers they're allowed to connect to (desktop picker).
   app.get('/api/my-computers', requireUser, (req, res) => {
     const groups = store.listGroups(req.user.orgId);
