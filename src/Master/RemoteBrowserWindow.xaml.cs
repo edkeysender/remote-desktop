@@ -14,7 +14,9 @@ namespace RemoteDesktop.Master;
 /// </summary>
 public partial class RemoteBrowserWindow : Window
 {
-    private sealed record Row(string Name, string SizeText, bool IsDir, string FullPath);
+    // Must be public: WPF's GridView column bindings can't read properties off a
+    // non-public type, which would leave every cell blank.
+    public sealed record Row(string Name, string SizeText, bool IsDir, string FullPath);
 
     private readonly ViewerSession _session;
     private string _current = "";        // "" = the drive list ("This PC")

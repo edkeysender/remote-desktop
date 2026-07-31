@@ -1,6 +1,5 @@
 using System.Security.Cryptography;
 using System.Windows;
-using System.Windows.Media;
 using RemoteDesktop.Shared;
 
 namespace RemoteDesktop.Client;
@@ -9,7 +8,13 @@ public partial class MainWindow : Window
 {
     private readonly AppConfig _config;
     private HostSession? _session;
-    private bool _running;
+
+    // Always-on connection: a background loop keeps a HostSession alive and reconnects
+    // if the relay drops, for as long as the window is open. Restarted when the server
+    // URL or password changes.
+    private CancellationTokenSource? _loopCts;
+    private string _appliedServer = "";
+    private string _appliedPw = "";
 
     private readonly Updater _updater = new("client", elevate: true);
     private UpdateInfo? _pendingUpdate;
@@ -19,14 +24,89 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
         _config = AppConfig.Load("client");
+
+        // Stable per-device identity: a persistent token makes the relay hand back the
+        // SAME ID on every launch (like the unattended worker). Password is persisted and
+        // editable, so it too is fixed until the user changes it.
+        if (string.IsNullOrEmpty(_config.HostToken)) _config.HostToken = Guid.NewGuid().ToString("N");
+        if (string.IsNullOrEmpty(_config.FixedPassword)) _config.FixedPassword = GeneratePassword();
+        _config.Save("client");
+
         ServerBox.Text = _config.ServerUrl;
-        PwBox.Text = _config.FixedPassword ?? GeneratePassword();
+        PwBox.Text = _config.FixedPassword;
         ShowUnattendedInfo();
-        Loaded += (_, _) => StartUpdateChecks();
+        Loaded += (_, _) =>
+        {
+            StartUpdateChecks();
+            ApplyAndConnect();            // connect automatically on launch
+        };
     }
 
-    // Check on launch, then every 5 minutes, so the button appears while the app is
-    // open (no relaunch needed). Stops polling once an update has been found.
+    // ---- always-on connection ----
+
+    // Read the current server/password, persist them, and (re)start the connection loop
+    // if they changed. Called on launch and whenever those fields are edited.
+    private void ApplyAndConnect()
+    {
+        var server = ServerBox.Text.Trim();
+        var pw = PwBox.Text.Trim();
+        if (pw.Length == 0) { SetStatus("Set a password — it's required to allow connections."); return; }
+        if (server == _appliedServer && pw == _appliedPw && _loopCts != null) return;   // nothing changed
+
+        _config.ServerUrl = server;
+        _config.FixedPassword = pw;       // persist the (editable) password so it's fixed
+        _config.Save("client");
+        _appliedServer = server;
+        _appliedPw = pw;
+
+        _loopCts?.Cancel();
+        _loopCts = new CancellationTokenSource();
+        _ = RunConnectionLoopAsync(server, pw, _config.HostToken!, _loopCts.Token);
+    }
+
+    private async Task RunConnectionLoopAsync(string server, string pw, string token, CancellationToken ct)
+    {
+        while (!ct.IsCancellationRequested)
+        {
+            HostSession? session = null;
+            var down = new TaskCompletionSource();
+            try
+            {
+                session = new HostSession(server, pw, token: token);
+                _session = session;
+                session.IdAssigned    += id     => Dispatcher.Invoke(() => IdBox.Text = FormatId(id));
+                session.Status        += s      => Dispatcher.Invoke(() => SetStatus(s));
+                session.SessionActive += active => Dispatcher.Invoke(() => ShowBanner(active));
+                session.Files.ReceiveStarted   += (n, _)    => Dispatcher.Invoke(() => SetStatus($"Receiving {n}…"));
+                session.Files.ReceiveCompleted += (n, path) => Dispatcher.Invoke(() => SetStatus($"Received {n} → {path}"));
+                session.Files.Error            += msg       => Dispatcher.Invoke(() => SetStatus("File transfer failed: " + msg));
+                // The signaling connection dropping surfaces as a "Disconnected" status.
+                session.Status += s => { if (s.StartsWith("Disconnected", StringComparison.OrdinalIgnoreCase)) down.TrySetResult(); };
+
+                await session.StartAsync();
+                using (ct.Register(() => down.TrySetResult()))
+                    await down.Task;           // block until the connection drops or we're cancelled
+            }
+            catch (Exception ex)
+            {
+                Dispatcher.Invoke(() => SetStatus("Connection error — retrying… " + ex.Message));
+            }
+            finally
+            {
+                try { session?.Dispose(); } catch { }
+                if (_session == session) _session = null;
+            }
+
+            if (ct.IsCancellationRequested) break;
+            Dispatcher.Invoke(() => { ShowBanner(false); IdBox.Text = "reconnecting…"; });
+            try { await Task.Delay(3000, ct); } catch { break; }   // reconnect backoff
+        }
+    }
+
+    private void Settings_LostFocus(object sender, RoutedEventArgs e) => ApplyAndConnect();
+
+    // ---- updates ----
+
     private void StartUpdateChecks()
     {
         _ = CheckForUpdateAsync();
@@ -52,11 +132,6 @@ public partial class MainWindow : Window
     private async void UpdateBtn_Click(object sender, RoutedEventArgs e)
     {
         if (_pendingUpdate is not { } info) return;
-        if (_running)
-        {
-            SetStatus("Stop sharing before updating.");
-            return;
-        }
         UpdateBtn.IsEnabled = false;
         try
         {
@@ -64,6 +139,8 @@ public partial class MainWindow : Window
             var progress = new Progress<double>(p => Dispatcher.Invoke(() => SetStatus($"Downloading v{info.Version}… {(int)(p * 100)}%")));
             var stage = await _updater.DownloadAsync(ServerBox.Text.Trim(), info, progress);
             SetStatus("Installing — the app will restart…");
+            _loopCts?.Cancel();
+            if (_session != null) { try { await _session.StopAsync(); } catch { } }
             _updater.LaunchAndExit(stage);
             Application.Current.Shutdown();
         }
@@ -88,8 +165,6 @@ public partial class MainWindow : Window
         UnPwBox.Text = machine.UnattendedPassword;
         UnattendedPanel.Visibility = Visibility.Visible;
 
-        // The worker writes CurrentId once it connects (async, in another process), so poll
-        // until the ID resolves, then stop.
         if (string.IsNullOrEmpty(machine.CurrentId))
         {
             UnIdBox.Text = "waiting…";
@@ -104,56 +179,6 @@ public partial class MainWindow : Window
             timer.Start();
         }
         else UnIdBox.Text = FormatId(machine.CurrentId);
-    }
-
-    private async void StartBtn_Click(object sender, RoutedEventArgs e)
-    {
-        if (_running) { await StopAsync(); return; }
-
-        _config.ServerUrl = ServerBox.Text.Trim();
-        _config.Save("client");
-
-        var pw = PwBox.Text.Trim();
-        if (pw.Length == 0) { SetStatus("Set a password first."); return; }
-
-        _session = new HostSession(_config.ServerUrl, pw);
-        _session.IdAssigned += id => Dispatcher.Invoke(() => IdBox.Text = FormatId(id));
-        _session.Status += s => Dispatcher.Invoke(() => SetStatus(s));
-        _session.SessionActive += active => Dispatcher.Invoke(() => ShowBanner(active));
-        _session.Files.ReceiveStarted += (n, _) => Dispatcher.Invoke(() => SetStatus($"Receiving {n}…"));
-        _session.Files.ReceiveCompleted += (n, path) => Dispatcher.Invoke(() => SetStatus($"Received {n} → {path}"));
-        _session.Files.Error += msg => Dispatcher.Invoke(() => SetStatus("File transfer failed: " + msg));
-
-        try
-        {
-            SetControlsRunning(true);
-            await _session.StartAsync();
-        }
-        catch (Exception ex)
-        {
-            SetStatus("Failed to start: " + ex.Message);
-            SetControlsRunning(false);
-            _session?.Dispose();
-            _session = null;
-        }
-    }
-
-    private async Task StopAsync()
-    {
-        if (_session != null) { await _session.StopAsync(); _session.Dispose(); _session = null; }
-        SetControlsRunning(false);
-        IdBox.Text = "—";
-        ShowBanner(false);
-        SetStatus("Stopped");
-    }
-
-    private void SetControlsRunning(bool running)
-    {
-        _running = running;
-        StartBtn.Content = running ? "Stop" : "Start";
-        StartBtn.Background = new SolidColorBrush(running ? Color.FromRgb(0xda, 0x36, 0x33) : Color.FromRgb(0x23, 0x86, 0x36));
-        ServerBox.IsEnabled = !running;
-        PwBox.IsEnabled = !running;
     }
 
     private void ShowBanner(bool active)
@@ -176,7 +201,8 @@ public partial class MainWindow : Window
 
     protected override async void OnClosed(EventArgs e)
     {
-        if (_session != null) await _session.StopAsync();
+        _loopCts?.Cancel();
+        if (_session != null) { try { await _session.StopAsync(); } catch { } }
         base.OnClosed(e);
     }
 }

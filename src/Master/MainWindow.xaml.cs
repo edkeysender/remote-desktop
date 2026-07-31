@@ -100,12 +100,16 @@ public partial class MainWindow : Window
     private async void ConnectBtn_Click(object sender, RoutedEventArgs e)
     {
         if (_connected) { await DisconnectAsync(); return; }
+        await StartSessionAsync(IdBox.Text.Trim().Replace(" ", ""), PwBox.Text.Trim(), adminPw: null);
+    }
 
+    // Core connect path. adminPw != null → password-less admin connect (directory picker);
+    // otherwise the typed per-host password is used.
+    private async Task StartSessionAsync(string id, string pw, string? adminPw)
+    {
+        if (_connected) return;
         _config.ServerUrl = ServerBox.Text.Trim();
         _config.Save("master");
-
-        var id = IdBox.Text.Trim().Replace(" ", "");
-        var pw = PwBox.Text.Trim();
         if (id.Length == 0) { SetStatus("Enter an ID."); return; }
 
         _session = new ViewerSession();
@@ -126,7 +130,7 @@ public partial class MainWindow : Window
         try
         {
             SetStatus("Connecting…");
-            await _session.ConnectAsync(_config.ServerUrl, id, pw);
+            await _session.ConnectAsync(_config.ServerUrl, id, pw, adminPw);
         }
         catch (Exception ex)
         {
@@ -150,17 +154,18 @@ public partial class MainWindow : Window
         foreach (var c in new UIElement[] { ServerBox, IdBox, PwBox, DirectoryBtn }) c.IsEnabled = false;
     }
 
-    private void DirectoryBtn_Click(object sender, RoutedEventArgs e)
+    private async void DirectoryBtn_Click(object sender, RoutedEventArgs e)
     {
         var url = ServerBox.Text.Trim();
         if (url.Length == 0) { SetStatus("Enter the server URL first."); return; }
         var dlg = new DirectoryWindow(url, _config) { Owner = this };
-        if (dlg.ShowDialog() == true && dlg.SelectedId is { } id)
-        {
-            IdBox.Text = id;
-            PwBox.Focus();
-            SetStatus($"Selected {id} — enter the password and Connect.");
-        }
+        if (dlg.ShowDialog() != true || dlg.SelectedId is not { } id) return;
+
+        // Picked from the directory → connect straight away with the admin/directory
+        // password, no per-host password prompt.
+        IdBox.Text = id;
+        if (_connected) await DisconnectAsync();
+        await StartSessionAsync(id, pw: "", adminPw: _config.DirectoryPassword);
     }
 
     private async Task DisconnectAsync()

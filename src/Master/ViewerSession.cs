@@ -34,12 +34,20 @@ public sealed class ViewerSession : IDisposable
     /// <summary>File send/receive over the session's "file" data channel.</summary>
     public FileTransferChannel Files { get; } = new();
 
-    public async Task ConnectAsync(string serverUrl, string id, string password)
+    /// <summary>
+    /// Join a host by ID. Normal path: supply the host's <paramref name="password"/>.
+    /// Admin path: supply <paramref name="adminPassword"/> (the relay's admin password) to
+    /// connect without the per-client password — used by the directory picker.
+    /// </summary>
+    public async Task ConnectAsync(string serverUrl, string id, string password, string? adminPassword = null)
     {
         _conn.JsonReceived += OnJson;
         _conn.Closed += reason => Closed?.Invoke(reason);
         await _conn.ConnectAsync(serverUrl);
-        await _conn.SendJsonAsync(new { t = "connect", id, password });
+        if (!string.IsNullOrEmpty(adminPassword))
+            await _conn.SendJsonAsync(new { t = "connect", id, admin = true, adminPassword });
+        else
+            await _conn.SendJsonAsync(new { t = "connect", id, password });
     }
 
     private void OnJson(JsonElement root)

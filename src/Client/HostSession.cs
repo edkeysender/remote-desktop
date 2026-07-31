@@ -80,9 +80,13 @@ public sealed class HostSession : IDisposable
             {
                 var rid = root.GetProperty("rid").GetString();
                 var pw = root.TryGetProperty("password", out var pv) ? pv.GetString() : "";
-                bool ok = string.Equals(pw, _password, StringComparison.Ordinal);
+                // The relay sets admin=true when the viewer proved the admin password to
+                // it; we trust the relay we chose to connect to, so accept without the
+                // per-client password (this is the directory "connect without a prompt").
+                bool admin = root.TryGetProperty("admin", out var av) && av.ValueKind == JsonValueKind.True;
+                bool ok = admin || string.Equals(pw, _password, StringComparison.Ordinal);
                 _ = _conn!.SendJsonAsync(new { t = "connect-response", rid, ok });
-                if (ok) _ = StartPeerAsync();
+                if (ok) { _ = StartPeerAsync(); if (admin) Status?.Invoke("Session active (admin) — negotiating video…"); }
                 else Status?.Invoke("Rejected a connection (wrong password)");
                 break;
             }

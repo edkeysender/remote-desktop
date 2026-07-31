@@ -127,12 +127,17 @@ function clientIp(req) {
   return ip.startsWith('::ffff:') ? ip.slice(7) : ip;   // unwrap IPv4-mapped IPv6
 }
 
+function isAdminPassword(pw) {
+  if (typeof pw !== 'string') return false;
+  const a = Buffer.from(pw), b = Buffer.from(ADMIN_PASSWORD);
+  return a.length === b.length && timingSafeEqual(a, b);
+}
+
 function checkAuth(req) {
   const m = /^Basic (.+)$/.exec(req.headers['authorization'] || '');
   if (!m) return false;
   const pass = Buffer.from(m[1], 'base64').toString().split(':').slice(1).join(':');
-  const a = Buffer.from(pass), b = Buffer.from(ADMIN_PASSWORD);
-  return a.length === b.length && timingSafeEqual(a, b);
+  return isAdminPassword(pass);
 }
 
 function sendJson(res, obj, code = 200) {
@@ -242,6 +247,10 @@ http.listen(PORT, () => {
     console.warn('[server] WARNING: admin password is the default "admin" — set ADMIN_PASSWORD to secure it.');
 });
 
+// Safety net: an unexpected error on one connection must never crash the relay and
+// drop everyone's sessions. Log and keep serving.
+process.on('uncaughtException', (e) => console.error('[server] uncaught:', e?.stack || e));
+
 function newId() {
   // 9-digit numeric ID, avoids leading zero so it's always 9 chars.
   let id;
@@ -309,8 +318,12 @@ wss.on('connection', (ws, req) => {
         pending.set(rid, ws);
         ws._rid = rid;
         ws._hostId = String(msg.id);
-        // Host verifies the password locally; server never sees the truth.
-        send(entry.ws, { t: 'connect-request', rid, password: msg.password ?? '' });
+        // Normal path: host verifies the password locally; server never sees the truth.
+        // Admin path: a viewer that proves the admin password to the RELAY is vouched
+        // for (admin:true) so the host may accept without the per-client password —
+        // this is what lets the Master connect from the directory without a prompt.
+        const admin = msg.admin === true && isAdminPassword(msg.adminPassword);
+        send(entry.ws, { t: 'connect-request', rid, password: msg.password ?? '', admin });
         break;
       }
 
@@ -333,13 +346,15 @@ wss.on('connection', (ws, req) => {
 
       // Everything else is session traffic: relay to the paired peer.
       // viewer->host: input + control.  host->viewer: {t:"screen",...} etc.
+      // NOTE: guard the peer explicitly — `a?.b?.readyState === a.b.OPEN` still
+      // evaluates the right-hand `a.b.OPEN` when b is null and throws.
       default: {
         if (ws.role === 'viewer' && ws.id) {
           const entry = hosts.get(ws.id);
-          if (entry?.ws?.readyState === entry.ws.OPEN) entry.ws.send(JSON.stringify(msg));
+          if (entry && entry.ws.readyState === entry.ws.OPEN) entry.ws.send(JSON.stringify(msg));
         } else if (ws.role === 'host' && ws.id) {
           const entry = hosts.get(ws.id);
-          if (entry?.viewer?.readyState === entry.viewer.OPEN) {
+          if (entry && entry.viewer && entry.viewer.readyState === entry.viewer.OPEN) {
             entry.viewer.send(JSON.stringify(msg));
           }
         }

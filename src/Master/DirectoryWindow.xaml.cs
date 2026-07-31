@@ -13,7 +13,9 @@ namespace RemoteDesktop.Master;
 /// </summary>
 public partial class DirectoryWindow : Window
 {
-    private sealed record Row(string Id, string Display, string GroupName, bool Online, string StatusText);
+    // Must be public: WPF's GridView column bindings can't read properties off a
+    // non-public type, which would leave every cell blank.
+    public sealed record Row(string Id, string Display, string GroupName, bool Online, string StatusText);
 
     private readonly string _serverUrl;
     private readonly AppConfig _config;

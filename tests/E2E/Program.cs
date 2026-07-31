@@ -214,6 +214,30 @@ if (!string.IsNullOrEmpty(adminPw))
 }
 
 await viewer.CloseAsync();
+
+// --- admin (password-less) connect: a viewer proving the admin password to the relay
+// is accepted by the host WITHOUT the per-client password (directory "connect") ---
+if (!string.IsNullOrEmpty(adminPw))
+{
+    await Task.Delay(1000);   // let the host free up after the first viewer left
+    var v2 = new ViewerSession();
+    var v2conn = new TaskCompletionSource<bool>();
+    v2.Connected += () => v2conn.TrySetResult(true);
+    v2.Rejected += r => { Console.WriteLine($"[admin] rejected: {r}"); v2conn.TrySetResult(false); };
+    await v2.ConnectAsync(SERVER, id2!, password: "", adminPassword: adminPw);
+    Check(await WaitBool(v2conn.Task, 10000), "admin connect succeeds without the per-client password");
+    await v2.CloseAsync();
+
+    await Task.Delay(1000);
+    var v3 = new ViewerSession();
+    var v3conn = new TaskCompletionSource<bool>();
+    v3.Connected += () => v3conn.TrySetResult(true);
+    v3.Rejected += _ => v3conn.TrySetResult(false);
+    await v3.ConnectAsync(SERVER, id2!, password: "", adminPassword: "wrong-admin-pw");
+    Check(!await WaitBool(v3conn.Task, 6000), "wrong admin password does NOT get a password-less connect");
+    await v3.CloseAsync();
+}
+
 await host.StopAsync();
 Environment.Exit(Finish());
 
