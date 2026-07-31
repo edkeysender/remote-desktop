@@ -44,6 +44,17 @@ function Find-ISCC {
     throw "ISCC.exe (Inno Setup) not found. Install with: winget install JRSoftware.InnoSetup"
 }
 
+# A test build launched from publish\ locks its exe and breaks the next publish.
+# Stop only processes running from THIS repo's publish folder — never the installed
+# apps or the SYSTEM service.
+$pubRoot = Join-Path $root 'publish'
+Get-Process FtdRemoteClient,FtdRemoteMaster,FtdRemoteService -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -and $_.Path.StartsWith($pubRoot, [StringComparison]::OrdinalIgnoreCase) } |
+    ForEach-Object {
+        Write-Host "   stopping running test build: $($_.ProcessName) (pid $($_.Id))" -ForegroundColor DarkYellow
+        Stop-Process -Id $_.Id -Force
+    }
+
 $publishArgs = @(
     '-c','Release','-r','win-x64','--self-contained','true',
     '/p:PublishSingleFile=true','/p:IncludeNativeLibrariesForSelfExtract=true',
