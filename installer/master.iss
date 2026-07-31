@@ -2,7 +2,10 @@
 ; Build: publish first (see build.ps1), then compile this with ISCC.exe.
 
 #define AppName "FTD Remote Master"
-#define AppVersion "0.1.0"
+; Version can be overridden from build.ps1 via ISCC /DAppVersion=x.y.z
+#ifndef AppVersion
+  #define AppVersion "0.2.0"
+#endif
 #define AppPublisher "FTD.aero"
 #define AppExe "FtdRemoteMaster.exe"
 

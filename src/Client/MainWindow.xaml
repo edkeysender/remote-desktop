@@ -24,6 +24,9 @@
                    Margin="0,0,0,12" RenderOptions.BitmapScalingMode="HighQuality"/>
             <TextBlock Text="Allow this computer to be controlled" FontSize="16" FontWeight="SemiBold"/>
             <TextBlock Text="Give the ID and password below to the person connecting." Foreground="#8b949e" FontSize="12" Margin="0,2,0,0"/>
+            <Button x:Name="UpdateBtn" Content="⬇ Update available" HorizontalAlignment="Left"
+                    Background="#9e6a03" Foreground="White" BorderThickness="0" Cursor="Hand"
+                    Padding="12,5" Margin="0,10,0,0" Visibility="Collapsed" Click="UpdateBtn_Click"/>
         </StackPanel>
 
         <Border Grid.Row="1" Background="#161b22" CornerRadius="10" Padding="18" Margin="0,0,0,12">

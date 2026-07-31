@@ -14,6 +14,10 @@ Responsibilities:
 - Let the host accept/reject (it checks the password locally).
 - Phase 0 only: pipe binary frames host→viewer and input JSON viewer→host.
 - Phase 2+: relay SDP offers/answers and ICE candidates, then get out of the way.
+- Serve app auto-updates over HTTP on the same port: `GET /update/manifest.json`
+  (version + per-component file list) and `GET /update/<file>` (published exes),
+  from `UPDATE_DIR` (default `./update`). `build.ps1` stages that directory and can
+  scp it to the Pi. The Windows apps poll the manifest and offer an in-app update.
 
 ### 2. Host (`host/`, C# .NET 8, Windows-only)
 Runs on the controlled machine.
@@ -122,6 +126,14 @@ either side doesn't corrupt them; the host maps 0..1 → virtual-desktop absolut
   `%ProgramData%\FTD Remote\machine.json`; the ID field polls until the worker connects).
   Still TODO: provision the real `ServerUrl` at deploy time (defaults to
   `ws://localhost:8080`); **code signing**; accounts; self-hosted relay deployment.
+- **In-app auto-update:** both apps check `<http>/update/manifest.json` on launch and,
+  if the manifest version beats the running assembly, show an "Update available" button.
+  Clicking downloads the component's files (SHA-256 verified) into a temp stage, then a
+  PowerShell script waits for the app to exit, swaps the files, and relaunches. The
+  **client** elevates (Program Files + it stops/starts the SYSTEM service so the worker
+  releases `FtdRemoteClient.exe`); the **master** installs per-user and updates without
+  a UAC prompt. Version is single-sourced from the `VERSION` file, stamped into the
+  assemblies, installers, and manifest by `build.ps1`. See `Shared/Updater.cs`.
 
 ## Known hard problems (don't be surprised)
 1. **UAC / secure desktop:** a normal user process can't capture or inject into the

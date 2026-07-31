@@ -7,11 +7,16 @@
 // It never verifies the password — the host does that. It only routes by ID.
 
 import { WebSocketServer } from 'ws';
+import { createServer } from 'http';
 import { randomBytes } from 'crypto';
-import { readFileSync, writeFileSync, existsSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, createReadStream, statSync } from 'fs';
+import { resolve, join, basename, extname } from 'path';
 
 const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
 const ID_MAP_FILE = process.env.ID_MAP_FILE || 'idmap.json';
+// Directory of app-update artifacts (manifest.json + the published .exe files).
+// The Windows apps poll <http>/update/manifest.json and download from here.
+const UPDATE_DIR = resolve(process.env.UPDATE_DIR || './update');
 
 // Persistent host identity: a host may present a stable `token` (stored on its
 // machine) to be assigned the SAME ID every time — this is what makes unattended
@@ -36,8 +41,45 @@ loadIdMap();
 const hosts = new Map();        // id -> host entry
 const pending = new Map();      // requestId -> viewer ws (awaiting host's password check)
 
-const wss = new WebSocketServer({ port: PORT });
-console.log(`[server] signaling/relay listening on ws://0.0.0.0:${PORT}`);
+// HTTP server shares the port with the WebSocket. It serves two things:
+//   GET /health                  → liveness check
+//   GET /update/manifest.json    → the current version manifest
+//   GET /update/<file>           → a published app artifact (by bare filename)
+// Everything else 404s. The WebSocket upgrade is handled by the wss below.
+const ALLOWED_EXT = new Set(['.json', '.exe', '.zip']);
+const http = createServer((req, res) => {
+  if (req.method !== 'GET') { res.writeHead(405).end(); return; }
+  const url = new URL(req.url, 'http://localhost');
+  if (url.pathname === '/health') { res.writeHead(200).end('ok'); return; }
+
+  if (url.pathname === '/update/manifest.json') return serveFile(res, join(UPDATE_DIR, 'manifest.json'), 'application/json');
+  if (url.pathname.startsWith('/update/')) {
+    // basename() strips any path components, so "../" can't escape UPDATE_DIR.
+    const name = basename(decodeURIComponent(url.pathname.slice('/update/'.length)));
+    if (!name || !ALLOWED_EXT.has(extname(name).toLowerCase())) { res.writeHead(404).end(); return; }
+    const type = extname(name) === '.json' ? 'application/json' : 'application/octet-stream';
+    return serveFile(res, join(UPDATE_DIR, name), type);
+  }
+  res.writeHead(404).end();
+});
+
+function serveFile(res, path, type) {
+  let st;
+  try { st = statSync(path); } catch { res.writeHead(404).end('not found'); return; }
+  if (!st.isFile()) { res.writeHead(404).end('not found'); return; }
+  res.writeHead(200, {
+    'Content-Type': type,
+    'Content-Length': st.size,
+    'Cache-Control': 'no-cache',
+  });
+  createReadStream(path).pipe(res);
+}
+
+const wss = new WebSocketServer({ server: http });
+http.listen(PORT, () => {
+  console.log(`[server] signaling/relay listening on ws://0.0.0.0:${PORT}`);
+  console.log(`[server] update artifacts served from ${UPDATE_DIR}`);
+});
 
 function newId() {
   // 9-digit numeric ID, avoids leading zero so it's always 9 chars.

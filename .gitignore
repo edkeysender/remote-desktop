@@ -17,6 +17,9 @@ installer/dist/
 docker/turnserver.local.conf
 # Server runtime state: persistent host token → ID map (contains live host tokens)
 idmap.json
+# Update artifacts served by the Pi (published exes + manifest)
+server/update/
+update/
 
 # OS
 Thumbs.db

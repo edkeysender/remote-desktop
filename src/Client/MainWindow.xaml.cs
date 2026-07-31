@@ -11,6 +11,9 @@ public partial class MainWindow : Window
     private HostSession? _session;
     private bool _running;
 
+    private readonly Updater _updater = new("client", elevate: true);
+    private UpdateInfo? _pendingUpdate;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -18,6 +21,44 @@ public partial class MainWindow : Window
         ServerBox.Text = _config.ServerUrl;
         PwBox.Text = _config.FixedPassword ?? GeneratePassword();
         ShowUnattendedInfo();
+        Loaded += async (_, _) => await CheckForUpdateAsync();
+    }
+
+    private async Task CheckForUpdateAsync()
+    {
+        var url = ServerBox.Text.Trim();
+        if (url.Length == 0) return;
+        var info = await _updater.CheckAsync(url);
+        if (info == null) return;
+        _pendingUpdate = info;
+        UpdateBtn.Content = $"⬇ Update to v{info.Version}";
+        UpdateBtn.ToolTip = string.IsNullOrWhiteSpace(info.Notes) ? null : info.Notes;
+        UpdateBtn.Visibility = Visibility.Visible;
+    }
+
+    private async void UpdateBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (_pendingUpdate is not { } info) return;
+        if (_running)
+        {
+            SetStatus("Stop sharing before updating.");
+            return;
+        }
+        UpdateBtn.IsEnabled = false;
+        try
+        {
+            SetStatus($"Downloading v{info.Version}…");
+            var progress = new Progress<double>(p => Dispatcher.Invoke(() => SetStatus($"Downloading v{info.Version}… {(int)(p * 100)}%")));
+            var stage = await _updater.DownloadAsync(ServerBox.Text.Trim(), info, progress);
+            SetStatus("Installing — the app will restart…");
+            _updater.LaunchAndExit(stage);
+            Application.Current.Shutdown();
+        }
+        catch (Exception ex)
+        {
+            SetStatus("Update failed: " + ex.Message);
+            UpdateBtn.IsEnabled = true;
+        }
     }
 
     /// <summary>

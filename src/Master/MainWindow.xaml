@@ -85,6 +85,10 @@
                 <Button x:Name="SendFileBtn" Content="📁 Send file" Style="{StaticResource ToolBtn}"
                         Margin="14,0,0,0" IsEnabled="False" Click="SendFileBtn_Click"/>
 
+                <Button x:Name="UpdateBtn" Content="⬇ Update available" Margin="14,0,0,0"
+                        Background="#9e6a03" Foreground="White" BorderThickness="0" Cursor="Hand"
+                        Height="30" Padding="12,0" Visibility="Collapsed" Click="UpdateBtn_Click"/>
+
                 <TextBlock x:Name="StatusText" Text="idle" Foreground="#8b949e"
                            VerticalAlignment="Center" Margin="14,0,0,0"/>
             </StackPanel>

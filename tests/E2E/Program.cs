@@ -2,6 +2,7 @@ using System.IO;
 using System.Runtime.InteropServices;
 using RemoteDesktop.Client;
 using RemoteDesktop.Master;
+using RemoteDesktop.Shared;
 
 // Headless WebRTC end-to-end using the REAL production session classes, driven
 // through the real Node signaling server. Proves: signaling -> offer/answer ->
@@ -130,6 +131,50 @@ Check(second is not null && second != hostSaved && File.Exists(hostSaved),
     $"second send kept both copies ({Path.GetFileName(second ?? "?")})");
 
 try { Directory.Delete(tmpDir, recursive: true); } catch { }
+
+// --- auto-update: manifest check + hash-verified download over the server's HTTP side ---
+// Runs only when E2E_UPDATE_DIR is set (and the server was started with the same
+// UPDATE_DIR), so a plain run without update wiring still passes.
+var updDir = Environment.GetEnvironmentVariable("E2E_UPDATE_DIR");
+if (!string.IsNullOrEmpty(updDir))
+{
+    Directory.CreateDirectory(updDir);
+    var fakeExe = Path.Combine(updDir, "FtdRemoteMaster.exe");
+    var exeBytes = new byte[512 * 1024];
+    new Random(7).NextBytes(exeBytes);
+    File.WriteAllBytes(fakeExe, exeBytes);
+    string sha = Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(exeBytes));
+    var manifest = new
+    {
+        version = "9.9.9",
+        notes = "e2e test build",
+        master = new[] { new { name = "FtdRemoteMaster.exe", sha256 = sha, size = (long)exeBytes.Length } },
+        client = new[] { new { name = "FtdRemoteClient.exe", sha256 = sha, size = (long)exeBytes.Length } },
+    };
+    File.WriteAllText(Path.Combine(updDir, "manifest.json"),
+        System.Text.Json.JsonSerializer.Serialize(manifest));
+
+    var updater = new Updater("master", elevate: false);
+    var info = await updater.CheckAsync(SERVER);
+    Check(info is not null && info.Version == new Version(9, 9, 9), $"update check found newer version ({info?.Version})");
+    if (info is not null)
+    {
+        var stage = await updater.DownloadAsync(SERVER, info);
+        var got = Path.Combine(stage, "FtdRemoteMaster.exe");
+        Check(File.Exists(got) && File.ReadAllBytes(got).AsSpan().SequenceEqual(exeBytes),
+            "update downloaded + hash-verified");
+        try { Directory.Delete(stage, true); } catch { }
+    }
+
+    // A manifest at/below the running version must not offer an update.
+    File.WriteAllText(Path.Combine(updDir, "manifest.json"),
+        System.Text.Json.JsonSerializer.Serialize(new
+        {
+            version = "0.0.1",
+            master = new[] { new { name = "FtdRemoteMaster.exe", sha256 = sha, size = (long)exeBytes.Length } },
+        }));
+    Check(await new Updater("master", false).CheckAsync(SERVER) is null, "no update offered when manifest is older");
+}
 
 await viewer.CloseAsync();
 await host.StopAsync();

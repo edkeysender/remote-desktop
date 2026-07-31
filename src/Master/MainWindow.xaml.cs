@@ -29,11 +29,52 @@ public partial class MainWindow : Window
     private static readonly Color IdleBorder = Color.FromRgb(0x30, 0x36, 0x3d);
     private static readonly Color IdleFg = Color.FromRgb(0x8b, 0x94, 0x9e);
 
+    private readonly Updater _updater = new("master", elevate: false);
+    private UpdateInfo? _pendingUpdate;
+
     public MainWindow()
     {
         InitializeComponent();
         _config = AppConfig.Load("master");
         ServerBox.Text = _config.ServerUrl;
+        Loaded += async (_, _) => await CheckForUpdateAsync();
+    }
+
+    private async Task CheckForUpdateAsync()
+    {
+        var url = ServerBox.Text.Trim();
+        if (url.Length == 0) return;
+        var info = await _updater.CheckAsync(url);
+        if (info == null) return;
+        _pendingUpdate = info;
+        UpdateBtn.Content = $"⬇ Update to v{info.Version}";
+        UpdateBtn.ToolTip = string.IsNullOrWhiteSpace(info.Notes) ? null : info.Notes;
+        UpdateBtn.Visibility = Visibility.Visible;
+    }
+
+    private async void UpdateBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (_pendingUpdate is not { } info) return;
+        if (_connected)
+        {
+            SetStatus("Disconnect before updating.");
+            return;
+        }
+        UpdateBtn.IsEnabled = false;
+        try
+        {
+            SetStatus($"Downloading v{info.Version}…");
+            var progress = new Progress<double>(p => Dispatcher.Invoke(() => SetStatus($"Downloading v{info.Version}… {(int)(p * 100)}%")));
+            var stage = await _updater.DownloadAsync(ServerBox.Text.Trim(), info, progress);
+            SetStatus("Installing — the app will restart…");
+            _updater.LaunchAndExit(stage);
+            Application.Current.Shutdown();
+        }
+        catch (Exception ex)
+        {
+            SetStatus("Update failed: " + ex.Message);
+            UpdateBtn.IsEnabled = true;
+        }
     }
 
     private async void ConnectBtn_Click(object sender, RoutedEventArgs e)
