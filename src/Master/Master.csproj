@@ -7,15 +7,19 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>RemoteDesktop.Master</RootNamespace>
-    <AssemblyName>FtdRemoteMaster</AssemblyName>
+    <AssemblyName>FtdRemote</AssemblyName>
     <ApplicationIcon>..\..\assets\ftd.ico</ApplicationIcon>
-    <Version>0.2.1</Version>
-    <Product>FTD Remote Master</Product>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <Version>0.3.0</Version>
+    <Product>FTD Remote</Product>
     <Company>FTD.aero</Company>
   </PropertyGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Shared\Shared.csproj" />
+    <!-- Host engine (HostSession, ScreenCapture, InputInjector) is reused from the
+         Client project so the unified app can both host and view. -->
+    <ProjectReference Include="..\Client\Client.csproj" />
   </ItemGroup>
 
   <ItemGroup>

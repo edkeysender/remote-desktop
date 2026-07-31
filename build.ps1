@@ -48,7 +48,7 @@ function Find-ISCC {
 # Stop only processes running from THIS repo's publish folder — never the installed
 # apps or the SYSTEM service.
 $pubRoot = Join-Path $root 'publish'
-Get-Process FtdRemoteClient,FtdRemoteMaster,FtdRemoteService -ErrorAction SilentlyContinue |
+Get-Process FtdRemote,FtdRemoteClient,FtdRemoteMaster,FtdRemoteService -ErrorAction SilentlyContinue |
     Where-Object { $_.Path -and $_.Path.StartsWith($pubRoot, [StringComparison]::OrdinalIgnoreCase) } |
     ForEach-Object {
         Write-Host "   stopping running test build: $($_.ProcessName) (pid $($_.Id))" -ForegroundColor DarkYellow
@@ -61,14 +61,14 @@ $publishArgs = @(
     '/p:EnableCompressionInSingleFile=true',"/p:Version=$ver",'-nologo'
 )
 
-Write-Host '== Publishing Client ==' -ForegroundColor Cyan
+# The unified attended app (host + viewer in one), FtdRemote.exe.
+Write-Host '== Publishing App (unified) ==' -ForegroundColor Cyan
+dotnet publish "$root\src\Master\Master.csproj" @publishArgs -o "$root\publish\app"
+
+# The unattended host worker + Windows service (headless). The service finds the worker
+# exe (FtdRemoteClient.exe) next to itself, so both live in publish\client.
+Write-Host '== Publishing Client worker ==' -ForegroundColor Cyan
 dotnet publish "$root\src\Client\Client.csproj" @publishArgs -o "$root\publish\client"
-
-Write-Host '== Publishing Master ==' -ForegroundColor Cyan
-dotnet publish "$root\src\Master\Master.csproj" @publishArgs -o "$root\publish\master"
-
-# The unattended Windows service. Published into the SAME folder as the client so
-# the supervisor finds FtdRemoteClient.exe next to itself (AppContext.BaseDirectory).
 Write-Host '== Publishing Service ==' -ForegroundColor Cyan
 dotnet publish "$root\src\Service\Service.csproj" @publishArgs -o "$root\publish\client"
 
@@ -87,11 +87,12 @@ function New-Entry([string]$path) {
     }
 }
 
-# @(...) keeps these as JSON arrays; the client parser also tolerates a bare object.
+# @(...) keeps these as JSON arrays; the app parser also tolerates a bare object.
+# Components: "app" = the unified attended app; "client" = the unattended worker+service.
 $manifest = [ordered]@{
     version = $ver
     notes   = $Notes
-    master  = @( New-Entry "$root\publish\master\FtdRemoteMaster.exe" )
+    app     = @( New-Entry "$root\publish\app\FtdRemote.exe" )
     client  = @(
         New-Entry "$root\publish\client\FtdRemoteClient.exe"
         New-Entry "$root\publish\client\FtdRemoteService.exe"
@@ -103,8 +104,8 @@ Write-Host "   manifest.json + $((Get-ChildItem $upd -Filter *.exe).Count) exe(s
 # ---- installers --------------------------------------------------------------------
 $iscc = Find-ISCC
 Write-Host "== Compiling installers ($iscc) ==" -ForegroundColor Cyan
+& $iscc "/DAppVersion=$ver" "$root\installer\app.iss"
 & $iscc "/DAppVersion=$ver" "$root\installer\client.iss"
-& $iscc "/DAppVersion=$ver" "$root\installer\master.iss"
 
 Write-Host "`nInstallers:" -ForegroundColor Green
 Get-ChildItem "$root\installer\dist\*.exe" | ForEach-Object {

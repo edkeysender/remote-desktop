@@ -35,16 +35,21 @@ public sealed class ViewerSession : IDisposable
     public FileTransferChannel Files { get; } = new();
 
     /// <summary>
-    /// Join a host by ID. Normal path: supply the host's <paramref name="password"/>.
-    /// Admin path: supply <paramref name="adminPassword"/> (the relay's admin password) to
-    /// connect without the per-client password — used by the directory picker.
+    /// Join a host by ID. Three auth modes, in priority order:
+    ///   • <paramref name="authToken"/> — an account session; the relay authorizes by
+    ///     org + group membership and the host connects without a per-client password.
+    ///   • <paramref name="adminPassword"/> — the relay's admin password (legacy picker).
+    ///   • <paramref name="password"/> — the host's own password (manual connect).
     /// </summary>
-    public async Task ConnectAsync(string serverUrl, string id, string password, string? adminPassword = null)
+    public async Task ConnectAsync(string serverUrl, string id, string password,
+                                   string? adminPassword = null, string? authToken = null)
     {
         _conn.JsonReceived += OnJson;
         _conn.Closed += reason => Closed?.Invoke(reason);
         await _conn.ConnectAsync(serverUrl);
-        if (!string.IsNullOrEmpty(adminPassword))
+        if (!string.IsNullOrEmpty(authToken))
+            await _conn.SendJsonAsync(new { t = "connect", id, auth = authToken });
+        else if (!string.IsNullOrEmpty(adminPassword))
             await _conn.SendJsonAsync(new { t = "connect", id, admin = true, adminPassword });
         else
             await _conn.SendJsonAsync(new { t = "connect", id, password });

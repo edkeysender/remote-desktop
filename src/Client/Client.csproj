@@ -11,7 +11,7 @@
     <AssemblyName>FtdRemoteClient</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>..\..\assets\ftd.ico</ApplicationIcon>
-    <Version>0.2.1</Version>
+    <Version>0.3.0</Version>
     <Product>FTD Remote Client</Product>
     <Company>FTD.aero</Company>
   </PropertyGroup>

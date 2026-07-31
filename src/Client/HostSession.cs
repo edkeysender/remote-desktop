@@ -22,7 +22,9 @@ public sealed class HostSession : IDisposable
     private readonly string _serverUrl;
     private readonly string _password;
     private readonly int _fps;
-    private readonly string? _token;   // stable identity for unattended hosts (null = random ID)
+    private readonly string? _token;       // stable identity for unattended hosts (null = random ID)
+    private readonly string? _authToken;   // account session → claims this PC into the org
+    private readonly string? _hostName;    // friendly computer name shown in the org list
 
     private SignalingConnection? _conn;
     private ScreenCapture? _capture;
@@ -45,9 +47,11 @@ public sealed class HostSession : IDisposable
     /// <summary>File send/receive over the session's "file" data channel.</summary>
     public FileTransferChannel Files { get; } = new();
 
-    public HostSession(string serverUrl, string password, int fps = 15, string? token = null)
+    public HostSession(string serverUrl, string password, int fps = 15, string? token = null,
+                       string? authToken = null, string? hostName = null)
     {
         _serverUrl = serverUrl; _password = password; _fps = fps; _token = token;
+        _authToken = authToken; _hostName = hostName;
     }
 
     public async Task StartAsync()
@@ -63,7 +67,7 @@ public sealed class HostSession : IDisposable
 
         Status?.Invoke("Connecting to server…");
         await _conn.ConnectAsync(_serverUrl);
-        await _conn.SendJsonAsync(new { t = "register", token = _token });
+        await _conn.SendJsonAsync(new { t = "register", token = _token, auth = _authToken, name = _hostName });
     }
 
     private void OnJson(JsonElement root)

@@ -34,6 +34,17 @@ Responsibilities:
   - The legacy `ADMIN_PASSWORD` admin panel (`/admin`) and `/directory` are kept for
     backward compatibility with 0.2.x apps; the account system supersedes them.
 
+### Unified desktop app (`src/Master` → `FtdRemote.exe`, Phase 2)
+One app is both host and viewer. It signs into an account (email/password → Bearer
+token via `Shared/AccountClient`), hosts this PC **always-on** (shows ID + an editable
+fixed password; registers with the account token so the PC is claimed into the org),
+and lets the signed-in user browse their allowed groups/computers and open each session
+in its own `ViewerWindow` — **password-less** via the account. A manual ID+password
+connect is still available for outside machines. The host engine (`HostSession`,
+`ScreenCapture`, `InputInjector`) is reused from the Client project via a project
+reference; the viewer engine (`ViewerSession`) lives here. The standalone Client app +
+Windows service remain for **unattended** headless hosting. Update component is `app`.
+
 ### 2. Host (`host/`, C# .NET 8, Windows-only)
 Runs on the controlled machine.
 - **Capture:** Phase 0 uses GDI `Graphics.CopyFromScreen` + JPEG (simple). Phase 3

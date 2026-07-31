@@ -18,6 +18,14 @@ public sealed class AppConfig
     /// <summary>Master only: password for the server's group directory (same as the admin password).</summary>
     public string? DirectoryPassword { get; set; }
 
+    // ---- account session (unified app) ----
+    /// <summary>Saved account session token (Bearer) for the signed-in user.</summary>
+    public string? AuthToken { get; set; }
+    /// <summary>Signed-in account email (for display + prefill).</summary>
+    public string? AccountEmail { get; set; }
+    /// <summary>Cached org name for display.</summary>
+    public string? OrgName { get; set; }
+
     // ---- unattended (machine) fields ----
     /// <summary>Stable host token → the server maps it to a fixed ID across restarts.</summary>
     public string? HostToken { get; set; }
