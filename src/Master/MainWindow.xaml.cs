@@ -32,6 +32,8 @@ public partial class MainWindow : Window
     private string _id = "", _org = "", _status = "Starting…";
     private bool _online, _ready;
     private string? _lastError;
+    private string _brandName = "Hangar", _brandAccent = "#5B5BF5";
+    private string? _brandLogo;
 
     public MainWindow()
     {
@@ -149,6 +151,7 @@ public partial class MainWindow : Window
             version = Updater.Current.ToString(),
             updateAvailable = _pendingUpdate?.Version.ToString(),
             consent = _config.AskConsent,
+            brand = new { name = _brandName, accent = _brandAccent, logo = _brandLogo },
             computers = fleet,
             groups,
             recent = Array.Empty<object>(),
@@ -231,6 +234,14 @@ public partial class MainWindow : Window
                 _host = session;
                 session.IdAssigned += id => Dispatcher.Invoke(() => { _id = id; PushState(); });
                 session.OrgAssigned += org => Dispatcher.Invoke(() => { _org = org ?? ""; PushState(); });
+                session.Branding += (name, accent, logo) => Dispatcher.Invoke(() =>
+                {
+                    _brandName = string.IsNullOrWhiteSpace(name) ? "Hangar" : name!;
+                    _brandAccent = string.IsNullOrWhiteSpace(accent) ? "#5B5BF5" : accent!;
+                    _brandLogo = logo;
+                    Title = _brandName;
+                    PushState();
+                });
                 session.Status += s => Dispatcher.Invoke(() => { _status = s; _online = s.Contains("Ready") || s.Contains("active") || s.Contains("streaming"); PushState(); });
                 session.Status += s => { if (s.StartsWith("Disconnected", StringComparison.OrdinalIgnoreCase)) down.TrySetResult(); };
                 await session.StartAsync();

@@ -1,7 +1,7 @@
 ; Inno Setup script — Remote Desktop CLIENT (the PC being controlled)
 ; Build: publish first (see build.ps1), then compile this with ISCC.exe.
 
-#define AppName "FTD Remote Client"
+#define AppName "Hangar Agent"
 ; Version can be overridden from build.ps1 via ISCC /DAppVersion=x.y.z
 #ifndef AppVersion
   #define AppVersion "0.2.0"
@@ -22,8 +22,8 @@ DefaultGroupName=FTD Remote
 UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\{#AppExe}
 OutputDir=dist
-OutputBaseFilename=FTDRemoteClient-Setup-{#AppVersion}
-SetupIconFile=..\assets\ftd.ico
+OutputBaseFilename=HangarAgent-Setup-{#AppVersion}
+SetupIconFile=..\assets\hangar.ico
 Compression=lzma2/max
 SolidCompression=yes
 ; Self-contained x64 build → require 64-bit Windows.

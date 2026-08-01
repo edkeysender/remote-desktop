@@ -409,7 +409,11 @@ wss.on('connection', (ws, req) => {
           hosts.get(id).orgId = claimOrgId;
           if (!existed) store.logEvent(claimOrgId, 'computer.enroll', { target: msg.name || id, detail: msg.enroll ? 'via token' : 'via sign-in' });
         }
-        send(ws, { t: 'registered', id, org: org ? { id: org.id, name: org.name } : null });
+        send(ws, {
+          t: 'registered', id,
+          org: org ? { id: org.id, name: org.name } : null,
+          branding: claimOrgId ? store.getBranding(claimOrgId) : null,
+        });
         console.log(`[server] host registered id=${id}${token ? ' (persistent)' : ''}${org ? ` org=${org.name}` : ''}`);
         break;
       }

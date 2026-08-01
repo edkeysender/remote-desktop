@@ -75,7 +75,15 @@ export function buildWebApp({ relayStatus }) {
 
   app.get('/api/me', requireUser, (req, res) => {
     const org = store.getOrg(req.user.orgId);
-    res.json({ user: publicUser(req.user), org: { id: org.id, name: org.name } });
+    res.json({ user: publicUser(req.user), org: { id: org.id, name: org.name }, branding: store.getBranding(req.user.orgId) });
+  });
+
+  // ---- per-org branding (white-label): any member can read; managers can set ----
+  app.get('/api/branding', requireUser, (req, res) => res.json(store.getBranding(req.user.orgId)));
+  app.put('/api/branding', requireUser, requireAdmin, (req, res) => {
+    const b = store.setBranding(req.user.orgId, req.body || {});
+    store.logEvent(req.user.orgId, 'branding', { actorEmail: req.user.email, target: b?.appName });
+    res.json(b);
   });
 
   // ------------------------------- invites -------------------------------

@@ -46,6 +46,7 @@ public sealed class HostSession : IDisposable
 
     public event Action<string>? IdAssigned;
     public event Action<string?>? OrgAssigned;   // org name this host is claimed into (null = none)
+    public event Action<string?, string?, string?>? Branding;   // appName, accent(#hex), logo(data URL)
     public event Action<string>? Status;
     public event Action<bool>? SessionActive;
 
@@ -84,6 +85,11 @@ public sealed class HostSession : IDisposable
                 IdAssigned?.Invoke(root.GetProperty("id").GetString() ?? "?");
                 OrgAssigned?.Invoke(root.TryGetProperty("org", out var o) && o.ValueKind == JsonValueKind.Object
                     ? o.GetProperty("name").GetString() : null);
+                if (root.TryGetProperty("branding", out var br) && br.ValueKind == JsonValueKind.Object)
+                    Branding?.Invoke(
+                        br.TryGetProperty("appName", out var an) ? an.GetString() : null,
+                        br.TryGetProperty("accent", out var ac) ? ac.GetString() : null,
+                        br.TryGetProperty("logo", out var lg) && lg.ValueKind == JsonValueKind.String ? lg.GetString() : null);
                 Status?.Invoke("Ready — waiting for a connection");
                 StartMetrics();
                 break;

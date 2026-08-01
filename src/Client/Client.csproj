@@ -10,7 +10,7 @@
     <RootNamespace>RemoteDesktop.Client</RootNamespace>
     <AssemblyName>FtdRemoteClient</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon>..\..\assets\ftd.ico</ApplicationIcon>
+    <ApplicationIcon>..\..\assets\hangar.ico</ApplicationIcon>
     <Version>0.3.0</Version>
     <Product>FTD Remote Client</Product>
     <Company>FTD.aero</Company>

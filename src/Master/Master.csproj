@@ -8,7 +8,7 @@
     <Nullable>enable</Nullable>
     <RootNamespace>RemoteDesktop.Master</RootNamespace>
     <AssemblyName>FtdRemote</AssemblyName>
-    <ApplicationIcon>..\..\assets\ftd.ico</ApplicationIcon>
+    <ApplicationIcon>..\..\assets\hangar.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Version>0.3.0</Version>
     <Product>FTD Remote</Product>

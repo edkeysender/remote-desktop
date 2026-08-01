@@ -17,7 +17,11 @@
 param(
     [string]$PushTo = '',
     [string]$PiUpdateDir = '~/remote-desktop/server/update',
-    [string]$Notes = ''
+    [string]$Notes = '',
+    # Per-org white-label: produces a custom-named installer whose app exe carries the
+    # given icon. e.g. build.ps1 -BrandName "Acme Remote" -BrandIcon C:\acme.ico
+    [string]$BrandName = '',
+    [string]$BrandIcon = ''
 )
 
 $ErrorActionPreference = 'Stop'
@@ -61,9 +65,14 @@ $publishArgs = @(
     '/p:EnableCompressionInSingleFile=true',"/p:Version=$ver",'-nologo'
 )
 
-# The unified attended app (host + viewer in one), FtdRemote.exe.
-Write-Host '== Publishing App (unified) ==' -ForegroundColor Cyan
-dotnet publish "$root\src\Master\Master.csproj" @publishArgs -o "$root\publish\app"
+# The unified attended app (host + viewer in one), FtdRemote.exe. A branded build bakes
+# the org's icon (Explorer/taskbar) into the exe; name/colour/logo also apply at runtime.
+$brandIconPath = if ($BrandName -and $BrandIcon -and (Test-Path $BrandIcon)) { (Resolve-Path $BrandIcon).Path } else { "$root\assets\hangar.ico" }
+$appPubArgs = $publishArgs
+if ($BrandName) { $appPubArgs = $publishArgs + @("/p:ApplicationIcon=$brandIconPath", "/p:Product=$BrandName") }
+$brandLabel = if ($BrandName) { " (branded: $BrandName)" } else { "" }
+Write-Host "== Publishing App (unified)$brandLabel ==" -ForegroundColor Cyan
+dotnet publish "$root\src\Master\Master.csproj" @appPubArgs -o "$root\publish\app"
 
 # The unattended host worker + Windows service (headless). The service finds the worker
 # exe (FtdRemoteClient.exe) next to itself, so both live in publish\client.
@@ -104,6 +113,15 @@ Write-Host "   manifest.json + $((Get-ChildItem $upd -Filter *.exe).Count) exe(s
 # ---- installers --------------------------------------------------------------------
 $iscc = Find-ISCC
 Write-Host "== Compiling installers ($iscc) ==" -ForegroundColor Cyan
+# Brand values go through env vars (Inno reads them via GetEnv) to dodge CLI quoting.
+if ($BrandName) {
+    $safe = ($BrandName -replace '[^\w\-]', '_')
+    $env:HANGAR_BRAND_NAME = $BrandName
+    $env:HANGAR_BRAND_ICON = $brandIconPath
+    $env:HANGAR_OUTFILE = "$safe-Setup-$ver"
+} else {
+    Remove-Item Env:HANGAR_BRAND_NAME, Env:HANGAR_BRAND_ICON, Env:HANGAR_OUTFILE -ErrorAction SilentlyContinue
+}
 & $iscc "/DAppVersion=$ver" "$root\installer\app.iss"
 & $iscc "/DAppVersion=$ver" "$root\installer\client.iss"
 
