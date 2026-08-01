@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hangar — Desktop App</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --ink:#0B0C15; --ink-2:#141623; --paper:#F5F6F9; --card:#FFFFFF; --line:#E8E9F0;
+  --text:#0B0C15; --muted:#6E7185; --accent:#5B5BF5; --accent-soft:#EEEEFE;
+  --grad:linear-gradient(135deg,#5B5BF5 0%,#9D5CFF 55%,#3EC8FF 120%);
+  --ok:#1FC98B; --warn:#FFAA1D; --danger:#F5484D;
+  --r-lg:22px; --r-md:14px; --r-pill:999px;
+}
+*{margin:0;padding:0;box-sizing:border-box}
+html{font-size:15px}
+body{
+  font-family:'Inter',system-ui,sans-serif;color:var(--text);-webkit-font-smoothing:antialiased;
+  min-height:100vh;
+  background:
+    radial-gradient(900px 500px at 15% 0%,#1B2140,transparent 60%),
+    radial-gradient(800px 500px at 90% 100%,#14304A,transparent 60%),
+    #0A0D18;
+}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+:focus-visible{outline:2px solid var(--accent);outline-offset:2px;border-radius:6px}
+.mono{font-family:'JetBrains Mono',monospace}
+/* full-window app (no rounded floating card — this fills the native window) */
+.app{background:var(--paper);min-height:100vh;display:grid;grid-template-rows:auto 1fr auto}
+.titlebar{display:flex;align-items:center;gap:10px;background:var(--card);border-bottom:1px solid var(--line);padding:12px 16px}
+.tb-brand{display:flex;align-items:center;gap:8px;font-family:'Schibsted Grotesk';font-weight:800;font-size:1rem;letter-spacing:-.02em}
+.tb-mark{width:24px;height:24px;border-radius:8px;background:var(--grad);display:grid;place-items:center}
+.tb-org{display:flex;align-items:center;gap:7px;font-size:.74rem;font-weight:600;color:var(--muted);background:var(--paper);border:1px solid var(--line);padding:5px 12px;border-radius:var(--r-pill);margin-left:6px}
+.tb-org b{color:var(--text)}
+.tb-spacer{flex:1}
+.tb-login{font-size:.78rem;font-weight:600;color:var(--accent);padding:6px 12px;border:1px solid var(--line);border-radius:var(--r-pill)}
+.body{display:grid;grid-template-columns:64px 1fr;min-height:0}
+.rail{background:var(--card);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 0}
+.rail-btn{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;color:var(--muted);transition:all .15s;position:relative}
+.rail-btn svg{width:20px;height:20px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.rail-btn:hover{background:var(--paper);color:var(--text)}
+.rail-btn.active{background:var(--accent-soft);color:var(--accent)}
+.rail-btn .bdg{position:absolute;top:7px;right:7px;width:8px;height:8px;border-radius:50%;background:var(--danger);border:2px solid var(--card)}
+.rail .push{flex:1}
+.content-wrap{min-width:0;overflow-y:auto;height:calc(100vh - 52px - 44px)}
+.view{display:none;padding:26px 30px;animation:fade .18s ease}
+.view.on{display:block}
+@keyframes fade{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:none}}
+.view-title{font-family:'Schibsted Grotesk';font-weight:800;font-size:1.25rem;letter-spacing:-.02em;margin-bottom:4px}
+.view-sub{font-size:.8rem;color:var(--muted);margin-bottom:18px}
+.cols{display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:stretch}
+.me{display:flex;flex-direction:column;gap:14px}
+.id-card{position:relative;overflow:hidden;background:var(--ink);color:#fff;border-radius:var(--r-lg);padding:24px 26px;min-height:218px;display:flex;flex-direction:column}
+.id-card::before{content:"";position:absolute;inset:0;background:radial-gradient(420px 260px at 100% -30%,rgba(93,91,245,.6),transparent 62%),radial-gradient(340px 220px at -10% 120%,rgba(62,200,255,.3),transparent 60%);pointer-events:none}
+.id-card > *{position:relative}
+.idc-top{display:flex;align-items:center;justify-content:space-between}
+.idc-label{font-size:.68rem;font-weight:600;letter-spacing:.12em;color:rgba(255,255,255,.55)}
+.idc-chip{width:34px;height:25px;border-radius:6px;background:linear-gradient(135deg,#E8C877,#B98A3E);box-shadow:inset 0 0 0 1px rgba(255,255,255,.25)}
+.idc-id{font-family:'JetBrains Mono';font-weight:700;font-size:1.9rem;letter-spacing:.08em;margin-top:16px}
+.idc-row{display:flex;align-items:flex-end;justify-content:space-between;margin-top:auto}
+.idc-pass .k{font-size:.62rem;font-weight:600;letter-spacing:.12em;color:rgba(255,255,255,.5)}
+.idc-pass .v{font-family:'JetBrains Mono';font-weight:600;font-size:1rem;letter-spacing:.2em;margin-top:3px;display:flex;align-items:center;gap:10px}
+.idc-pass .v button{color:rgba(255,255,255,.6);display:grid;place-items:center;transition:color .15s}
+.idc-pass .v button:hover{color:#fff}
+.idc-pass .v svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.idc-name{text-align:right}
+.idc-name .h{font-family:'Schibsted Grotesk';font-weight:700;font-size:.86rem}
+.idc-name .s{font-size:.66rem;color:rgba(255,255,255,.5);margin-top:2px}
+.me-opts{background:var(--card);border-radius:var(--r-lg);padding:6px 20px;flex:1;display:flex;flex-direction:column;justify-content:center}
+.opt{display:flex;align-items:center;gap:12px;padding:13px 0;border-top:1px solid var(--line);font-size:.85rem}
+.opt:first-child{border-top:none}
+.opt b{font-weight:600;display:block}
+.opt span{font-size:.73rem;color:var(--muted)}
+.opt .grow{flex:1}
+.toggle{width:42px;height:24px;border-radius:var(--r-pill);background:#D8DAE4;position:relative;transition:background .2s;flex:none}
+.toggle::after{content:"";position:absolute;top:3px;left:3px;width:18px;height:18px;border-radius:50%;background:#fff;box-shadow:0 1px 3px rgba(0,0,0,.25);transition:left .2s}
+.toggle.on{background:var(--ok)}
+.toggle.on::after{left:21px}
+.connect{background:var(--card);border-radius:var(--r-lg);padding:26px 28px;display:flex;flex-direction:column}
+.connect h2{font-family:'Schibsted Grotesk';font-weight:800;font-size:1.25rem;letter-spacing:-.02em}
+.connect .sub{font-size:.8rem;color:var(--muted);margin-top:4px;margin-bottom:20px}
+.field{margin-bottom:12px}
+.field label{font-size:.72rem;font-weight:600;color:var(--muted);display:block;margin-bottom:6px}
+.input{display:flex;align-items:center;gap:11px;background:var(--paper);border:1.5px solid transparent;border-radius:var(--r-md);padding:13px 15px;transition:border-color .15s,background .15s}
+.input:focus-within{border-color:var(--accent);background:#fff}
+.input svg{width:17px;height:17px;stroke:var(--muted);fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round;flex:none}
+.input input{border:none;outline:none;background:none;width:100%;font-family:'JetBrains Mono';font-weight:600;font-size:1rem;letter-spacing:.06em;color:var(--text)}
+.input input::placeholder{font-family:'Inter';font-weight:400;letter-spacing:0;color:#A5A8BB;font-size:.9rem}
+.btn-go{margin-top:8px;width:100%;padding:15px 0;border-radius:var(--r-pill);background:var(--grad);color:#fff;font-weight:700;font-size:.95rem;letter-spacing:.01em;transition:transform .15s,box-shadow .15s,opacity .15s}
+.btn-go:hover{transform:translateY(-1px);box-shadow:0 12px 28px rgba(93,91,245,.4)}
+.btn-go:disabled{opacity:.6;transform:none;box-shadow:none;cursor:default}
+.mode-hint{margin-top:14px;display:flex;align-items:center;justify-content:center;gap:8px;font-size:.72rem;color:var(--muted)}
+.mode-hint .led{width:7px;height:7px;border-radius:50%;background:var(--ok);box-shadow:0 0 8px rgba(31,201,139,.7)}
+.divider{display:flex;align-items:center;gap:12px;margin:18px 0 14px;color:var(--muted);font-size:.7rem;font-weight:600;letter-spacing:.08em}
+.divider::before,.divider::after{content:"";flex:1;height:1px;background:var(--line)}
+.quick{display:flex;gap:10px}
+.quick button{flex:1;display:flex;align-items:center;justify-content:center;gap:8px;border:1px solid var(--line);border-radius:var(--r-md);padding:11px 0;font-size:.78rem;font-weight:600;color:var(--text);transition:all .15s}
+.quick button:hover{border-color:var(--ink);background:var(--paper)}
+.quick svg{width:15px;height:15px;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
+.recent-strip{margin-top:22px}
+.recent-strip h3{font-family:'Schibsted Grotesk';font-weight:700;font-size:.95rem;margin-bottom:12px;display:flex;align-items:center;justify-content:space-between}
+.recent-strip h3 button{font-size:.75rem;color:var(--accent);font-weight:600}
+.r-row{display:grid;grid-template-columns:repeat(4,1fr);gap:12px}
+.r-card{background:var(--card);border-radius:16px;padding:13px 15px;display:flex;align-items:center;gap:12px;text-align:left;transition:transform .15s,box-shadow .15s}
+.r-card:hover{transform:translateY(-2px);box-shadow:0 10px 24px rgba(11,12,21,.1)}
+.r-thumb{width:42px;height:32px;border-radius:8px;flex:none;position:relative;background:linear-gradient(150deg,#1B1E33,#0B0C15);overflow:hidden}
+.r-thumb i{position:absolute;left:5px;top:5px;width:60%;height:5px;border-radius:2px;background:rgba(255,255,255,.12)}
+.r-thumb i:nth-child(2){top:13px;width:75%}
+.r-thumb .rled{position:absolute;right:4px;bottom:4px;width:7px;height:7px;border-radius:50%;border:1.5px solid #0B0C15}
+.rled.g{background:var(--ok)} .rled.r{background:var(--danger)}
+.r-card b{font-weight:600;font-size:.8rem;display:block}
+.r-card .rid{font-family:'JetBrains Mono';font-size:.7rem;color:var(--muted);letter-spacing:.05em;margin-top:2px;display:block}
+.list-card{background:var(--card);border-radius:var(--r-lg);overflow:hidden}
+.lrow{display:flex;align-items:center;gap:14px;width:100%;text-align:left;padding:15px 20px;border-top:1px solid var(--line);font-size:.86rem;transition:background .12s}
+.lrow:first-child{border-top:none}
+button.lrow:hover{background:#FAFAFE}
+.lrow .lled{width:9px;height:9px;border-radius:50%;flex:none}
+.lled.g{background:var(--ok)} .lled.r{background:var(--danger)} .lled.b{background:#3EC8FF} .lled.y{background:var(--warn)}
+.lrow b{font-weight:600;display:block}
+.lrow .sub2{font-size:.74rem;color:var(--muted);margin-top:1px}
+.lrow .did{font-family:'JetBrains Mono';font-size:.74rem;color:var(--muted);letter-spacing:.05em}
+.lrow .end{margin-left:auto;display:flex;align-items:center;gap:10px}
+.pill{font-size:.68rem;font-weight:600;padding:4px 10px;border-radius:var(--r-pill);white-space:nowrap}
+.pill.p2p{background:#E5FAF1;color:#0E9B69} .pill.relay{background:#EAF4FF;color:#2276D2}
+.pill.grp{background:var(--accent-soft);color:var(--accent)} .pill.done{background:#E5FAF1;color:#0E9B69}
+.lrow .go{flex:none;padding:8px 16px;border-radius:var(--r-pill);background:var(--ink);color:#fff;font-size:.76rem;font-weight:600;transition:opacity .15s}
+.lrow .go:hover{opacity:.85}
+.lrow .go.off{background:var(--line);color:var(--muted)}
+.grp-label{font-size:.68rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:16px 4px 8px}
+.n-ic{width:34px;height:34px;border-radius:11px;flex:none;display:grid;place-items:center;color:#fff}
+.n-ic svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+.n-ic.warn{background:var(--warn)} .n-ic.info{background:var(--accent)} .n-ic.ok{background:var(--ok)}
+.set-card{background:var(--card);border-radius:var(--r-lg);padding:6px 22px;margin-bottom:16px}
+.set-card .opt{padding:15px 0}
+.sel{border:1px solid var(--line);border-radius:var(--r-pill);padding:8px 14px;font-size:.78rem;font-weight:600;background:var(--paper);font-family:inherit;color:var(--text)}
+.btn-small{padding:8px 16px;border-radius:var(--r-pill);border:1px solid var(--line);font-size:.76rem;font-weight:600;transition:all .15s}
+.btn-small:hover{background:var(--ink);color:#fff;border-color:var(--ink)}
+.statusbar{display:flex;align-items:center;gap:22px;background:var(--card);border-top:1px solid var(--line);padding:11px 22px;font-size:.74rem;color:var(--muted)}
+.sb{display:flex;align-items:center;gap:7px}
+.sb .led{width:8px;height:8px;border-radius:50%}
+.sb b{color:var(--text);font-weight:600}
+.sb-spacer{flex:1}
+.sb .ver{font-family:'JetBrains Mono';font-size:.68rem}
+.empty2{padding:22px;color:var(--muted);text-align:center;font-size:.85rem}
+/* login modal (same design language) */
+.modal{position:fixed;inset:0;background:rgba(10,13,24,.55);display:none;place-items:center;z-index:50}
+.modal.on{display:grid}
+.sheet{width:380px;max-width:92vw;background:var(--card);border-radius:var(--r-lg);padding:22px;box-shadow:0 30px 80px rgba(0,0,0,.5)}
+.sheet h3{font-family:'Schibsted Grotesk';font-weight:800;font-size:1.15rem;margin-bottom:2px}
+.sheet p{font-size:.8rem;color:var(--muted);margin-bottom:14px}
+.sheet .field{margin-bottom:10px}
+.sheet input{width:100%;background:var(--paper);border:1.5px solid var(--line);border-radius:var(--r-md);padding:11px 13px;font-family:inherit;font-size:.9rem}
+.sheet .err{color:var(--danger);font-size:.8rem;min-height:16px;margin-top:4px}
+.sheet .tabs{display:flex;gap:4px;margin-bottom:12px}
+.sheet .tabs button{color:var(--muted);border-bottom:2px solid transparent;padding:6px 8px;font-weight:600;font-size:.85rem}
+.sheet .tabs button.on{color:var(--text);border-bottom-color:var(--accent)}
+.sheet .row{display:flex;gap:8px;margin-top:6px}
+.sheet .row button{flex:1;padding:11px 0;border-radius:var(--r-pill);font-weight:700}
+.sheet .primary{background:var(--grad);color:#fff}
+.sheet .ghost{border:1px solid var(--line)}
+@media(prefers-reduced-motion:reduce){*{animation:none!important;transition:none!important}}
+</style>
+</head>
+<body>
+<div class="app" role="application" aria-label="Hangar desktop client">
+  <div class="titlebar">
+    <div class="tb-brand"><span class="tb-mark"><svg viewBox="0 0 24 24" width="13" height="13" fill="none"><path d="M3 18 L12 4 L21 18 M7.5 18 L12 11 L16.5 18" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span>Hangar</div>
+    <div class="tb-org" id="tb-org" hidden>Enrolled in <b id="tb-org-name">—</b></div>
+    <div class="tb-spacer"></div>
+    <button class="tb-login" id="tb-login">Log in</button>
+  </div>
+  <div class="body">
+    <nav class="rail" role="tablist" aria-label="Main">
+      <button class="rail-btn active" role="tab" aria-selected="true" data-view="connect" title="Connect"><svg viewBox="0 0 24 24"><path d="M8 3H5a2 2 0 0 0-2 2v3M16 3h3a2 2 0 0 1 2 2v3M8 21H5a2 2 0 0 1-2-2v-3M16 21h3a2 2 0 0 0 2-2v-3"/><circle cx="12" cy="12" r="3.2"/></svg></button>
+      <button class="rail-btn" role="tab" aria-selected="false" data-view="recent" title="Recent"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></button>
+      <button class="rail-btn" role="tab" aria-selected="false" data-view="book" title="Address book"><svg viewBox="0 0 24 24"><rect x="4" y="3" width="16" height="18" rx="2"/><circle cx="12" cy="10" r="2.5"/><path d="M8 17c.8-1.8 2.3-2.6 4-2.6s3.2.8 4 2.6"/></svg></button>
+      <button class="rail-btn" role="tab" aria-selected="false" data-view="transfers" title="File transfers"><svg viewBox="0 0 24 24"><path d="M12 3v12M7 10l5 5 5-5M4 21h16"/></svg></button>
+      <button class="rail-btn" role="tab" aria-selected="false" data-view="notifications" title="Notifications"><svg viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 9-3 9h18s-3-2-3-9M13.7 21a2 2 0 0 1-3.4 0"/></svg><span class="bdg" id="notif-bdg" hidden></span></button>
+      <span class="push"></span>
+      <button class="rail-btn" role="tab" aria-selected="false" data-view="security" title="Security"><svg viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/></svg></button>
+      <button class="rail-btn" role="tab" aria-selected="false" data-view="settings" title="Settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h0a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h0a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v0a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg></button>
+    </nav>
+    <div class="content-wrap">
+      <section class="view on" id="view-connect" role="tabpanel">
+        <div class="cols">
+          <div class="me">
+            <div class="id-card">
+              <div class="idc-top"><span class="idc-label">THIS DEVICE</span><span class="idc-chip" aria-hidden="true"></span></div>
+              <div class="idc-id" id="my-id">— — —</div>
+              <div class="idc-row">
+                <div class="idc-pass"><div class="k">CONNECTION PASSWORD</div>
+                  <div class="v"><span id="pw">•••• ••</span>
+                    <button id="pw-eye" aria-label="Show password"><svg viewBox="0 0 24 24"><path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7S1 12 1 12Z"/><circle cx="12" cy="12" r="3"/></svg></button>
+                    <button id="pw-copy" aria-label="Copy ID and password"><svg viewBox="0 0 24 24"><rect x="9" y="9" width="12" height="12" rx="2"/><path d="M5 15V5a2 2 0 0 1 2-2h10"/></svg></button>
+                    <button id="pw-regen" aria-label="Regenerate password"><svg viewBox="0 0 24 24"><path d="M21 12a9 9 0 1 1-2.6-6.4M21 3v6h-6"/></svg></button>
+                  </div>
+                </div>
+                <div class="idc-name"><div class="h" id="my-name">This PC</div><div class="s" id="my-os"></div></div>
+              </div>
+            </div>
+            <div class="me-opts">
+              <div class="opt"><div><b>Enrolled organization</b><span id="opt-org">Not enrolled — log in or use a token</span></div></div>
+              <div class="opt"><div><b>Ask before each session</b><span>Show a consent prompt on this screen</span></div><span class="grow"></span><button class="toggle" id="tg-consent" role="switch" aria-checked="false"></button></div>
+            </div>
+          </div>
+          <div class="connect">
+            <h2>Control a remote computer</h2>
+            <p class="sub">Enter the device ID shown on the remote screen, or pick one from your fleet.</p>
+            <div class="field"><label for="rid">Remote ID</label><div class="input"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg><input id="rid" placeholder="000 000 000" inputmode="numeric" autocomplete="off"></div></div>
+            <div class="field"><label for="rpw">Password</label><div class="input"><svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><input id="rpw" type="password" placeholder="Session password (blank if it's your device)" autocomplete="off"></div></div>
+            <button class="btn-go" id="go">Connect now</button>
+            <div class="mode-hint"><span class="led"></span><span id="hint-text">Direct P2P with relay fallback · end-to-end encrypted</span></div>
+            <div class="divider">YOUR FLEET</div>
+            <div class="r-row" id="quickfleet"></div>
+          </div>
+        </div>
+        <div class="recent-strip"><h3>Recent connections <button data-goto="recent">View all →</button></h3><div class="r-row" id="recent-strip"></div></div>
+      </section>
+
+      <section class="view" id="view-recent" role="tabpanel" hidden>
+        <div class="view-title">Recent connections</div><div class="view-sub">Your last sessions from this organization.</div>
+        <div class="list-card" id="recent-list"></div>
+      </section>
+
+      <section class="view" id="view-book" role="tabpanel" hidden>
+        <div class="view-title">Address book</div><div class="view-sub">Devices you're allowed to control, by group.</div>
+        <div id="book"></div>
+      </section>
+
+      <section class="view" id="view-transfers" role="tabpanel" hidden>
+        <div class="view-title">File transfers</div><div class="view-sub">Transfers happen inside a session — open a device, then use Transfer files.</div>
+        <div class="list-card"><div class="empty2">No active transfers. Connect to a device and use the Transfer files button in the session window.</div></div>
+      </section>
+
+      <section class="view" id="view-notifications" role="tabpanel" hidden>
+        <div class="view-title">Notifications</div><div class="view-sub">Alerts from your fleet and this device.</div>
+        <div class="list-card" id="notifs"></div>
+      </section>
+
+      <section class="view" id="view-security" role="tabpanel" hidden>
+        <div class="view-title">Security</div><div class="view-sub">Who can reach this device, and how sessions are protected.</div>
+        <div class="set-card">
+          <div class="opt"><div><b>Connection password</b><span>Required for ID-based connections to this device</span></div><span class="grow"></span><button class="btn-small" id="sec-setpw">Change password</button></div>
+          <div class="opt"><div><b>Ask before each session</b><span>Approve incoming sessions on this screen</span></div><span class="grow"></span><button class="toggle" id="tg-consent2" role="switch" aria-checked="false"></button></div>
+        </div>
+        <div class="set-card"><div class="opt"><div><b>End-to-end encryption</b><span>DTLS-SRTP · relays never see screen data</span></div><span class="grow"></span><span class="pill done">Active</span></div></div>
+      </section>
+
+      <section class="view" id="view-settings" role="tabpanel" hidden>
+        <div class="view-title">Settings</div><div class="view-sub">How the app behaves on this machine.</div>
+        <div class="set-card">
+          <div class="opt"><div><b>Signaling server</b><span>Where this app registers and finds devices</span></div><span class="grow"></span><button class="btn-small" id="set-server">Change</button></div>
+          <div class="opt"><div><b>Account</b><span id="set-acct">Not signed in</span></div><span class="grow"></span><button class="btn-small" id="set-acct-btn">Log in</button></div>
+        </div>
+        <div class="set-card"><div class="opt"><div><b>Updates</b><span id="set-ver">Checking…</span></div><span class="grow"></span><button class="btn-small" id="set-update" hidden>Update</button></div></div>
+      </section>
+    </div>
+  </div>
+  <div class="statusbar">
+    <span class="sb"><span class="led" id="sb-led" style="background:var(--muted)"></span><span id="sb-status">Starting…</span></span>
+    <span class="sb-spacer"></span>
+    <span class="sb ver" id="sb-ver">Hangar</span>
+  </div>
+</div>
+
+<!-- login / enroll modal -->
+<div class="modal" id="modal">
+  <div class="sheet">
+    <div class="tabs"><button class="on" id="mt-login">Sign in</button><button id="mt-enroll">Enroll with token</button></div>
+    <div id="m-login">
+      <h3>Sign in</h3><p>Use your Hangar account to enroll this PC and reach your fleet.</p>
+      <div class="field"><input id="m-email" type="email" placeholder="Email"></div>
+      <div class="field"><input id="m-pass" type="password" placeholder="Password"></div>
+      <div class="err" id="m-err"></div>
+      <div class="row"><button class="ghost" id="m-cancel">Cancel</button><button class="primary" id="m-signin">Sign in</button></div>
+    </div>
+    <div id="m-enroll" hidden>
+      <h3>Enroll with token</h3><p>Paste an enrollment token from your admin to add this PC to the org.</p>
+      <div class="field"><input id="m-token" placeholder="Enrollment token"></div>
+      <div class="err" id="m-err2"></div>
+      <div class="row"><button class="ghost" id="m-cancel2">Cancel</button><button class="primary" id="m-enrollbtn">Enroll</button></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $=(id)=>document.getElementById(id);
+const send=(o)=>window.chrome?.webview?.postMessage(JSON.stringify(o));
+function fmtId(id){return id&&/^\d{9}$/.test(id)?`${id.slice(0,3)} ${id.slice(3,6)} ${id.slice(6)}`:(id||'— — —');}
+const esc=(s)=>(s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+
+// tab switching
+const railBtns=document.querySelectorAll('.rail-btn');
+function showView(name){
+  railBtns.forEach(b=>{const on=b.dataset.view===name;b.classList.toggle('active',on);b.setAttribute('aria-selected',on);});
+  document.querySelectorAll('.view').forEach(v=>{const on=v.id==='view-'+name;v.classList.toggle('on',on);v.hidden=!on;});
+  if(name==='notifications'){const b=$('notif-bdg');if(b)b.hidden=true;}
+}
+railBtns.forEach(b=>b.addEventListener('click',()=>showView(b.dataset.view)));
+document.querySelectorAll('[data-goto]').forEach(b=>b.addEventListener('click',()=>showView(b.dataset.goto)));
+
+// password reveal / copy / regen
+let secret='', shown=false, myId='';
+function renderPw(){$('pw').textContent=shown?(secret||'—'):'•••• ••';}
+$('pw-eye').addEventListener('click',()=>{shown=!shown;renderPw();});
+$('pw-copy').addEventListener('click',e=>{if(navigator.clipboard&&myId)navigator.clipboard.writeText('ID '+fmtId(myId)+' / '+secret);const b=e.currentTarget;b.style.color='#5CE6B8';setTimeout(()=>b.style.color='',900);});
+$('pw-regen').addEventListener('click',()=>send({t:'regen'}));
+
+// consent toggles
+function wireToggle(el){el.addEventListener('click',()=>{const on=el.classList.toggle('on');el.setAttribute('aria-checked',on);send({t:'setting',key:'consent',on});syncConsent(on);});}
+function syncConsent(on){for(const id of ['tg-consent','tg-consent2']){const t=$(id);if(t){t.classList.toggle('on',on);t.setAttribute('aria-checked',on);}}}
+wireToggle($('tg-consent')); wireToggle($('tg-consent2'));
+
+// connect
+function doConnect(id,pw){ if(!id.trim()){$('rid').focus();return;} send({t:'connect',id:id.replace(/\s/g,''),pw:pw||''}); }
+$('go').addEventListener('click',()=>doConnect($('rid').value,$('rpw').value));
+$('rid').addEventListener('keydown',e=>{if(e.key==='Enter')doConnect($('rid').value,$('rpw').value);});
+
+// login modal
+function openModal(){$('modal').classList.add('on');$('m-email').focus();}
+function closeModal(){$('modal').classList.remove('on');$('m-err').textContent='';$('m-err2').textContent='';}
+$('tb-login').addEventListener('click',openModal);
+$('set-acct-btn').addEventListener('click',openModal);
+$('m-cancel').addEventListener('click',closeModal); $('m-cancel2').addEventListener('click',closeModal);
+$('mt-login').addEventListener('click',()=>{$('mt-login').classList.add('on');$('mt-enroll').classList.remove('on');$('m-login').hidden=false;$('m-enroll').hidden=true;});
+$('mt-enroll').addEventListener('click',()=>{$('mt-enroll').classList.add('on');$('mt-login').classList.remove('on');$('m-enroll').hidden=false;$('m-login').hidden=true;});
+$('m-signin').addEventListener('click',()=>send({t:'login',email:$('m-email').value.trim(),password:$('m-pass').value}));
+$('m-enrollbtn').addEventListener('click',()=>send({t:'enroll',token:$('m-token').value.trim()}));
+$('sec-setpw').addEventListener('click',()=>send({t:'setpw'}));
+$('set-server').addEventListener('click',()=>send({t:'setserver'}));
+$('set-update').addEventListener('click',()=>send({t:'update'}));
+
+// device card renderer
+function devCard(c){const b=document.createElement('button');b.className='r-card';b.disabled=!c.online;
+  b.innerHTML=`<span class="r-thumb"><i></i><i></i><span class="rled ${c.online?'g':'r'}"></span></span><span><b>${esc(c.name)}</b><span class="rid">${c.online?fmtId(c.relayId):'offline'}</span></span>`;
+  if(c.online) b.addEventListener('click',()=>send({t:'connectDevice',relayId:c.relayId,name:c.name}));
+  return b;}
+
+// receive state from C#
+window.chrome?.webview?.addEventListener('message',ev=>{
+  let s; try{s=JSON.parse(ev.data);}catch{return;}
+  if(s.t!=='state')return;
+  myId=s.id||''; $('my-id').textContent=fmtId(s.id); secret=s.password||''; renderPw();
+  $('my-name').textContent=s.hostName||'This PC'; $('my-os').textContent=s.os||'';
+  const org=s.org; $('tb-org').hidden=!org; $('tb-org-name').textContent=org||'—';
+  $('tb-login').hidden=!!s.signedIn && !!org ? false : false; // always allow account switch
+  $('tb-login').textContent=s.signedIn?'Account':'Log in';
+  $('opt-org').textContent=org?('Enrolled in '+org):(s.signedIn?'Signed in':'Not enrolled — log in or use a token');
+  $('set-acct').textContent=s.email?('Signed in as '+s.email):'Not signed in';
+  $('set-acct-btn').textContent=s.signedIn?'Switch':'Log in';
+  $('sb-status').textContent=s.status||''; $('sb-led').style.background=s.online?'var(--ok)':'var(--muted)';
+  $('sb-ver').textContent='Hangar '+(s.version||'');
+  $('set-ver').textContent=s.updateAvailable?('Update to v'+s.updateAvailable+' available'):('Version '+(s.version||'—')+' · up to date');
+  $('set-update').hidden=!s.updateAvailable;
+  syncConsent(!!s.consent);
+  if(s.signedIn||org) closeModal();
+  if(s.error){ $('m-err').textContent=s.error; $('m-err2').textContent=s.error; }
+  // fleet + recent + book + notifications
+  const fleet=s.computers||[];
+  const qf=$('quickfleet'); qf.innerHTML=''; fleet.slice(0,4).forEach(c=>qf.appendChild(devCard(c)));
+  if(!fleet.length) qf.innerHTML='<div class="empty2" style="grid-column:1/-1">No fleet devices yet.</div>';
+  const rs=$('recent-strip'); rs.innerHTML=''; (s.recent||[]).slice(0,4).forEach(c=>rs.appendChild(devCard({name:c.name,relayId:c.relayId,online:c.online})));
+  if(!(s.recent||[]).length) rs.innerHTML='<div class="empty2" style="grid-column:1/-1">No recent connections.</div>';
+  // recent list
+  const rl=$('recent-list'); rl.innerHTML=(s.recent&&s.recent.length)?'':'<div class="empty2">No sessions yet.</div>';
+  (s.recent||[]).forEach(c=>{const btn=document.createElement('button');btn.className='lrow';btn.disabled=!c.online;
+    btn.innerHTML=`<span class="lled ${c.online?'g':'r'}"></span><span><b>${esc(c.name)}</b><span class="sub2">${esc(c.when||'')}</span></span><span class="end">${c.online?'<span class="go">Reconnect</span>':'<span class="go off">Offline</span>'}</span>`;
+    if(c.online)btn.addEventListener('click',()=>send({t:'connectDevice',relayId:c.relayId,name:c.name}));rl.appendChild(btn);});
+  // address book grouped
+  const bk=$('book'); bk.innerHTML='';
+  const groups=s.groups||{};
+  const keys=Object.keys(groups);
+  if(!keys.length) bk.innerHTML='<div class="list-card"><div class="empty2">No devices you can control yet.</div></div>';
+  keys.forEach(gn=>{const lab=document.createElement('div');lab.className='grp-label';lab.textContent=gn+' · '+groups[gn].length+' device'+(groups[gn].length===1?'':'s');bk.appendChild(lab);
+    const card=document.createElement('div');card.className='list-card';
+    groups[gn].forEach(c=>{const btn=document.createElement('button');btn.className='lrow';btn.disabled=!c.online;
+      btn.innerHTML=`<span class="lled ${c.online?'g':'r'}"></span><span><b>${esc(c.name)}</b><span class="did">${c.online?fmtId(c.relayId):'offline'}</span></span><span class="end">${c.online?'<span class="go">Connect</span>':'<span class="go off">Offline</span>'}</span>`;
+      if(c.online)btn.addEventListener('click',()=>send({t:'connectDevice',relayId:c.relayId,name:c.name}));card.appendChild(btn);});
+    bk.appendChild(card);});
+  // notifications
+  const nf=$('notifs'); const al=s.alerts||[];
+  nf.innerHTML=al.length?'':'<div class="empty2">No notifications.</div>';
+  al.forEach(a=>{const row=document.createElement('div');row.className='lrow';
+    row.innerHTML=`<span class="n-ic warn"><svg viewBox="0 0 24 24"><path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z"/></svg></span><span><b>${esc(a.title)}</b><span class="sub2">${esc(a.when||'')}</span></span>`;
+    nf.appendChild(row);});
+  const bdg=$('notif-bdg'); if(bdg) bdg.hidden=!al.length;
+});
+send({t:'ready'});
+</script>
+</body>
+</html>

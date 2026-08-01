@@ -27,6 +27,8 @@ public sealed class AppConfig
     public string? OrgName { get; set; }
     /// <summary>Pre-baked enrollment token that claims this PC into an org without an interactive login.</summary>
     public string? EnrollToken { get; set; }
+    /// <summary>Host: show a consent prompt before accepting each incoming session (attended mode).</summary>
+    public bool AskConsent { get; set; }
 
     // ---- unattended (machine) fields ----
     /// <summary>Stable host token → the server maps it to a fixed ID across restarts.</summary>

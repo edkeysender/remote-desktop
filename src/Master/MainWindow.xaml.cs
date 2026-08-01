@@ -1,26 +1,25 @@
-using System.ComponentModel;
-using System.Diagnostics;
+using System.IO;
+using System.Reflection;
+using System.Runtime.InteropServices;
+using System.Text.Json;
 using System.Windows;
-using System.Windows.Data;
-using RemoteDesktop.Client;   // HostSession (host engine, reused)
+using RemoteDesktop.Client;   // HostSession (host engine)
 using RemoteDesktop.Shared;
 
 namespace RemoteDesktop.Master;
 
 /// <summary>
-/// The unified app hub. Hosts this PC (always on while open) and lets the signed-in user
-/// browse their org's computers and open each session in its own <see cref="ViewerWindow"/>.
-/// Signing in claims this PC into the org and enables password-less connect by membership.
+/// Unified Hangar desktop app. The hub UI is the approved Hangar design (Appendix C)
+/// rendered pixel-exact in a WebView2; C# bridges it to the account/host/connect logic.
+/// Each remote session opens in a separate native <see cref="ViewerWindow"/>.
 /// </summary>
 public partial class MainWindow : Window
 {
-    private sealed record CompRow(string? RelayId, string Display, string GroupName, bool Online, string StatusText);
-
     private readonly AppConfig _config;
     private readonly AccountClient _account = new();
     private AccountSession? _acct;
+    private MyComputers? _myComp;
 
-    // always-on host loop
     private HostSession? _host;
     private CancellationTokenSource? _hostCts;
     private string _appliedServer = "", _appliedPw = "", _appliedAuth = "";
@@ -29,6 +28,11 @@ public partial class MainWindow : Window
     private UpdateInfo? _pendingUpdate;
     private System.Windows.Threading.DispatcherTimer? _updateTimer;
 
+    // live state pushed to the web UI
+    private string _id = "", _org = "", _status = "Starting…";
+    private bool _online, _ready;
+    private string? _lastError;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -36,17 +40,123 @@ public partial class MainWindow : Window
         if (string.IsNullOrEmpty(_config.HostToken)) _config.HostToken = Guid.NewGuid().ToString("N");
         if (string.IsNullOrEmpty(_config.FixedPassword)) _config.FixedPassword = GeneratePassword();
         _config.Save("app");
+        _ = InitAsync();
+    }
 
-        ServerBox.Text = _config.ServerUrl;
-        HostPwBox.Text = _config.FixedPassword;
-        EmailBox.Text = _config.AccountEmail ?? "";
-        EnrollBox.Text = _config.EnrollToken ?? "";
-
-        Loaded += async (_, _) =>
+    private async Task InitAsync()
+    {
+        try { await Web.EnsureCoreWebView2Async(); }
+        catch (Exception ex)
         {
-            StartUpdateChecks();
-            await RestoreSessionAsync();   // validate a saved token, then start hosting
+            MessageBox.Show(this, "Microsoft Edge WebView2 Runtime is required.\n\n" + ex.Message,
+                "Hangar", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+        Web.CoreWebView2.WebMessageReceived += (_, e) =>
+        {
+            try { OnMessage(e.TryGetWebMessageAsString()); } catch { }
         };
+        Web.CoreWebView2.NavigateToString(LoadHtml());
+
+        StartUpdateChecks();
+        await RestoreSessionAsync();
+        StartHosting();
+    }
+
+    private static string LoadHtml()
+    {
+        var asm = Assembly.GetExecutingAssembly();
+        var name = asm.GetManifestResourceNames().FirstOrDefault(n => n.EndsWith("desktop.html", StringComparison.OrdinalIgnoreCase));
+        if (name == null) return "<h1>UI resource missing</h1>";
+        using var s = asm.GetManifestResourceStream(name)!;
+        using var r = new StreamReader(s);
+        return r.ReadToEnd();
+    }
+
+    // ------------------------------- bridge in -------------------------------
+
+    private void OnMessage(string? json)
+    {
+        if (string.IsNullOrEmpty(json)) return;
+        using var doc = JsonDocument.Parse(json);
+        var r = doc.RootElement;
+        var t = r.GetProperty("t").GetString();
+        switch (t)
+        {
+            case "ready":
+                _ready = true;
+                PushState();
+                break;
+            case "connect":
+                OpenViewer(r.GetProperty("id").GetString() ?? "", r.GetProperty("id").GetString() ?? "",
+                    password: r.TryGetProperty("pw", out var pw) ? pw.GetString() : "", authToken: null);
+                break;
+            case "connectDevice":
+            {
+                var rid = r.GetProperty("relayId").GetString() ?? "";
+                var nm = r.TryGetProperty("name", out var n) ? n.GetString() ?? rid : rid;
+                OpenViewer(rid, nm, password: null, authToken: _acct?.Token);
+                break;
+            }
+            case "login": _ = LoginAsync(r.GetProperty("email").GetString() ?? "", r.GetProperty("password").GetString() ?? ""); break;
+            case "enroll": Enroll(r.GetProperty("token").GetString() ?? ""); break;
+            case "regen": RegeneratePassword(); break;
+            case "setting":
+                if (r.GetProperty("key").GetString() == "consent")
+                { _config.AskConsent = r.GetProperty("on").GetBoolean(); _config.Save("app"); }
+                break;
+            case "setpw": SetPassword(); break;
+            case "setserver": SetServer(); break;
+            case "update": _ = DoUpdateAsync(); break;
+        }
+    }
+
+    // ------------------------------- bridge out -------------------------------
+
+    private void PushState()
+    {
+        if (!_ready || Web?.CoreWebView2 == null) return;
+
+        object[] fleet = Array.Empty<object>();
+        var groups = new Dictionary<string, List<object>>();
+        if (_myComp != null)
+        {
+            var gname = _myComp.Groups.ToDictionary(g => g.Id, g => g.Name);
+            var rows = _myComp.Computers
+                .Select(c => new { c.Name, c.RelayId, c.Online, c.Busy, Group = c.GroupId != null && gname.TryGetValue(c.GroupId, out var gn) ? gn : "Ungrouped" })
+                .ToList();
+            fleet = rows.OrderByDescending(c => c.Online).ThenBy(c => c.Name)
+                        .Select(c => (object)new { name = c.Name, relayId = c.RelayId, online = c.Online, busy = c.Busy }).ToArray();
+            foreach (var c in rows.OrderByDescending(c => c.Online).ThenBy(c => c.Name))
+            {
+                if (!groups.TryGetValue(c.Group, out var list)) { list = new(); groups[c.Group] = list; }
+                list.Add(new { name = c.Name, relayId = c.RelayId, online = c.Online });
+            }
+        }
+
+        var state = new
+        {
+            t = "state",
+            id = _id,
+            password = _config.FixedPassword,
+            hostName = Environment.MachineName,
+            os = RuntimeInformation.OSDescription,
+            org = string.IsNullOrEmpty(_org) ? null : _org,
+            signedIn = _acct != null,
+            email = _acct?.Email,
+            status = _status,
+            online = _online,
+            version = Updater.Current.ToString(),
+            updateAvailable = _pendingUpdate?.Version.ToString(),
+            consent = _config.AskConsent,
+            computers = fleet,
+            groups,
+            recent = Array.Empty<object>(),
+            alerts = Array.Empty<object>(),
+            error = _lastError,
+        };
+        _lastError = null;
+        try { Web.CoreWebView2.PostWebMessageAsString(JsonSerializer.Serialize(state)); } catch { }
     }
 
     // ------------------------------- account -------------------------------
@@ -56,131 +166,57 @@ public partial class MainWindow : Window
         if (!string.IsNullOrEmpty(_config.AuthToken))
             _acct = await _account.MeAsync(_config.ServerUrl, _config.AuthToken!);
         if (_acct == null) { _config.AuthToken = null; _config.Save("app"); }
-        ReflectAccount();
-        StartHosting();
-        if (_acct != null) await LoadComputersAsync();
+        else { _org = _acct.OrgName; await LoadComputersAsync(); }
+        PushState();
     }
 
-    private void ReflectAccount()
+    private async Task LoginAsync(string email, string password)
     {
-        bool signedIn = _acct != null;
-        SignedInPanel.Visibility = signedIn ? Visibility.Visible : Visibility.Collapsed;
-        SignedOutPanel.Visibility = signedIn ? Visibility.Collapsed : Visibility.Visible;
-        AccountBadge.Text = signedIn ? $"{_acct!.Email} · {_acct.OrgName}" : "";
-        SignedInText.Text = signedIn ? $"Signed in as {_acct!.Email}\nOrganization: {_acct.OrgName}{(_acct.IsAdmin ? " (admin)" : "")}" : "";
-        ListMsg.Text = signedIn ? "" : "Sign in to see your computers.";
-        if (!signedIn) CompList.ItemsSource = null;
-    }
-
-    private async void SignInBtn_Click(object sender, RoutedEventArgs e)
-    {
-        AccountMsg.Text = "";
-        var server = ServerBox.Text.Trim();
-        _config.ServerUrl = server; _config.Save("app");
         try
         {
-            _acct = await _account.LoginAsync(server, EmailBox.Text.Trim(), LoginPwBox.Password);
+            _acct = await _account.LoginAsync(_config.ServerUrl, email, password);
             _config.AuthToken = _acct.Token; _config.AccountEmail = _acct.Email; _config.OrgName = _acct.OrgName;
             _config.Save("app");
-            LoginPwBox.Clear();
-            ReflectAccount();
-            StartHosting();                // re-register so this PC is claimed into the org
+            _org = _acct.OrgName;
+            StartHosting();               // re-register so this PC is claimed into the org
             await LoadComputersAsync();
         }
-        catch (Exception ex) { AccountMsg.Text = ex.Message; }
+        catch (Exception ex) { _lastError = ex.Message; }
+        PushState();
     }
 
-    private void SignOutBtn_Click(object sender, RoutedEventArgs e)
+    private void Enroll(string token)
     {
-        _acct = null;
-        _config.AuthToken = null; _config.Save("app");
-        ReflectAccount();
-        StartHosting();                    // re-register anonymously
-    }
-
-    private void EnrollBtn_Click(object sender, RoutedEventArgs e)
-    {
-        var tok = EnrollBox.Text.Trim();
-        _config.EnrollToken = tok.Length == 0 ? null : tok;
+        _config.EnrollToken = string.IsNullOrWhiteSpace(token) ? null : token.Trim();
         _config.Save("app");
-        HostStatus.Text = tok.Length == 0 ? "Enrollment cleared." : "Enrolling this computer…";
-        StartHosting();   // re-register with the enrollment token; org shows once claimed
-    }
-
-    private void RegisterLink_Click(object sender, RoutedEventArgs e)
-    {
-        try
-        {
-            var u = new Uri(ServerBox.Text.Trim());
-            var http = (u.Scheme == "wss" ? "https" : "http") + $"://{u.Host}:{u.Port}/";
-            Process.Start(new ProcessStartInfo(http) { UseShellExecute = true });
-        }
-        catch (Exception ex) { AccountMsg.Text = "Couldn't open browser: " + ex.Message; }
+        StartHosting();
+        PushState();
     }
 
     private async Task LoadComputersAsync()
     {
-        if (_acct == null) return;
-        ListMsg.Text = "Loading…";
-        try
-        {
-            var data = await _account.MyComputersAsync(_config.ServerUrl, _acct.Token);
-            var gname = data.Groups.ToDictionary(g => g.Id, g => g.Name);
-            var rows = data.Computers
-                .Select(c => new CompRow(
-                    c.RelayId,
-                    string.IsNullOrWhiteSpace(c.Name) ? "(unnamed)" : c.Name,
-                    c.GroupId != null && gname.TryGetValue(c.GroupId, out var gn) ? gn : "Ungrouped",
-                    c.Online,
-                    c.Online ? (c.Busy ? "● In session" : "● Online") : "○ Offline"))
-                .OrderByDescending(r => r.Online)
-                .ThenBy(r => r.GroupName, StringComparer.OrdinalIgnoreCase)
-                .ThenBy(r => r.Display, StringComparer.OrdinalIgnoreCase)
-                .ToList();
-            var view = new ListCollectionView(rows);
-            view.GroupDescriptions.Add(new PropertyGroupDescription(nameof(CompRow.GroupName)));
-            CompList.ItemsSource = view;
-            ListMsg.Text = $"{rows.Count(r => r.Online)} online / {rows.Count} total";
-        }
-        catch (Exception ex) { ListMsg.Text = "Couldn't load: " + ex.Message; }
+        if (_acct == null) { _myComp = null; return; }
+        try { _myComp = await _account.MyComputersAsync(_config.ServerUrl, _acct.Token); }
+        catch { _myComp = null; }
     }
-
-    private void RefreshBtn_Click(object sender, RoutedEventArgs e) => _ = LoadComputersAsync();
 
     // ------------------------------- hosting (always on) -------------------------------
 
-    private void HostSettings_LostFocus(object sender, RoutedEventArgs e)
-    {
-        _config.ServerUrl = ServerBox.Text.Trim();
-        _config.FixedPassword = HostPwBox.Text.Trim();
-        _config.Save("app");
-        StartHosting();
-    }
-
     private void StartHosting()
     {
-        var server = ServerBox.Text.Trim();
-        var pw = HostPwBox.Text.Trim();
+        var server = _config.ServerUrl;
+        var pw = (_config.FixedPassword ?? "").Trim();
         var auth = _acct?.Token ?? "";
-        // auth (signed-in) wins; otherwise fall back to a saved enrollment token.
         var enroll = string.IsNullOrEmpty(auth) ? (_config.EnrollToken ?? "") : "";
-        var authKey = auth + "|" + enroll;
-        if (pw.Length == 0) { HostStatus.Text = "Set a password to allow connections."; return; }
-        if (server == _appliedServer && pw == _appliedPw && authKey == _appliedAuth && _hostCts != null) return;
+        var key = server + "|" + pw + "|" + auth + "|" + enroll;
+        if (pw.Length == 0) { _status = "Set a password to allow connections."; PushState(); return; }
+        if (key == _appliedServer + "|" + _appliedPw + "|" + _appliedAuth && _hostCts != null) return;
+        _appliedServer = server; _appliedPw = pw; _appliedAuth = auth + "|" + enroll;
 
-        _appliedServer = server; _appliedPw = pw; _appliedAuth = authKey;
         _hostCts?.Cancel();
         _hostCts = new CancellationTokenSource();
         _ = HostLoopAsync(server, pw, _config.HostToken!, _acct?.Token,
                           string.IsNullOrEmpty(enroll) ? null : enroll, _hostCts.Token);
-    }
-
-    // Reflect the org this PC is claimed into (via sign-in or enrollment token).
-    private void ReflectHostOrg(string? org)
-    {
-        HostOrgText.Text = string.IsNullOrEmpty(org) ? "Not enrolled in an organization." : $"Enrolled in {org}.";
-        HostOrgText.Foreground = string.IsNullOrEmpty(org)
-            ? System.Windows.Media.Brushes.Gray : System.Windows.Media.Brushes.MediumSeaGreen;
     }
 
     private async Task HostLoopAsync(string server, string pw, string token, string? authToken, string? enrollToken, CancellationToken ct)
@@ -193,43 +229,87 @@ public partial class MainWindow : Window
             {
                 session = new HostSession(server, pw, token: token, authToken: authToken, hostName: Environment.MachineName, enrollToken: enrollToken);
                 _host = session;
-                session.IdAssigned += id => Dispatcher.Invoke(() => IdBox.Text = FormatId(id));
-                session.OrgAssigned += org => Dispatcher.Invoke(() => ReflectHostOrg(org));
-                session.Status += s => Dispatcher.Invoke(() => HostStatus.Text = s);
+                session.IdAssigned += id => Dispatcher.Invoke(() => { _id = id; PushState(); });
+                session.OrgAssigned += org => Dispatcher.Invoke(() => { _org = org ?? ""; PushState(); });
+                session.Status += s => Dispatcher.Invoke(() => { _status = s; _online = s.Contains("Ready") || s.Contains("active") || s.Contains("streaming"); PushState(); });
                 session.Status += s => { if (s.StartsWith("Disconnected", StringComparison.OrdinalIgnoreCase)) down.TrySetResult(); };
                 await session.StartAsync();
                 using (ct.Register(() => down.TrySetResult()))
                     await down.Task;
             }
-            catch (Exception ex) { Dispatcher.Invoke(() => HostStatus.Text = "Connection error — retrying… " + ex.Message); }
+            catch (Exception ex) { Dispatcher.Invoke(() => { _status = "Reconnecting… " + ex.Message; _online = false; PushState(); }); }
             finally { try { session?.Dispose(); } catch { } if (_host == session) _host = null; }
 
             if (ct.IsCancellationRequested) break;
-            Dispatcher.Invoke(() => IdBox.Text = "reconnecting…");
+            Dispatcher.Invoke(() => { _online = false; _status = "Reconnecting…"; PushState(); });
             try { await Task.Delay(3000, ct); } catch { break; }
         }
     }
 
+    private void RegeneratePassword()
+    {
+        _config.FixedPassword = GeneratePassword();
+        _config.Save("app");
+        StartHosting();
+        PushState();
+    }
+
     // ------------------------------- connecting out -------------------------------
-
-    private void ManualConnectBtn_Click(object sender, RoutedEventArgs e)
-    {
-        var id = ConnIdBox.Text.Trim().Replace(" ", "");
-        if (id.Length == 0) { ConnIdBox.Focus(); return; }
-        OpenViewer(id, id, password: ConnPwBox.Text.Trim(), authToken: null);
-    }
-
-    private void CompList_MouseDoubleClick(object sender, System.Windows.Input.MouseButtonEventArgs e)
-    {
-        if (CompList.SelectedItem is not CompRow row) return;
-        if (!row.Online || row.RelayId == null) { ListMsg.Text = "That computer is offline."; return; }
-        OpenViewer(row.RelayId, row.Display, password: null, authToken: _acct?.Token);
-    }
 
     private void OpenViewer(string id, string display, string? password, string? authToken)
     {
+        id = id.Replace(" ", "");
+        if (id.Length == 0) return;
         var w = new ViewerWindow(_config.ServerUrl, id, display, password: password, authToken: authToken) { Owner = this };
         w.Show();
+    }
+
+    // ------------------------------- small prompts -------------------------------
+
+    private void SetPassword()
+    {
+        var v = Prompt("Change connection password", "New password:", _config.FixedPassword ?? "");
+        if (v == null) return;
+        _config.FixedPassword = v.Trim().Length == 0 ? GeneratePassword() : v.Trim();
+        _config.Save("app");
+        StartHosting();
+        PushState();
+    }
+
+    private void SetServer()
+    {
+        var v = Prompt("Signaling server", "Server URL (ws://host:port):", _config.ServerUrl);
+        if (v == null || v.Trim().Length == 0) return;
+        _config.ServerUrl = v.Trim();
+        _config.Save("app");
+        _appliedServer = "";   // force host restart
+        StartHosting();
+        PushState();
+    }
+
+    // Minimal modal text prompt (WPF).
+    private string? Prompt(string title, string label, string initial)
+    {
+        var win = new Window
+        {
+            Title = title, Width = 420, SizeToContent = SizeToContent.Height, Owner = this,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner, ResizeMode = ResizeMode.NoResize,
+            Background = System.Windows.Media.Brushes.White,
+        };
+        var panel = new System.Windows.Controls.StackPanel { Margin = new Thickness(16) };
+        panel.Children.Add(new System.Windows.Controls.TextBlock { Text = label, Margin = new Thickness(0, 0, 0, 6) });
+        var box = new System.Windows.Controls.TextBox { Text = initial, Padding = new Thickness(6) };
+        panel.Children.Add(box);
+        var row = new System.Windows.Controls.StackPanel { Orientation = System.Windows.Controls.Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
+        string? result = null;
+        var ok = new System.Windows.Controls.Button { Content = "OK", Width = 80, Margin = new Thickness(0, 0, 8, 0), IsDefault = true };
+        var cancel = new System.Windows.Controls.Button { Content = "Cancel", Width = 80, IsCancel = true };
+        ok.Click += (_, _) => { result = box.Text; win.DialogResult = true; };
+        row.Children.Add(ok); row.Children.Add(cancel);
+        panel.Children.Add(row);
+        win.Content = panel;
+        box.Focus(); box.SelectAll();
+        return win.ShowDialog() == true ? result : null;
     }
 
     // ------------------------------- updates -------------------------------
@@ -245,39 +325,28 @@ public partial class MainWindow : Window
     private async Task CheckForUpdateAsync()
     {
         if (_pendingUpdate != null) { _updateTimer?.Stop(); return; }
-        var url = ServerBox.Text.Trim();
-        if (url.Length == 0) return;
-        var info = await _updater.CheckAsync(url);
+        var info = await _updater.CheckAsync(_config.ServerUrl);
         if (info == null) return;
         _pendingUpdate = info;
         _updateTimer?.Stop();
-        UpdateBtn.Content = $"⬇ Update to v{info.Version}";
-        UpdateBtn.ToolTip = string.IsNullOrWhiteSpace(info.Notes) ? null : info.Notes;
-        UpdateBtn.Visibility = Visibility.Visible;
+        PushState();
     }
 
-    private async void UpdateBtn_Click(object sender, RoutedEventArgs e)
+    private async Task DoUpdateAsync()
     {
         if (_pendingUpdate is not { } info) return;
-        UpdateBtn.IsEnabled = false;
         try
         {
-            HostStatus.Text = $"Downloading v{info.Version}…";
-            var progress = new Progress<double>(p => Dispatcher.Invoke(() => HostStatus.Text = $"Downloading v{info.Version}… {(int)(p * 100)}%"));
-            var stage = await _updater.DownloadAsync(ServerBox.Text.Trim(), info, progress);
-            HostStatus.Text = "Installing — the app will restart…";
+            _status = $"Downloading v{info.Version}…"; PushState();
+            var stage = await _updater.DownloadAsync(_config.ServerUrl, info);
+            _status = "Installing — the app will restart…"; PushState();
             _hostCts?.Cancel();
             if (_host != null) { try { await _host.StopAsync(); } catch { } }
             _updater.LaunchAndExit(stage);
             Application.Current.Shutdown();
         }
-        catch (Exception ex) { HostStatus.Text = "Update failed: " + ex.Message; UpdateBtn.IsEnabled = true; }
+        catch (Exception ex) { _lastError = "Update failed: " + ex.Message; PushState(); }
     }
-
-    // ------------------------------- misc -------------------------------
-
-    private static string FormatId(string id)
-        => id.Length == 9 ? $"{id[..3]} {id.Substring(3, 3)} {id[6..]}" : id;
 
     private static string GeneratePassword()
     {
