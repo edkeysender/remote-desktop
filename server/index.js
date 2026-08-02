@@ -145,9 +145,17 @@ async function legacyRoutes(req, res, next) {
 
 const relayStatus = (relayId) => ({ online: hosts.has(relayId), busy: !!hosts.get(relayId)?.viewer });
 
+// Pick an online host in the same org (other than the target) to send a WOL packet from.
+function onlinePeer(orgId, excludeDeviceToken) {
+  for (const [id, entry] of hosts)
+    if (entry.orgId === orgId && entry.deviceToken !== excludeDeviceToken && entry.ws.readyState === entry.ws.OPEN)
+      return id;
+  return null;
+}
+
 const app = express();
 app.use(legacyRoutes);
-app.use(buildWebApp({ relayStatus, sendCommand }));
+app.use(buildWebApp({ relayStatus, sendCommand, onlinePeer }));
 const http = createServer(app);
 
 function serveFile(res, path, type) {
@@ -418,7 +426,7 @@ wss.on('connection', (ws, req) => {
         }
         if (claimOrgId && token) {
           const existed = !!store.findComputerByToken(token);
-          store.upsertComputer({ deviceToken: token, orgId: claimOrgId, defaultName: msg.name || 'Computer', relayId: id, groupId: enrollGroup });
+          store.upsertComputer({ deviceToken: token, orgId: claimOrgId, defaultName: msg.name || 'Computer', relayId: id, groupId: enrollGroup, mac: typeof msg.mac === 'string' ? msg.mac : null });
           org = store.getOrg(claimOrgId);
           hosts.get(id).orgId = claimOrgId;
           if (!existed) store.logEvent(claimOrgId, 'computer.enroll', { target: msg.name || id, detail: msg.enroll ? 'via token' : 'via sign-in' });

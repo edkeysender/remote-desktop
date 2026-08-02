@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Net.NetworkInformation;
 using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
@@ -74,7 +75,7 @@ public sealed class HostSession : IDisposable
 
         Status?.Invoke("Connecting to server…");
         await _conn.ConnectAsync(_serverUrl);
-        await _conn.SendJsonAsync(new { t = "register", token = _token, auth = _authToken, enroll = _enrollToken, name = _hostName });
+        await _conn.SendJsonAsync(new { t = "register", token = _token, auth = _authToken, enroll = _enrollToken, name = _hostName, mac = PrimaryMac() });
     }
 
     private void OnJson(JsonElement root)
@@ -192,6 +193,23 @@ public sealed class HostSession : IDisposable
         var offer = _pc.createOffer(null);
         await _pc.setLocalDescription(offer);
         await _conn!.SendJsonAsync(new { t = "offer", sdp = offer.sdp });
+    }
+
+    // MAC of the primary up, non-loopback adapter — reported so the org can Wake-on-LAN it.
+    private static string? PrimaryMac()
+    {
+        try
+        {
+            foreach (var ni in NetworkInterface.GetAllNetworkInterfaces())
+            {
+                if (ni.OperationalStatus != OperationalStatus.Up) continue;
+                if (ni.NetworkInterfaceType is NetworkInterfaceType.Loopback or NetworkInterfaceType.Tunnel) continue;
+                var mac = ni.GetPhysicalAddress().ToString();
+                if (mac.Length == 12) return mac;
+            }
+        }
+        catch { }
+        return null;
     }
 
     private int PrimaryIndex()

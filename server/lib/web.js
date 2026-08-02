@@ -13,7 +13,7 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = join(__dirname, '..', 'public');
 
-export function buildWebApp({ relayStatus, sendCommand }) {
+export function buildWebApp({ relayStatus, sendCommand, onlinePeer }) {
   const app = express.Router();
   app.use(express.json());
 
@@ -180,7 +180,7 @@ export function buildWebApp({ relayStatus, sendCommand }) {
     return {
       deviceToken: c.deviceToken, name: c.name, groupId: c.groupId,
       relayId: st.online ? c.relayId : null, online: st.online, busy: st.busy, lastSeen: c.lastSeen,
-      metrics: st.online ? (c.metrics || null) : null,
+      metrics: st.online ? (c.metrics || null) : null, wakeable: !!c.mac,
     };
   };
 
@@ -220,6 +220,21 @@ export function buildWebApp({ relayStatus, sendCommand }) {
       const r = await sendCommand(c.relayId, 'kill', { pid });
       if (!r.ok) return res.status(400).json({ error: r.error || 'kill failed' });
       store.logEvent(req.user.orgId, 'task.kill', { actorEmail: req.user.email, target: c.name, detail: `pid ${pid}` });
+      res.json({ ok: true });
+    } catch (e) { res.status(504).json({ error: e.message }); }
+  });
+
+  // Wake-on-LAN: an online peer in the org broadcasts the magic packet to the target MAC.
+  app.post('/api/computers/:deviceToken/wake', requireUser, requireAdmin, async (req, res) => {
+    const c = store.findComputerByToken(req.params.deviceToken);
+    if (!c || c.orgId !== req.user.orgId) return res.status(404).json({ error: 'no such computer' });
+    if (!c.mac) return res.status(400).json({ error: 'no MAC on record — the device must connect once on a WOL-capable version' });
+    const peer = onlinePeer(req.user.orgId, req.params.deviceToken);
+    if (!peer) return res.status(409).json({ error: 'need another online device in this organization to send the wake packet' });
+    try {
+      const r = await sendCommand(peer, 'wol', { mac: c.mac });
+      if (!r.ok) return res.status(502).json({ error: r.error || 'wake failed' });
+      store.logEvent(req.user.orgId, 'wake', { actorEmail: req.user.email, target: c.name });
       res.json({ ok: true });
     } catch (e) { res.status(504).json({ error: e.message }); }
   });

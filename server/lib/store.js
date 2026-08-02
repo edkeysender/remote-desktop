@@ -283,16 +283,17 @@ export function revokeEnrollToken(token, orgId) {
 
 // Upsert the computer identified by its device token when it comes online under
 // an org (host signed in). Returns the record.
-export function upsertComputer({ deviceToken, orgId, defaultName, relayId, groupId }) {
+export function upsertComputer({ deviceToken, orgId, defaultName, relayId, groupId, mac }) {
   let c = db.computers[deviceToken];
   if (!c) {
-    c = { orgId, name: defaultName || 'Computer', groupId: groupId || null, lastSeen: now(), relayId };
+    c = { orgId, name: defaultName || 'Computer', groupId: groupId || null, lastSeen: now(), relayId, mac: mac || null };
     db.computers[deviceToken] = c;
   } else {
     c.orgId = orgId;                 // (re)claim under this org
     c.relayId = relayId;
     c.lastSeen = now();
     if (!c.name) c.name = defaultName || 'Computer';
+    if (mac) c.mac = mac;            // remember MAC for Wake-on-LAN
     // An enrollment token may pin a group; apply only if not already grouped.
     if (groupId && !c.groupId && db.groups[groupId]?.orgId === orgId) c.groupId = groupId;
   }

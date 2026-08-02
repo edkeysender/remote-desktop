@@ -201,9 +201,12 @@ async function viewDevices(){
       :(c.groupId?`<span class="tag">${esc(gname[c.groupId]||'')}</span>`:'');
     const name=canEdit?`<input class="cname" data-t="${esc(c.deviceToken)}" value="${esc(c.name)}" style="font-weight:600">`:esc(c.name);
     const manage=(manager||role==='viewer')?`<button class="ghost" data-manage="${esc(c.deviceToken)}" title="Host admin panel">⚙</button>`:'';
-    const action=(canConnect
-      ? `<button class="grad" ${on?'':'disabled'} data-copy="${on?esc(c.relayId):''}">${on?'Copy ID to connect':'Offline'}</button>`
-      : `<button class="ghost" disabled>View only</button>`)+manage;
+    let action;
+    if(canConnect && on) action=`<button class="grad" data-copy="${esc(c.relayId)}">Copy ID to connect</button>`;
+    else if(!on && manager && c.wakeable) action=`<button class="grad" data-wake="${esc(c.deviceToken)}">⏻ Wake</button>`;
+    else if(canConnect) action=`<button class="grad" disabled>Offline</button>`;
+    else action=`<button class="ghost" disabled>${on?'':'Offline'}</button>`;
+    action+=manage;
     const m=c.metrics; const meter=(lbl,v)=>`<div class="meter"><span>${lbl}</span><div class="mbar"><i style="width:${v}%;${v>=90?'background:var(--danger)':(v>=75?'background:var(--warn)':'')}"></i></div><b>${v}%</b></div>`;
     const metrics=(on&&m)?`<div class="metrics">${meter('CPU',m.cpu)}${meter('RAM',m.mem)}${meter('Disk',m.disk)}</div>`:'';
     return `<article class="dev">
@@ -223,6 +226,7 @@ async function viewDevices(){
   view().querySelectorAll('.cname').forEach(i=>i.onchange=()=>api('/api/computers/'+encodeURIComponent(i.dataset.t),'PATCH',{name:i.value}));
   view().querySelectorAll('[data-copy]').forEach(b=>b.onclick=()=>{if(b.dataset.copy){navigator.clipboard?.writeText(b.dataset.copy);b.textContent='Copied — open the app';setTimeout(()=>b.textContent='Copy ID to connect',1500);}});
   view().querySelectorAll('[data-manage]').forEach(b=>b.onclick=()=>openHost(b.dataset.manage));
+  view().querySelectorAll('[data-wake]').forEach(b=>b.onclick=async()=>{const o=b.textContent;b.textContent='Waking…';try{await api('/api/computers/'+encodeURIComponent(b.dataset.wake)+'/wake','POST',{});b.textContent='Wake sent ✓';}catch(e){b.textContent=o;alert(e.message);}});
   const add=view().querySelector('#add'); if(add) add.onclick=()=>{tab='enroll';renderShell();};
 }
 
@@ -372,6 +376,7 @@ async function renderHost(dt){
         <span class="k">Group</span><span>${gsel}</span>
         <span class="k">Last seen</span><span>${c.online?'now':fmtAgo(c.lastSeen)}</span>
         ${c.online?`<span class="k">Connect</span><span><button class="grad sm" style="padding:6px 12px" id="hcopy">Copy ID</button> <span class="muted">then open the desktop app</span></span>`:''}
+        ${!c.online&&manager&&c.wakeable?`<span class="k">Power</span><span><button class="ghost sm" id="hwake">⏻ Wake on LAN</button></span>`:''}
       </div>
       <div class="sec2">Health</div><div id="hmetrics">${metrics}</div>
       ${c.online?`<div class="sec2">Task manager <button class="ghost sm" id="htload" style="margin-left:6px">Load processes</button></div><div id="htasks"><span class="muted">Click “Load processes” to list what's running.</span></div>`:''}
@@ -382,6 +387,7 @@ async function renderHost(dt){
     const gs=document.getElementById('hgrp'); if(gs)gs.onchange=()=>api('/api/computers/'+encodeURIComponent(dt),'PATCH',{groupId:gs.value||null}); }
   const cp=document.getElementById('hcopy'); if(cp)cp.onclick=()=>{navigator.clipboard?.writeText(c.relayId);cp.textContent='Copied';};
   const tl=document.getElementById('htload'); if(tl)tl.onclick=()=>loadTasks(dt);
+  const wk=document.getElementById('hwake'); if(wk)wk.onclick=async()=>{wk.textContent='Waking…';try{await api('/api/computers/'+encodeURIComponent(dt)+'/wake','POST',{});wk.textContent='Wake sent ✓';}catch(e){wk.textContent='⏻ Wake on LAN';alert(e.message);}};
 }
 
 window.addEventListener('popstate',boot);
