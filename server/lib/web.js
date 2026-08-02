@@ -24,10 +24,16 @@ export function buildWebApp({ relayStatus, sendCommand, onlinePeer }) {
     if (!token && auth?.startsWith('Bearer ')) token = auth.slice(7);
     const userId = token ? verifyToken(token) : null;
     req.user = userId ? store.getUser(userId) : null;
+    // Fall back to an org API token (MCP / integrations) → a manager-scoped principal.
+    if (!req.user && token) {
+      const orgId = store.resolveApiToken(token);
+      if (orgId) { req.user = { id: 'api:' + orgId, orgId, role: 'admin', email: 'api-token', name: 'API token', groupIds: [] }; req.apiPrincipal = true; }
+    }
     next();
   });
 
   const requireUser = (req, res, next) => req.user ? next() : res.status(401).json({ error: 'not signed in' });
+  const requireHuman = (req, res, next) => req.apiPrincipal ? res.status(403).json({ error: 'not allowed for API tokens' }) : next();
   const requireAdmin = (req, res, next) =>
     store.isManager(req.user) ? next() : res.status(403).json({ error: 'admin only' });
   const requireAuditor = (req, res, next) =>
@@ -76,6 +82,18 @@ export function buildWebApp({ relayStatus, sendCommand, onlinePeer }) {
   app.get('/api/me', requireUser, (req, res) => {
     const org = store.getOrg(req.user.orgId);
     res.json({ user: publicUser(req.user), org: { id: org.id, name: org.name }, branding: store.getBranding(req.user.orgId) });
+  });
+
+  // ---- org API tokens (for the MCP server); managed by humans only ----
+  app.get('/api/api-tokens', requireUser, requireAdmin, requireHuman, (req, res) => res.json(store.listApiTokens(req.user.orgId)));
+  app.post('/api/api-tokens', requireUser, requireAdmin, requireHuman, (req, res) => {
+    const t = store.createApiToken(req.user.orgId, req.body?.label);
+    store.logEvent(req.user.orgId, 'api.token', { actorEmail: req.user.email, target: t?.label });
+    res.json(t);
+  });
+  app.delete('/api/api-tokens/:token', requireUser, requireAdmin, requireHuman, (req, res) => {
+    store.revokeApiToken(req.user.orgId, req.params.token);
+    res.json({ ok: true });
   });
 
   // ---- per-org branding (white-label): any member can read; managers can set ----

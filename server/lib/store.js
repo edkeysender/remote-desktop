@@ -107,6 +107,28 @@ export function findUserByEmail(email) {
 export function getUser(userId) { return db.users[userId] || null; }
 export function getOrg(orgId) { return db.orgs[orgId] || null; }
 
+// ---- org API tokens (for the MCP server / integrations; manager-scoped) ----
+export function createApiToken(orgId, label) {
+  const o = db.orgs[orgId]; if (!o) return null;
+  o.apiTokens = o.apiTokens || {};
+  const token = 'hk_' + randomBytes(24).toString('hex');
+  o.apiTokens[token] = { label: (label || '').toString().slice(0, 60), createdAt: now() };
+  save();
+  return { token, label: o.apiTokens[token].label };
+}
+export function listApiTokens(orgId) {
+  const o = db.orgs[orgId];
+  return o?.apiTokens ? Object.entries(o.apiTokens).map(([token, v]) => ({ token, label: v.label, createdAt: v.createdAt })) : [];
+}
+export function revokeApiToken(orgId, token) {
+  const o = db.orgs[orgId];
+  if (o?.apiTokens && o.apiTokens[token]) { delete o.apiTokens[token]; save(); }
+}
+export function resolveApiToken(token) {
+  for (const [orgId, o] of Object.entries(db.orgs)) if (o.apiTokens && o.apiTokens[token]) return orgId;
+  return null;
+}
+
 // ---- platform (super-admin) views ----
 export const PLANS = ['trial', 'cloud', 'self-hosted'];
 export function setOrgPlan(orgId, plan) {

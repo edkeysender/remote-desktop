@@ -169,7 +169,7 @@ function renderShell(){
   const nav=[['devices','Devices'],
     ...(manager?[['groups','Groups'],['users','Users'],['enroll','Enrollment']]:[]),
     ...(auditor?[['sessions','Sessions'],['activity','Activity']]:[]),
-    ...(manager?[['configs','Configurations'],['branding','Branding']]:[])];
+    ...(manager?[['configs','Configurations'],['branding','Branding'],['mcp','MCP']]:[])];
   const el=$(`<div class="shell">
     <aside class="sidebar">
       ${brand}
@@ -183,7 +183,7 @@ function renderShell(){
   nav.forEach(([k,label])=>{const b=$(`<button class="nav-item ${k===tab?'active':''}">${label}</button>`);b.onclick=()=>{tab=k;renderShell();};navEl.appendChild(b);});
   el.querySelector('#out').onclick=async()=>{await api('/api/logout','POST');me=null;renderAuth();};
   const valid=nav.map(n=>n[0]); if(!valid.includes(tab)) tab='devices';
-  ({devices:viewDevices,groups:viewGroups,users:viewUsers,enroll:viewEnroll,sessions:viewSessions,activity:viewActivity,branding:viewBranding,configs:viewConfigs}[tab]||viewDevices)();
+  ({devices:viewDevices,groups:viewGroups,users:viewUsers,enroll:viewEnroll,sessions:viewSessions,activity:viewActivity,branding:viewBranding,configs:viewConfigs,mcp:viewMcp}[tab]||viewDevices)();
 }
 const view=()=>document.getElementById('view');
 
@@ -334,6 +334,34 @@ async function viewBranding(){
     const rd=new FileReader(); rd.onload=()=>{ logo=rd.result; view().querySelector('#blogo').innerHTML=`<img src="${logo}" style="width:100%;height:100%;object-fit:cover">`; }; rd.readAsDataURL(f); };
   view().querySelector('#bclear').onclick=()=>{ logo=null; view().querySelector('#blogo').innerHTML=''; };
   view().querySelector('#bsave').onclick=async()=>{ try{ await api('/api/branding','PUT',{appName:view().querySelector('#bname').value,accent:view().querySelector('#bcolorhex').value,logo}); view().querySelector('#bmsg').textContent='Saved ✓ — enrolled apps update on next launch.'; }catch(x){ view().querySelector('#bmsg').textContent=x.message; } };
+}
+
+// ---------- MCP / API tokens ----------
+async function viewMcp(){
+  const toks=await api('/api/api-tokens');
+  const origin=location.origin;
+  const rows=toks.map(t=>`<tr><td>${esc(t.label||'—')}</td><td><span class="linkbox">${esc(t.token)}</span></td><td class="tick" style="white-space:nowrap">${new Date(t.createdAt).toLocaleDateString()}</td><td style="text-align:right"><button class="sm" data-cp="${esc(t.token)}">Copy</button> <button class="danger sm" data-rv="${esc(t.token)}">Revoke</button></td></tr>`).join('');
+  const cfg=`{
+  "mcpServers": {
+    "hangar": {
+      "command": "node",
+      "args": ["/path/to/remote-desktop/server/mcp/index.js"],
+      "env": { "HANGAR_URL": "${origin}", "HANGAR_TOKEN": "hk_your_token" }
+    }
+  }
+}`;
+  view().replaceChildren($(`<div><div class="head"><h1>MCP access</h1></div>
+    <p class="muted" style="margin-bottom:12px">Give an AI assistant read + task-manager access to this organization's fleet. Create a token, then point the Hangar MCP server at it. Tools: <b>get_computers</b>, <b>get_online_computers</b>, <b>get_tasks</b>, <b>kill_task</b>.</p>
+    <div class="card">
+      <div class="rowline" style="border:none"><input id="tl" placeholder="Token label (e.g. Claude Desktop)" style="max-width:280px"><button class="primary" id="gen">Create token</button></div>
+      <div id="new" class="ok" style="margin-top:8px"></div>
+      ${toks.length?`<table style="margin-top:10px"><thead><tr><th>Label</th><th>Token</th><th>Created</th><th></th></tr></thead><tbody>${rows}</tbody></table>`:'<div class="empty">No tokens yet.</div>'}
+    </div>
+    <h2 style="font-size:.9rem;margin-top:22px">Client config</h2>
+    <div class="card"><pre class="linkbox" style="white-space:pre-wrap;margin:0">${esc(cfg)}</pre></div></div>`));
+  view().querySelector('#gen').onclick=async()=>{const t=await api('/api/api-tokens','POST',{label:val('tl')});view().querySelector('#new').innerHTML='New token: <span class="linkbox">'+esc(t.token)+'</span> — copy it now.';viewMcp();};
+  view().querySelectorAll('[data-cp]').forEach(b=>b.onclick=()=>navigator.clipboard?.writeText(b.dataset.cp));
+  view().querySelectorAll('[data-rv]').forEach(b=>b.onclick=async()=>{if(confirm('Revoke this token?')){await api('/api/api-tokens/'+encodeURIComponent(b.dataset.rv),'DELETE');viewMcp();}});
 }
 
 // ---------- device configurations ----------
