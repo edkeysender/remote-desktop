@@ -114,6 +114,47 @@ export function setOrgPlan(orgId, plan) {
   if (o && PLANS.includes(plan)) { o.plan = plan; save(); }
   return o;
 }
+// ---- device configurations (per-org, applied per device) ----
+// A config declares desired state; the host checks/applies it and reports results.
+// The list of checks grows over time; unknown fields are ignored by older hosts.
+export function listConfigs(orgId) { return db.orgs[orgId]?.configs || []; }
+export function getConfig(orgId, id) { return (db.orgs[orgId]?.configs || []).find((c) => c.id === id) || null; }
+export function createConfig(orgId, name) {
+  const o = db.orgs[orgId]; if (!o) return null;
+  o.configs = o.configs || [];
+  const c = {
+    id: 'cfg_' + randomBytes(4).toString('hex'),
+    name: (name || 'Configuration').toString().trim().slice(0, 60) || 'Configuration',
+    wallpaper: null, loginBackground: null,
+    checkWindowsActivated: false, installVcredist: false, installOpenSSH: false,
+    computerNameStandard: '',
+  };
+  o.configs.push(c); save(); return c;
+}
+export function updateConfig(orgId, id, f = {}) {
+  const c = getConfig(orgId, id); if (!c) return null;
+  if (typeof f.name === 'string') c.name = f.name.trim().slice(0, 60) || c.name;
+  for (const k of ['checkWindowsActivated', 'installVcredist', 'installOpenSSH']) if (k in f) c[k] = !!f[k];
+  if ('computerNameStandard' in f) c.computerNameStandard = (f.computerNameStandard || '').toString().slice(0, 120);
+  for (const k of ['wallpaper', 'loginBackground']) if (k in f) {
+    const v = f[k];
+    c[k] = (typeof v === 'string' && v.startsWith('data:image/') && v.length < 800_000) ? v : (v === null ? null : c[k]);
+  }
+  save(); return c;
+}
+export function deleteConfig(orgId, id) {
+  const o = db.orgs[orgId]; if (!o) return;
+  o.configs = (o.configs || []).filter((c) => c.id !== id);
+  for (const c of Object.values(db.computers)) if (c.configId === id) c.configId = null;
+  save();
+}
+export function setComputerConfig(deviceToken, orgId, configId) {
+  const c = db.computers[deviceToken];
+  if (!c || c.orgId !== orgId) return null;
+  c.configId = configId && getConfig(orgId, configId) ? configId : null;
+  save(); return c;
+}
+
 // ---- per-org branding (white-label) ----
 export function getBranding(orgId) {
   const b = db.orgs[orgId]?.branding || {};

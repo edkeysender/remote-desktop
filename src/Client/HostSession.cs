@@ -133,10 +133,24 @@ public sealed class HostSession : IDisposable
                 var reqId = root.GetProperty("reqId").GetString();
                 var cmd = root.TryGetProperty("cmd", out var cv) ? cv.GetString() : null;
                 var args = root.TryGetProperty("args", out var av) ? av : default;
-                var reply = HostCommands.Handle(cmd, args);
-                reply["t"] = "cmd-result";
-                reply["reqId"] = reqId;
-                _ = _conn!.SendJsonAsync(reply);
+                if (cmd == "config")
+                {
+                    // May run PowerShell/IO — extract now (args is only valid here), then run off-thread.
+                    var spec = ConfigApply.Parse(args);
+                    _ = Task.Run(async () =>
+                    {
+                        var r = ConfigApply.Run(spec);
+                        r["t"] = "cmd-result"; r["reqId"] = reqId;
+                        try { await _conn!.SendJsonAsync(r); } catch { }
+                    });
+                }
+                else
+                {
+                    var reply = HostCommands.Handle(cmd, args);
+                    reply["t"] = "cmd-result";
+                    reply["reqId"] = reqId;
+                    _ = _conn!.SendJsonAsync(reply);
+                }
                 break;
             }
 

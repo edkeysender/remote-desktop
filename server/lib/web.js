@@ -180,7 +180,7 @@ export function buildWebApp({ relayStatus, sendCommand, onlinePeer }) {
     return {
       deviceToken: c.deviceToken, name: c.name, groupId: c.groupId,
       relayId: st.online ? c.relayId : null, online: st.online, busy: st.busy, lastSeen: c.lastSeen,
-      metrics: st.online ? (c.metrics || null) : null, wakeable: !!c.mac,
+      metrics: st.online ? (c.metrics || null) : null, wakeable: !!c.mac, configId: c.configId || null,
     };
   };
 
@@ -224,6 +224,34 @@ export function buildWebApp({ relayStatus, sendCommand, onlinePeer }) {
     } catch (e) { res.status(504).json({ error: e.message }); }
   });
 
+  // ---- device configurations (managers) ----
+  app.get('/api/configs', requireUser, requireAdmin, (req, res) => res.json(store.listConfigs(req.user.orgId)));
+  app.post('/api/configs', requireUser, requireAdmin, (req, res) => {
+    const c = store.createConfig(req.user.orgId, req.body?.name);
+    store.logEvent(req.user.orgId, 'config.create', { actorEmail: req.user.email, target: c?.name });
+    res.json(c);
+  });
+  app.put('/api/configs/:id', requireUser, requireAdmin, (req, res) => {
+    const c = store.updateConfig(req.user.orgId, req.params.id, req.body || {});
+    c ? res.json(c) : res.status(404).json({ error: 'no such configuration' });
+  });
+  app.delete('/api/configs/:id', requireUser, requireAdmin, (req, res) => {
+    store.deleteConfig(req.user.orgId, req.params.id);
+    res.json({ ok: true });
+  });
+
+  // Apply the device's assigned configuration on the host and report per-check results.
+  app.post('/api/computers/:deviceToken/apply-config', requireUser, requireAdmin, async (req, res) => {
+    const c = liveComputer(req, res); if (!c) return;
+    const cfg = c.configId ? store.getConfig(req.user.orgId, c.configId) : null;
+    if (!cfg) return res.status(400).json({ error: 'no configuration assigned to this device' });
+    try {
+      const r = await sendCommand(c.relayId, 'config', cfg, 90000);
+      store.logEvent(req.user.orgId, 'config.apply', { actorEmail: req.user.email, target: c.name, detail: cfg.name });
+      res.json({ ok: !!r.ok, results: r.results || [] });
+    } catch (e) { res.status(504).json({ error: e.message }); }
+  });
+
   // Wake-on-LAN: an online peer in the org broadcasts the magic packet to the target MAC.
   app.post('/api/computers/:deviceToken/wake', requireUser, requireAdmin, async (req, res) => {
     const c = store.findComputerByToken(req.params.deviceToken);
@@ -243,6 +271,7 @@ export function buildWebApp({ relayStatus, sendCommand, onlinePeer }) {
     const dt = req.params.deviceToken;
     if (typeof req.body?.name === 'string') store.renameComputer(dt, req.user.orgId, req.body.name.trim());
     if ('groupId' in (req.body || {})) store.setComputerGroup(dt, req.user.orgId, req.body.groupId || null);
+    if ('configId' in (req.body || {})) store.setComputerConfig(dt, req.user.orgId, req.body.configId || null);
     const c = store.findComputerByToken(dt);
     c && c.orgId === req.user.orgId ? res.json(decorate(c)) : res.status(404).json({ error: 'no such computer' });
   });

@@ -169,7 +169,7 @@ function renderShell(){
   const nav=[['devices','Devices'],
     ...(manager?[['groups','Groups'],['users','Users'],['enroll','Enrollment']]:[]),
     ...(auditor?[['sessions','Sessions'],['activity','Activity']]:[]),
-    ...(manager?[['branding','Branding']]:[])];
+    ...(manager?[['configs','Configurations'],['branding','Branding']]:[])];
   const el=$(`<div class="shell">
     <aside class="sidebar">
       ${brand}
@@ -183,7 +183,7 @@ function renderShell(){
   nav.forEach(([k,label])=>{const b=$(`<button class="nav-item ${k===tab?'active':''}">${label}</button>`);b.onclick=()=>{tab=k;renderShell();};navEl.appendChild(b);});
   el.querySelector('#out').onclick=async()=>{await api('/api/logout','POST');me=null;renderAuth();};
   const valid=nav.map(n=>n[0]); if(!valid.includes(tab)) tab='devices';
-  ({devices:viewDevices,groups:viewGroups,users:viewUsers,enroll:viewEnroll,sessions:viewSessions,activity:viewActivity,branding:viewBranding}[tab]||viewDevices)();
+  ({devices:viewDevices,groups:viewGroups,users:viewUsers,enroll:viewEnroll,sessions:viewSessions,activity:viewActivity,branding:viewBranding,configs:viewConfigs}[tab]||viewDevices)();
 }
 const view=()=>document.getElementById('view');
 
@@ -336,6 +336,50 @@ async function viewBranding(){
   view().querySelector('#bsave').onclick=async()=>{ try{ await api('/api/branding','PUT',{appName:view().querySelector('#bname').value,accent:view().querySelector('#bcolorhex').value,logo}); view().querySelector('#bmsg').textContent='Saved ✓ — enrolled apps update on next launch.'; }catch(x){ view().querySelector('#bmsg').textContent=x.message; } };
 }
 
+// ---------- device configurations ----------
+async function viewConfigs(){
+  const cfgs=await api('/api/configs');
+  const card=(c)=>`<div class="card" style="margin-bottom:14px" data-cfg="${c.id}">
+    <div class="rowline" style="border:none;padding:0 0 8px"><input class="cn" value="${esc(c.name)}" style="font-weight:600;max-width:280px"><span class="sp" style="flex:1"></span><button class="danger sm" data-del="${c.id}">Delete</button></div>
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
+      <div>
+        <label>Desktop wallpaper</label>
+        <div class="rowline" style="border:none;padding:4px 0"><div class="wp" style="width:64px;height:40px;border-radius:8px;background:#161b22;overflow:hidden">${c.wallpaper?`<img src="${esc(c.wallpaper)}" style="width:100%;height:100%;object-fit:cover">`:''}</div><input type="file" accept="image/*" class="wf" style="max-width:200px"><button class="ghost sm" data-clr="wallpaper">✕</button></div>
+        <label>Login / lock background</label>
+        <div class="rowline" style="border:none;padding:4px 0"><div class="lb" style="width:64px;height:40px;border-radius:8px;background:#161b22;overflow:hidden">${c.loginBackground?`<img src="${esc(c.loginBackground)}" style="width:100%;height:100%;object-fit:cover">`:''}</div><input type="file" accept="image/*" class="lf" style="max-width:200px"><button class="ghost sm" data-clr="loginBackground">✕</button></div>
+        <label>Computer-name standard (regex or prefix)</label>
+        <input class="cns" value="${esc(c.computerNameStandard)}" placeholder="e.g. ^SIM-\\d{2}$ or SIM-">
+      </div>
+      <div>
+        <label>Checks &amp; installs</label>
+        <label class="rowline" style="border:none;padding:6px 0;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text)"><input type="checkbox" class="ck" data-k="checkWindowsActivated" ${c.checkWindowsActivated?'checked':''} style="width:auto;margin-right:8px"> Check Windows is activated</label>
+        <label class="rowline" style="border:none;padding:6px 0;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text)"><input type="checkbox" class="ck" data-k="installVcredist" ${c.installVcredist?'checked':''} style="width:auto;margin-right:8px"> Check / install VC++ redistributable</label>
+        <label class="rowline" style="border:none;padding:6px 0;font-weight:400;text-transform:none;letter-spacing:0;color:var(--text)"><input type="checkbox" class="ck" data-k="installOpenSSH" ${c.installOpenSSH?'checked':''} style="width:auto;margin-right:8px"> Check / install OpenSSH</label>
+        <div style="margin-top:10px"><button class="primary sm" data-save="${c.id}">Save</button> <span class="muted" data-msg="${c.id}"></span></div>
+      </div>
+    </div></div>`;
+  view().replaceChildren($(`<div><div class="head"><h1>Configurations</h1><div class="sp" style="flex:1"></div><button class="primary" id="addcfg">+ New configuration</button></div>
+    <p class="muted" style="margin-bottom:12px">Define desired state, then assign a configuration to devices (in a device's admin panel) and apply. More checks will be added over time.</p>
+    <div id="cfgs">${cfgs.map(card).join('')||'<div class="card empty">No configurations yet.</div>'}</div></div>`));
+  view().querySelector('#addcfg').onclick=async()=>{await api('/api/configs','POST',{name:'New configuration'});viewConfigs();};
+  // per-card staged image state
+  const staged={};
+  view().querySelectorAll('[data-cfg]').forEach(el=>{
+    const id=el.dataset.cfg; staged[id]={};
+    const readImg=(input,box,key)=>{const f=input.files[0];if(!f)return;if(f.size>700000){el.querySelector(`[data-msg="${id}"]`).textContent='Image too large (max ~700 KB)';return;}const rd=new FileReader();rd.onload=()=>{staged[id][key]=rd.result;box.innerHTML=`<img src="${rd.result}" style="width:100%;height:100%;object-fit:cover">`;};rd.readAsDataURL(f);};
+    el.querySelector('.wf').onchange=e=>readImg(e.target,el.querySelector('.wp'),'wallpaper');
+    el.querySelector('.lf').onchange=e=>readImg(e.target,el.querySelector('.lb'),'loginBackground');
+    el.querySelectorAll('[data-clr]').forEach(b=>b.onclick=()=>{const k=b.dataset.clr;staged[id][k]=null;el.querySelector(k==='wallpaper'?'.wp':'.lb').innerHTML='';});
+    el.querySelector('[data-save]').onclick=async()=>{
+      const body={name:el.querySelector('.cn').value,computerNameStandard:el.querySelector('.cns').value};
+      el.querySelectorAll('.ck').forEach(c=>body[c.dataset.k]=c.checked);
+      Object.assign(body,staged[id]);
+      try{await api('/api/configs/'+id,'PUT',body);el.querySelector(`[data-msg="${id}"]`).textContent='Saved ✓';}catch(x){el.querySelector(`[data-msg="${id}"]`).textContent=x.message;}
+    };
+    el.querySelector('[data-del]').onclick=async()=>{if(confirm('Delete this configuration?')){await api('/api/configs/'+id,'DELETE');viewConfigs();}};
+  });
+}
+
 // ---------- host administration panel ----------
 let hostTimer=null;
 function hostModalEl(){ let m=document.getElementById('hostModal'); if(!m){ m=$('<div id="hostModal" class="modal"></div>'); document.body.appendChild(m); m.addEventListener('click',e=>{if(e.target===m)closeHost();}); } return m; }
@@ -359,7 +403,7 @@ async function loadTasks(dt){
 }
 async function renderHost(dt){
   const manager=me.user.role==='owner'||me.user.role==='admin';
-  let d,groups; try{ d=await api('/api/computers/'+encodeURIComponent(dt)); groups=await api('/api/groups'); }
+  let d,groups,configs=[]; try{ d=await api('/api/computers/'+encodeURIComponent(dt)); groups=await api('/api/groups'); if(manager) configs=await api('/api/configs'); }
   catch(e){ hostModalEl().innerHTML=`<div class="sheet"><div class="sheet-h"><h2>Host</h2><button class="x" onclick="closeHost()">Close</button></div><div class="sheet-b err">${esc(e.message)}</div></div>`; return; }
   const c=d.computer, m=c.metrics;
   const stt=c.online?(c.busy?'<span class="dot busy"></span>In session':'<span class="dot on"></span>Online'):'<span class="dot off"></span>Offline';
@@ -380,6 +424,9 @@ async function renderHost(dt){
       </div>
       <div class="sec2">Health</div><div id="hmetrics">${metrics}</div>
       ${c.online?`<div class="sec2">Task manager <button class="ghost sm" id="htload" style="margin-left:6px">Load processes</button></div><div id="htasks"><span class="muted">Click “Load processes” to list what's running.</span></div>`:''}
+      ${manager?`<div class="sec2">Configuration</div>
+        <div class="rowline" style="border:none;padding:2px 0"><select id="hcfg"><option value="">— none —</option>${configs.map(cf=>`<option value="${cf.id}" ${cf.id===c.configId?'selected':''}>${esc(cf.name)}</option>`).join('')}</select>${c.online?'<button class="grad sm" id="happly" style="margin-left:8px;padding:6px 12px">Apply now</button>':'<span class="muted" style="margin-left:8px">apply when online</span>'}</div>
+        <div id="hcfgres"></div>`:''}
       <div class="sec2">Recent sessions</div>${sess}
       <div class="sec2">Recent activity</div>${evs}
     </div></div>`;
@@ -388,6 +435,12 @@ async function renderHost(dt){
   const cp=document.getElementById('hcopy'); if(cp)cp.onclick=()=>{navigator.clipboard?.writeText(c.relayId);cp.textContent='Copied';};
   const tl=document.getElementById('htload'); if(tl)tl.onclick=()=>loadTasks(dt);
   const wk=document.getElementById('hwake'); if(wk)wk.onclick=async()=>{wk.textContent='Waking…';try{await api('/api/computers/'+encodeURIComponent(dt)+'/wake','POST',{});wk.textContent='Wake sent ✓';}catch(e){wk.textContent='⏻ Wake on LAN';alert(e.message);}};
+  const cf=document.getElementById('hcfg'); if(cf)cf.onchange=()=>api('/api/computers/'+encodeURIComponent(dt),'PATCH',{configId:cf.value||null});
+  const ap=document.getElementById('happly'); if(ap)ap.onclick=async()=>{ const res=document.getElementById('hcfgres'); ap.disabled=true; res.innerHTML='<span class="muted">Applying…</span>';
+    try{ const r=await api('/api/computers/'+encodeURIComponent(dt)+'/apply-config','POST',{});
+      const sc=s=>s==='ok'?'var(--ok)':(s==='fail'?'var(--danger)':'var(--warn)');
+      res.innerHTML=(r.results||[]).map(x=>`<div class="rowline"><span style="width:10px;height:10px;border-radius:50%;background:${sc(x.status)};display:inline-block"></span><span style="flex:1">${esc(x.label)}</span><span class="muted">${esc(x.status)} · ${esc(x.detail)}</span></div>`).join('')||'<span class="muted">No checks in this configuration.</span>';
+    }catch(e){ res.innerHTML='<span class="err">'+esc(e.message)+'</span>'; } finally{ ap.disabled=false; } };
 }
 
 window.addEventListener('popstate',boot);
