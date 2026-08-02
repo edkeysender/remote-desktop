@@ -26,7 +26,7 @@
   #define OutFile "Hangar-Setup-" + AppVersion
 #endif
 #define AppPublisher "Hangar"
-#define AppExe "FtdRemote.exe"
+#define AppExe "RemoteControl.exe"
 
 [Setup]
 AppId={{9E3AC14D-5F61-4C77-BE33-C3D4E5F60718}

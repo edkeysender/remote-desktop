@@ -188,6 +188,16 @@ export function buildWebApp({ relayStatus }) {
   app.get('/api/computers', requireUser, requireAuditor, (req, res) =>
     res.json(store.listComputers(req.user.orgId).map(decorate)));
 
+  // Host administration panel: one computer + its recent sessions and alerts.
+  app.get('/api/computers/:deviceToken', requireUser, requireAuditor, (req, res) => {
+    const dt = req.params.deviceToken;
+    const c = store.findComputerByToken(dt);
+    if (!c || c.orgId !== req.user.orgId) return res.status(404).json({ error: 'no such computer' });
+    const sessions = store.listSessions(req.user.orgId, 1000).filter((s) => s.deviceToken === dt).slice(0, 25);
+    const events = store.listEvents(req.user.orgId, 1000).filter((e) => e.target === c.name).slice(0, 25);
+    res.json({ computer: decorate(c), sessions, events });
+  });
+
   app.patch('/api/computers/:deviceToken', requireUser, requireAdmin, (req, res) => {
     const dt = req.params.deviceToken;
     if (typeof req.body?.name === 'string') store.renameComputer(dt, req.user.orgId, req.body.name.trim());

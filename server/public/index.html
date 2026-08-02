@@ -90,6 +90,17 @@ th{color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.
 .meter span{width:34px}.meter b{width:34px;text-align:right;font-family:'JetBrains Mono';color:var(--text);font-weight:600}
 .mbar{flex:1;height:6px;border-radius:999px;background:var(--paper);overflow:hidden}
 .mbar i{display:block;height:100%;border-radius:999px;background:var(--grad)}
+.modal{position:fixed;inset:0;background:rgba(10,13,24,.5);display:none;place-items:center;z-index:60;padding:20px}
+.modal.on{display:grid}
+.sheet{width:660px;max-width:95vw;max-height:88vh;overflow:auto;background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);box-shadow:0 30px 80px rgba(0,0,0,.35)}
+.sheet-h{display:flex;align-items:center;gap:12px;padding:16px 20px;border-bottom:1px solid var(--line);position:sticky;top:0;background:var(--card)}
+.sheet-h h2{font-size:1.1rem} .sheet-b{padding:18px 20px}
+.x{margin-left:auto;cursor:pointer;border:1px solid var(--line);background:#fff;border-radius:8px;padding:6px 12px;font-weight:600}
+.kv{display:grid;grid-template-columns:130px 1fr;gap:7px 12px;font-size:.85rem}
+.kv .k{color:var(--muted)}
+.sec2{font-size:.72rem;font-weight:600;letter-spacing:.05em;text-transform:uppercase;color:var(--muted);margin:18px 0 8px}
+.mrow{display:flex;align-items:center;gap:10px;font-size:.8rem;color:var(--muted);margin:4px 0}
+.mrow span{width:40px} .mrow b{width:42px;text-align:right;font-family:'JetBrains Mono';color:var(--text)}
 @media(max-width:820px){.shell{grid-template-columns:1fr}.sidebar{display:none}.main{padding:16px}}
 </style>
 </head>
@@ -189,9 +200,10 @@ async function viewDevices(){
         <option value="">— no group —</option>${groups.map(g=>`<option value="${g.id}" ${g.id===c.groupId?'selected':''}>${esc(g.name)}</option>`).join('')}</select>`
       :(c.groupId?`<span class="tag">${esc(gname[c.groupId]||'')}</span>`:'');
     const name=canEdit?`<input class="cname" data-t="${esc(c.deviceToken)}" value="${esc(c.name)}" style="font-weight:600">`:esc(c.name);
-    const action=canConnect
+    const manage=(manager||role==='viewer')?`<button class="ghost" data-manage="${esc(c.deviceToken)}" title="Host admin panel">⚙</button>`:'';
+    const action=(canConnect
       ? `<button class="grad" ${on?'':'disabled'} data-copy="${on?esc(c.relayId):''}">${on?'Copy ID to connect':'Offline'}</button>`
-      : `<button class="ghost" disabled>View only</button>`;
+      : `<button class="ghost" disabled>View only</button>`)+manage;
     const m=c.metrics; const meter=(lbl,v)=>`<div class="meter"><span>${lbl}</span><div class="mbar"><i style="width:${v}%;${v>=90?'background:var(--danger)':(v>=75?'background:var(--warn)':'')}"></i></div><b>${v}%</b></div>`;
     const metrics=(on&&m)?`<div class="metrics">${meter('CPU',m.cpu)}${meter('RAM',m.mem)}${meter('Disk',m.disk)}</div>`:'';
     return `<article class="dev">
@@ -209,7 +221,8 @@ async function viewDevices(){
     ${comps.length?`<div class="grid">${cards}</div>`:'<div class="card empty">No computers yet. On a PC, open FTD Remote → sign in, or enroll it with a token (Enrollment tab).</div>'}</div>`));
   view().querySelectorAll('.gsel').forEach(s=>s.onchange=()=>api('/api/computers/'+encodeURIComponent(s.dataset.t),'PATCH',{groupId:s.value||null}));
   view().querySelectorAll('.cname').forEach(i=>i.onchange=()=>api('/api/computers/'+encodeURIComponent(i.dataset.t),'PATCH',{name:i.value}));
-  view().querySelectorAll('[data-copy]').forEach(b=>b.onclick=()=>{if(b.dataset.copy){navigator.clipboard?.writeText(b.dataset.copy);b.textContent='Copied — open FTD Remote';setTimeout(()=>b.textContent='Copy ID to connect',1500);}});
+  view().querySelectorAll('[data-copy]').forEach(b=>b.onclick=()=>{if(b.dataset.copy){navigator.clipboard?.writeText(b.dataset.copy);b.textContent='Copied — open the app';setTimeout(()=>b.textContent='Copy ID to connect',1500);}});
+  view().querySelectorAll('[data-manage]').forEach(b=>b.onclick=()=>openHost(b.dataset.manage));
   const add=view().querySelector('#add'); if(add) add.onclick=()=>{tab='enroll';renderShell();};
 }
 
@@ -317,6 +330,44 @@ async function viewBranding(){
     const rd=new FileReader(); rd.onload=()=>{ logo=rd.result; view().querySelector('#blogo').innerHTML=`<img src="${logo}" style="width:100%;height:100%;object-fit:cover">`; }; rd.readAsDataURL(f); };
   view().querySelector('#bclear').onclick=()=>{ logo=null; view().querySelector('#blogo').innerHTML=''; };
   view().querySelector('#bsave').onclick=async()=>{ try{ await api('/api/branding','PUT',{appName:view().querySelector('#bname').value,accent:view().querySelector('#bcolorhex').value,logo}); view().querySelector('#bmsg').textContent='Saved ✓ — enrolled apps update on next launch.'; }catch(x){ view().querySelector('#bmsg').textContent=x.message; } };
+}
+
+// ---------- host administration panel ----------
+let hostTimer=null;
+function hostModalEl(){ let m=document.getElementById('hostModal'); if(!m){ m=$('<div id="hostModal" class="modal"></div>'); document.body.appendChild(m); m.addEventListener('click',e=>{if(e.target===m)closeHost();}); } return m; }
+function closeHost(){ const m=document.getElementById('hostModal'); if(m)m.classList.remove('on'); if(hostTimer){clearInterval(hostTimer);hostTimer=null;} }
+window.closeHost=closeHost;
+async function openHost(dt){ hostModalEl().classList.add('on'); await renderHost(dt);
+  if(hostTimer)clearInterval(hostTimer);
+  hostTimer=setInterval(()=>{ const a=document.activeElement; if(a&&['INPUT','SELECT'].includes(a.tagName))return; renderHost(dt); },3000); }
+function meterRow(l,v){ return `<div class="mrow"><span>${l}</span><div class="mbar"><i style="width:${v}%;${v>=90?'background:var(--danger)':(v>=75?'background:var(--warn)':'')}"></i></div><b>${v}%</b></div>`; }
+async function renderHost(dt){
+  const manager=me.user.role==='owner'||me.user.role==='admin';
+  let d,groups; try{ d=await api('/api/computers/'+encodeURIComponent(dt)); groups=await api('/api/groups'); }
+  catch(e){ hostModalEl().innerHTML=`<div class="sheet"><div class="sheet-h"><h2>Host</h2><button class="x" onclick="closeHost()">Close</button></div><div class="sheet-b err">${esc(e.message)}</div></div>`; return; }
+  const c=d.computer, m=c.metrics;
+  const stt=c.online?(c.busy?'<span class="dot busy"></span>In session':'<span class="dot on"></span>Online'):'<span class="dot off"></span>Offline';
+  const metrics=(c.online&&m)?meterRow('CPU',m.cpu)+meterRow('RAM',m.mem)+meterRow('Disk',m.disk):'<div class="muted">No live metrics (device offline).</div>';
+  const gsel=manager?`<select id="hgrp"><option value="">— no group —</option>${groups.map(g=>`<option value="${g.id}" ${g.id===c.groupId?'selected':''}>${esc(g.name)}</option>`).join('')}</select>`
+    :esc((groups.find(g=>g.id===c.groupId)||{}).name||'—');
+  const sess=d.sessions.length?d.sessions.map(s=>`<div class="rowline"><span>${esc(s.viewerEmail||'(password)')}</span><span class="muted" style="margin-left:auto">${new Date(s.startedAt).toLocaleString()} · ${s.endedAt?dur(s.startedAt,s.endedAt):'<span class="pill accent">live</span>'}</span></div>`).join(''):'<div class="muted">No sessions recorded.</div>';
+  const evs=d.events.length?d.events.map(e=>`<div class="rowline"><span>${esc(e.type)}</span><span class="muted" style="margin-left:auto">${esc(e.detail||'')} · ${fmtAgo(e.ts)}</span></div>`).join(''):'<div class="muted">No recent activity.</div>';
+  hostModalEl().innerHTML=`<div class="sheet">
+    <div class="sheet-h">${stt}<h2 style="margin-left:4px">${manager?`<input id="hname" value="${esc(c.name)}" style="font-size:1rem;font-weight:700;max-width:260px">`:esc(c.name)}</h2><button class="x" onclick="closeHost()">Close</button></div>
+    <div class="sheet-b">
+      <div class="kv">
+        <span class="k">Device ID</span><span class="mono">${c.online?fmtId(c.relayId):'offline'}</span>
+        <span class="k">Group</span><span>${gsel}</span>
+        <span class="k">Last seen</span><span>${c.online?'now':fmtAgo(c.lastSeen)}</span>
+        ${c.online?`<span class="k">Connect</span><span><button class="grad sm" style="padding:6px 12px" id="hcopy">Copy ID</button> <span class="muted">then open the desktop app</span></span>`:''}
+      </div>
+      <div class="sec2">Health</div><div id="hmetrics">${metrics}</div>
+      <div class="sec2">Recent sessions</div>${sess}
+      <div class="sec2">Recent activity</div>${evs}
+    </div></div>`;
+  if(manager){ const nm=document.getElementById('hname'); if(nm)nm.onchange=()=>api('/api/computers/'+encodeURIComponent(dt),'PATCH',{name:nm.value});
+    const gs=document.getElementById('hgrp'); if(gs)gs.onchange=()=>api('/api/computers/'+encodeURIComponent(dt),'PATCH',{groupId:gs.value||null}); }
+  const cp=document.getElementById('hcopy'); if(cp)cp.onclick=()=>{navigator.clipboard?.writeText(c.relayId);cp.textContent='Copied';};
 }
 
 window.addEventListener('popstate',boot);

@@ -7,7 +7,7 @@
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>RemoteDesktop.Master</RootNamespace>
-    <AssemblyName>FtdRemote</AssemblyName>
+    <AssemblyName>RemoteControl</AssemblyName>
     <ApplicationIcon>..\..\assets\hangar.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Version>0.3.0</Version>

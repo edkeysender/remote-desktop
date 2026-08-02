@@ -52,7 +52,7 @@ function Find-ISCC {
 # Stop only processes running from THIS repo's publish folder — never the installed
 # apps or the SYSTEM service.
 $pubRoot = Join-Path $root 'publish'
-Get-Process FtdRemote,FtdRemoteClient,FtdRemoteMaster,FtdRemoteService -ErrorAction SilentlyContinue |
+Get-Process RemoteControl,FtdRemote,FtdRemoteClient,FtdRemoteMaster,FtdRemoteService -ErrorAction SilentlyContinue |
     Where-Object { $_.Path -and $_.Path.StartsWith($pubRoot, [StringComparison]::OrdinalIgnoreCase) } |
     ForEach-Object {
         Write-Host "   stopping running test build: $($_.ProcessName) (pid $($_.Id))" -ForegroundColor DarkYellow
@@ -101,7 +101,7 @@ function New-Entry([string]$path) {
 $manifest = [ordered]@{
     version = $ver
     notes   = $Notes
-    app     = @( New-Entry "$root\publish\app\FtdRemote.exe" )
+    app     = @( New-Entry "$root\publish\app\RemoteControl.exe" )
     client  = @(
         New-Entry "$root\publish\client\FtdRemoteClient.exe"
         New-Entry "$root\publish\client\FtdRemoteService.exe"
