@@ -339,8 +339,20 @@ function closeHost(){ const m=document.getElementById('hostModal'); if(m)m.class
 window.closeHost=closeHost;
 async function openHost(dt){ hostModalEl().classList.add('on'); await renderHost(dt);
   if(hostTimer)clearInterval(hostTimer);
-  hostTimer=setInterval(()=>{ const a=document.activeElement; if(a&&['INPUT','SELECT'].includes(a.tagName))return; renderHost(dt); },3000); }
+  hostTimer=setInterval(()=>refreshMetrics(dt),3000); }   // metrics-only, so tasks/inputs persist
 function meterRow(l,v){ return `<div class="mrow"><span>${l}</span><div class="mbar"><i style="width:${v}%;${v>=90?'background:var(--danger)':(v>=75?'background:var(--warn)':'')}"></i></div><b>${v}%</b></div>`; }
+async function refreshMetrics(dt){ let d; try{d=await api('/api/computers/'+encodeURIComponent(dt));}catch{return;}
+  const c=d.computer,m=c.metrics; const el=document.getElementById('hmetrics');
+  if(el)el.innerHTML=(c.online&&m)?meterRow('CPU',m.cpu)+meterRow('RAM',m.mem)+meterRow('Disk',m.disk):'<div class="muted">No live metrics (device offline).</div>'; }
+function human(b){ if(!b)return '0'; const u=['B','KB','MB','GB']; let i=0,v=b; while(v>=1024&&i<u.length-1){v/=1024;i++;} return (i?v.toFixed(1):v)+' '+u[i]; }
+async function loadTasks(dt){
+  const el=document.getElementById('htasks'); el.innerHTML='<span class="muted">Loading…</span>';
+  try{ const r=await api('/api/computers/'+encodeURIComponent(dt)+'/tasks');
+    const rows=(r.tasks||[]).map(t=>`<div class="rowline"><span style="flex:1">${esc(t.name)}</span><span class="mono muted" style="width:70px">${t.pid}</span><span class="mono muted" style="width:80px;text-align:right">${human(t.mem)}</span><button class="danger sm" data-kill="${t.pid}" style="margin-left:10px">Kill</button></div>`).join('');
+    el.innerHTML=rows||'<span class="muted">No processes.</span>';
+    el.querySelectorAll('[data-kill]').forEach(b=>b.onclick=async()=>{ if(!confirm('Kill PID '+b.dataset.kill+'?'))return; try{ await api('/api/computers/'+encodeURIComponent(dt)+'/kill','POST',{pid:Number(b.dataset.kill)}); loadTasks(dt);}catch(e){alert(e.message);} });
+  }catch(e){ el.innerHTML='<span class="err">'+esc(e.message)+'</span>'; }
+}
 async function renderHost(dt){
   const manager=me.user.role==='owner'||me.user.role==='admin';
   let d,groups; try{ d=await api('/api/computers/'+encodeURIComponent(dt)); groups=await api('/api/groups'); }
@@ -362,12 +374,14 @@ async function renderHost(dt){
         ${c.online?`<span class="k">Connect</span><span><button class="grad sm" style="padding:6px 12px" id="hcopy">Copy ID</button> <span class="muted">then open the desktop app</span></span>`:''}
       </div>
       <div class="sec2">Health</div><div id="hmetrics">${metrics}</div>
+      ${c.online?`<div class="sec2">Task manager <button class="ghost sm" id="htload" style="margin-left:6px">Load processes</button></div><div id="htasks"><span class="muted">Click “Load processes” to list what's running.</span></div>`:''}
       <div class="sec2">Recent sessions</div>${sess}
       <div class="sec2">Recent activity</div>${evs}
     </div></div>`;
   if(manager){ const nm=document.getElementById('hname'); if(nm)nm.onchange=()=>api('/api/computers/'+encodeURIComponent(dt),'PATCH',{name:nm.value});
     const gs=document.getElementById('hgrp'); if(gs)gs.onchange=()=>api('/api/computers/'+encodeURIComponent(dt),'PATCH',{groupId:gs.value||null}); }
   const cp=document.getElementById('hcopy'); if(cp)cp.onclick=()=>{navigator.clipboard?.writeText(c.relayId);cp.textContent='Copied';};
+  const tl=document.getElementById('htload'); if(tl)tl.onclick=()=>loadTasks(dt);
 }
 
 window.addEventListener('popstate',boot);

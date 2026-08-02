@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
@@ -123,6 +124,20 @@ public sealed class HostSession : IDisposable
             case "selmon":
                 SelectMonitor(root.GetProperty("index").GetInt32());
                 break;
+
+            case "cmd":
+            {
+                // Admin command over signaling (task manager, kill, WOL, config). Handled
+                // synchronously here (args JsonElement is only valid during this callback).
+                var reqId = root.GetProperty("reqId").GetString();
+                var cmd = root.TryGetProperty("cmd", out var cv) ? cv.GetString() : null;
+                var args = root.TryGetProperty("args", out var av) ? av : default;
+                var reply = HostCommands.Handle(cmd, args);
+                reply["t"] = "cmd-result";
+                reply["reqId"] = reqId;
+                _ = _conn!.SendJsonAsync(reply);
+                break;
+            }
 
             case "bye":
                 SessionActive?.Invoke(false);

@@ -52,6 +52,20 @@ loadIdMap();
 /** @type {Map<string, {ws: import('ws').WebSocket, viewer: import('ws').WebSocket|null, ip: string, since: number}>} */
 const hosts = new Map();        // id -> host entry
 const pending = new Map();      // requestId -> viewer ws (awaiting host's password check)
+const pendingCmds = new Map();  // cmd reqId -> {resolve, timer} (server->host request/response)
+
+// Send an admin command to a host over its signaling connection and await its reply.
+// Used by the web API + MCP for task manager, kill, wake, config-apply — no WebRTC needed.
+function sendCommand(relayId, cmd, args = {}, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    const entry = hosts.get(relayId);
+    if (!entry || entry.ws.readyState !== entry.ws.OPEN) return reject(new Error('device offline'));
+    const reqId = randomBytes(8).toString('hex');
+    const timer = setTimeout(() => { pendingCmds.delete(reqId); reject(new Error('device did not respond')); }, timeoutMs);
+    pendingCmds.set(reqId, { resolve, timer });
+    send(entry.ws, { t: 'cmd', reqId, cmd, args });
+  });
+}
 
 // Admin state: named groups and per-client metadata (friendly name, group, last-seen),
 // persisted so it survives restarts and covers offline clients too.
@@ -133,7 +147,7 @@ const relayStatus = (relayId) => ({ online: hosts.has(relayId), busy: !!hosts.ge
 
 const app = express();
 app.use(legacyRoutes);
-app.use(buildWebApp({ relayStatus }));
+app.use(buildWebApp({ relayStatus, sendCommand }));
 const http = createServer(app);
 
 function serveFile(res, path, type) {
@@ -466,6 +480,12 @@ wss.on('connection', (ws, req) => {
         } else {
           send(viewer, { t: 'rejected', reason: 'wrong password' });
         }
+        break;
+      }
+
+      case 'cmd-result': {                   // host reply to an admin command (not relayed)
+        const p = pendingCmds.get(msg.reqId);
+        if (p) { clearTimeout(p.timer); pendingCmds.delete(msg.reqId); p.resolve(msg); }
         break;
       }
 

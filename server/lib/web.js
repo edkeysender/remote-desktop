@@ -13,7 +13,7 @@ import {
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = join(__dirname, '..', 'public');
 
-export function buildWebApp({ relayStatus }) {
+export function buildWebApp({ relayStatus, sendCommand }) {
   const app = express.Router();
   app.use(express.json());
 
@@ -196,6 +196,32 @@ export function buildWebApp({ relayStatus }) {
     const sessions = store.listSessions(req.user.orgId, 1000).filter((s) => s.deviceToken === dt).slice(0, 25);
     const events = store.listEvents(req.user.orgId, 1000).filter((e) => e.target === c.name).slice(0, 25);
     res.json({ computer: decorate(c), sessions, events });
+  });
+
+  // Task manager over the command channel (online devices only).
+  const liveComputer = (req, res) => {
+    const c = store.findComputerByToken(req.params.deviceToken);
+    if (!c || c.orgId !== req.user.orgId) { res.status(404).json({ error: 'no such computer' }); return null; }
+    if (!relayStatus(c.relayId).online) { res.status(409).json({ error: 'device offline' }); return null; }
+    return c;
+  };
+
+  app.get('/api/computers/:deviceToken/tasks', requireUser, requireAdmin, async (req, res) => {
+    const c = liveComputer(req, res); if (!c) return;
+    try { const r = await sendCommand(c.relayId, 'tasklist'); res.json({ tasks: r.tasks || [] }); }
+    catch (e) { res.status(504).json({ error: e.message }); }
+  });
+
+  app.post('/api/computers/:deviceToken/kill', requireUser, requireAdmin, async (req, res) => {
+    const c = liveComputer(req, res); if (!c) return;
+    const pid = Number(req.body?.pid);
+    if (!Number.isInteger(pid)) return res.status(400).json({ error: 'pid required' });
+    try {
+      const r = await sendCommand(c.relayId, 'kill', { pid });
+      if (!r.ok) return res.status(400).json({ error: r.error || 'kill failed' });
+      store.logEvent(req.user.orgId, 'task.kill', { actorEmail: req.user.email, target: c.name, detail: `pid ${pid}` });
+      res.json({ ok: true });
+    } catch (e) { res.status(504).json({ error: e.message }); }
   });
 
   app.patch('/api/computers/:deviceToken', requireUser, requireAdmin, (req, res) => {
