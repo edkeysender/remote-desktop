@@ -18,8 +18,10 @@ namespace RemoteDesktop.Master;
 /// </summary>
 public partial class ViewerWindow : Window
 {
-    private readonly string _serverUrl, _id, _password, _display;
+    private readonly string _serverUrl, _password;
+    private string _id, _display;                 // mutable: the device switcher reconnects in place
     private readonly string? _adminPw, _authToken;
+    private AccountClient? _account;
 
     private ViewerSession? _session;
     private bool _connected;
@@ -138,6 +140,119 @@ public partial class ViewerWindow : Window
     {
         StatusText.Text = s;
         if (dotHex != null) StatusDot.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString(dotHex));
+    }
+
+    // ---- device switcher (Phase E) ----
+    private async void DeviceBtn_Click(object sender, RoutedEventArgs e)
+    {
+        if (string.IsNullOrEmpty(_authToken)) { SetStatus("Switching devices needs an account sign-in."); return; }
+        _account ??= new AccountClient();
+        DevList.Children.Clear();
+        DevScope.Text = "Loading devices…";
+        DevPopup.IsOpen = true;
+        try { BuildDeviceMenu(await _account.MyComputersAsync(_serverUrl, _authToken!)); }
+        catch (Exception ex) { DevScope.Text = "Could not load devices: " + ex.Message; }
+    }
+
+    private void BuildDeviceMenu(MyComputers my)
+    {
+        DevList.Children.Clear();
+        var gname = new Dictionary<string, string>();
+        foreach (var g in my.Groups) gname[g.Id] = g.Name;
+        var ordered = my.Computers.OrderByDescending(c => c.Online).ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        DevScope.Text = ordered.Count == 0 ? "No devices you can reach."
+                      : my.Admin ? "All devices in your organization" : "Devices in your groups";
+        foreach (var c in ordered) DevList.Children.Add(MakeDeviceRow(c, gname));
+    }
+
+    private Border MakeDeviceRow(AccountComputer c, Dictionary<string, string> gname)
+    {
+        bool current = c.Online && c.RelayId == _id;
+        bool connectable = c.Online && !c.Busy && !string.IsNullOrEmpty(c.RelayId) && !current;
+
+        var led = new System.Windows.Shapes.Ellipse
+        {
+            Width = 9, Height = 9, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 10, 0),
+            Fill = new SolidColorBrush(current ? Color.FromRgb(0x3E, 0xC8, 0xFF)
+                                     : c.Online ? Color.FromRgb(0x1F, 0xC9, 0x8B) : Color.FromRgb(0xF5, 0x48, 0x4D))
+        };
+
+        var name = new TextBlock { Text = c.Name, Foreground = new SolidColorBrush(Res("TextBrush")), FontWeight = FontWeights.SemiBold, FontSize = 13, TextTrimming = TextTrimming.CharacterEllipsis };
+        string grp = c.GroupId != null && gname.TryGetValue(c.GroupId, out var gn) ? "  ·  " + gn : "";
+        var meta = new TextBlock
+        {
+            Text = (c.Online && !string.IsNullOrEmpty(c.RelayId) ? FormatId(c.RelayId!) : "offline") + grp,
+            Foreground = new SolidColorBrush(Res("MutedBrush")), FontFamily = new FontFamily("Consolas"), FontSize = 11, Margin = new Thickness(0, 2, 0, 0)
+        };
+        var left = new StackPanel();
+        left.Children.Add(name); left.Children.Add(meta);
+
+        (string txt, Color fg) = current ? ("Viewing", Color.FromRgb(0x3E, 0xC8, 0xFF))
+            : !c.Online ? ("Offline", Color.FromRgb(0x8A, 0x8D, 0xA3))
+            : c.Busy ? ("In use", Color.FromRgb(0xFF, 0xAA, 0x1D))
+            : ("Unattended", Color.FromRgb(0x1F, 0xC9, 0x8B));
+        var badge = new Border
+        {
+            CornerRadius = new CornerRadius(999), Padding = new Thickness(8, 2, 8, 2), VerticalAlignment = VerticalAlignment.Center,
+            Background = new SolidColorBrush(Color.FromArgb(0x22, fg.R, fg.G, fg.B)),
+            Child = new TextBlock { Text = txt, Foreground = new SolidColorBrush(fg), FontSize = 10.5, FontWeight = FontWeights.SemiBold }
+        };
+
+        var grid = new Grid();
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(led, 0); Grid.SetColumn(left, 1); Grid.SetColumn(badge, 2);
+        grid.Children.Add(led); grid.Children.Add(left); grid.Children.Add(badge);
+
+        var row = new Border
+        {
+            Padding = new Thickness(10, 8, 10, 8), CornerRadius = new CornerRadius(8), Margin = new Thickness(0, 1, 0, 1),
+            Background = Brushes.Transparent, Child = grid, Opacity = connectable || current ? 1.0 : 0.55,
+            Cursor = connectable ? Cursors.Hand : Cursors.Arrow
+        };
+        if (connectable)
+        {
+            row.MouseEnter += (_, _) => row.Background = new SolidColorBrush(Res("CardBrush"));
+            row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
+            row.MouseLeftButtonUp += (_, _) => SwitchDevice(c.RelayId!, c.Name);
+        }
+        return row;
+    }
+
+    private static string FormatId(string id)
+    {
+        id = id.Replace(" ", "");
+        return id.Length == 9 ? $"{id[..3]} {id[3..6]} {id[6..]}" : id;
+    }
+
+    private async void SwitchDevice(string id, string name)
+    {
+        DevPopup.IsOpen = false;
+        if (id == _id) return;
+
+        var old = _session; _session = null;
+        _connected = false;
+        _pingTimer?.Stop(); _timerTick?.Stop();
+        if (old != null) _ = Task.Run(async () => { try { await old.CloseAsync(); } catch { } old.Dispose(); });
+
+        // reset all per-session UI/state, then reconnect (server logs session.end for A, session.start for B)
+        _monitors = new(); _currentMon = 0; _thumbImg.Clear(); _newWin.Clear();
+        RailList.Children.Clear(); _railImg.Clear(); MonitorPanel.Children.Clear();
+        _miniCanvas = null; _miniRect = null; _miniIndex = -2;
+        TrayList.Children.Clear(); _tx.Clear(); Tray.Visibility = Visibility.Collapsed; TrayChip.Visibility = Visibility.Collapsed; _trayClosed = false;
+        CloseOverview();
+        Scroller.Visibility = Visibility.Collapsed; Hint.Visibility = Visibility.Visible; Hint.Text = $"Connecting to {name}…";
+        RemoteImage.Source = null; _wb = null;
+        foreach (var b in new[] { ZoomFit, Zoom100, Zoom200, TransferBtn, WinKeyBtn, ClipboardBtn, OverviewBtn }) b.IsEnabled = false;
+
+        _id = id; _display = name;
+        TitleText.Text = name; Title = $"Hangar — {name}";
+        P2pText.Text = "Connecting"; P2pDot.Fill = new SolidColorBrush(Color.FromRgb(0x3E, 0xC8, 0xFF));
+        TimerText.Text = "00:00";
+        SetStatus("Connecting…", "#8A8DA3");
+
+        await StartSessionAsync();
     }
 
     // ---- monitor picker (moves into the left rail in Phase B) ----

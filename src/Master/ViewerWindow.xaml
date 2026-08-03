@@ -121,16 +121,32 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
 
-                <!-- device name (dropdown arrives in Phase E) -->
+                <!-- device switcher -->
                 <Button Grid.Column="0" x:Name="DeviceBtn" Style="{StaticResource ToolBtn}"
-                        Background="{DynamicResource CardBrush}">
+                        Background="{DynamicResource CardBrush}" Click="DeviceBtn_Click"
+                        ToolTip="Switch to another device you can reach">
                     <StackPanel Orientation="Horizontal">
                         <Ellipse Width="8" Height="8" Margin="0,0,8,0" VerticalAlignment="Center">
                             <Ellipse.Fill><SolidColorBrush Color="#1FC98B"/></Ellipse.Fill>
                         </Ellipse>
                         <TextBlock x:Name="TitleText" Text="Connecting…" VerticalAlignment="Center"/>
+                        <TextBlock Text="  ▾" Foreground="{DynamicResource MutedBrush}" VerticalAlignment="Center"/>
                     </StackPanel>
                 </Button>
+                <Popup x:Name="DevPopup" PlacementTarget="{Binding ElementName=DeviceBtn}" Placement="Bottom"
+                       StaysOpen="False" AllowsTransparency="True">
+                    <Border Background="{DynamicResource ChromeBrush}" BorderBrush="{DynamicResource LineBrush}"
+                            BorderThickness="1" CornerRadius="12" Margin="0,6,0,0" MinWidth="320" MaxWidth="420">
+                        <Border.Effect><DropShadowEffect BlurRadius="20" ShadowDepth="0" Opacity="0.5" Color="#000000"/></Border.Effect>
+                        <DockPanel Margin="8">
+                            <TextBlock x:Name="DevScope" DockPanel.Dock="Top" Text="" FontSize="11"
+                                       Foreground="{DynamicResource MutedBrush}" Margin="6,4,6,8"/>
+                            <ScrollViewer MaxHeight="400" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <StackPanel x:Name="DevList"/>
+                            </ScrollViewer>
+                        </DockPanel>
+                    </Border>
+                </Popup>
 
                 <StackPanel Grid.Column="1" x:Name="MonitorPanel" Orientation="Horizontal"
                             Margin="12,0,0,0" VerticalAlignment="Center"/>
