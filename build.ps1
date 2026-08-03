@@ -118,16 +118,22 @@ function New-Entry([string]$path) {
     }
 }
 
+# Installer filenames (also staged into the update dir so the dashboard can offer them).
+$appOut   = if ($BrandName) { (($BrandName -replace '[^\w\-]', '_')) + "-Setup-$ver" } else { "Hangar-Setup-$ver" }
+$agentOut = "HangarAgent-Setup-$ver"
+
 # @(...) keeps these as JSON arrays; the app parser also tolerates a bare object.
 # Components: "app" = the unified attended app; "client" = the unattended worker+service.
 $manifest = [ordered]@{
-    version = $ver
-    notes   = $Notes
-    app     = @( New-Entry "$root\publish\app\RemoteControl.exe" )
-    client  = @(
+    version        = $ver
+    notes          = $Notes
+    app            = @( New-Entry "$root\publish\app\RemoteControl.exe" )
+    client         = @(
         New-Entry "$root\publish\client\FtdRemoteClient.exe"
         New-Entry "$root\publish\client\FtdRemoteService.exe"
     )
+    appInstaller   = "$appOut.exe"      # attended app installer (dashboard Download tab)
+    agentInstaller = "$agentOut.exe"    # unattended agent + service installer
 }
 $manifest | ConvertTo-Json -Depth 5 | Set-Content "$upd\manifest.json" -Encoding utf8
 Write-Host "   manifest.json + $((Get-ChildItem $upd -Filter *.exe).Count) exe(s) staged in $upd"
@@ -146,6 +152,11 @@ if ($BrandName) {
 }
 & $iscc "/DAppVersion=$ver" "$root\installer\app.iss"
 & $iscc "/DAppVersion=$ver" "$root\installer\client.iss"
+
+# Stage the compiled installers into the update dir so `-PushTo` ships them to the Pi,
+# where the dashboard's Download tab links to /update/<installer>.
+Copy-Item "$root\installer\dist\$appOut.exe"   $upd -Force -ErrorAction SilentlyContinue
+Copy-Item "$root\installer\dist\$agentOut.exe" $upd -Force -ErrorAction SilentlyContinue
 
 Write-Host "`nInstallers:" -ForegroundColor Green
 Get-ChildItem "$root\installer\dist\*.exe" | ForEach-Object {

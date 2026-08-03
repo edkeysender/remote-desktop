@@ -183,7 +183,7 @@ function renderShell(){
   const manager=role==='owner'||role==='admin';
   const auditor=manager||role==='viewer';
   const admin=manager;   // legacy alias used below
-  const nav=[['devices','Devices'],
+  const nav=[['devices','Devices'],['download','Download'],
     ...(manager?[['groups','Groups'],['users','Users'],['enroll','Enrollment']]:[]),
     ...(auditor?[['sessions','Sessions'],['activity','Activity']]:[]),
     ...(manager?[['configs','Configurations'],['branding','Branding'],['mcp','MCP']]:[])];
@@ -201,7 +201,7 @@ function renderShell(){
   el.querySelector('#out').onclick=async()=>{await api('/api/logout','POST');me=null;renderAuth();};
   const valid=nav.map(n=>n[0]); if(!valid.includes(tab)) tab='devices';
   history.replaceState(null,'','#'+tab);   // keep the active tab in the URL so refresh stays put
-  ({devices:viewDevices,groups:viewGroups,users:viewUsers,enroll:viewEnroll,sessions:viewSessions,activity:viewActivity,branding:viewBranding,configs:viewConfigs,mcp:viewMcp}[tab]||viewDevices)();
+  ({devices:viewDevices,download:viewDownload,groups:viewGroups,users:viewUsers,enroll:viewEnroll,sessions:viewSessions,activity:viewActivity,branding:viewBranding,configs:viewConfigs,mcp:viewMcp}[tab]||viewDevices)();
 }
 const view=()=>document.getElementById('view');
 
@@ -250,6 +250,28 @@ async function viewDevices(){
   const add=view().querySelector('#add'); if(add) add.onclick=()=>{tab='enroll';renderShell();};
   // live-refresh the grid (CPU/RAM/disk, online status) every 6s unless the user is editing
   gridTimer=setInterval(()=>{ if(tab!=='devices'||hostDt){clearInterval(gridTimer);return;} const a=document.activeElement; if(a&&['INPUT','SELECT'].includes(a.tagName))return; viewDevices(); },6000);
+}
+
+async function viewDownload(){
+  let mf=null; try{ mf=await (await fetch('/update/manifest.json',{cache:'no-store'})).json(); }catch{}
+  const appExe=mf&&mf.appInstaller?('/update/'+encodeURIComponent(mf.appInstaller)):null;
+  const agentExe=mf&&mf.agentInstaller?('/update/'+encodeURIComponent(mf.agentInstaller)):null;
+  const ver=mf&&mf.version?mf.version:'';
+  const manager=me.user.role==='owner'||me.user.role==='admin';
+  view().replaceChildren($(`<div>
+    <div class="head"><h1>Download</h1></div>
+    <div class="card" style="max-width:640px">
+      <p class="muted" style="margin-bottom:16px">Install Hangar on a Windows PC to control it, or to reach the rest of your fleet.${ver?` Latest version <b>${esc(ver)}</b>.`:''}</p>
+      ${appExe?`<a class="primary" href="${appExe}" download style="display:inline-block;text-decoration:none">⬇ Download Hangar for Windows</a>
+        <p class="muted" style="margin:10px 0 0;font-size:.82rem">Installs per-user (no admin) with a Start Menu shortcut. After installing, sign in or paste an enrollment token to claim the PC into your organization.</p>`
+        :`<div class="empty">No installer has been published yet. On the build machine run <span class="mono">build.ps1 -PushTo &lt;pi&gt;</span> to publish one.</div>`}
+      ${agentExe?`<div style="margin-top:22px;border-top:1px solid var(--line);padding-top:16px">
+        <a class="ghost" href="${agentExe}" download style="display:inline-block;text-decoration:none">⬇ Download unattended agent</a>
+        <p class="muted" style="margin:10px 0 0;font-size:.82rem">Background service for always-on unattended access (requires admin to install).</p></div>`:''}
+      ${manager?`<div style="margin-top:22px;border-top:1px solid var(--line);padding-top:16px"><b>Enroll a device into ${esc(me.org.name)}</b>
+        <p class="muted" style="font-size:.82rem;margin-top:4px">Create a token in <a href="#" id="togoenroll">Enrollment</a>, then paste it in the app after install to claim the PC automatically.</p></div>`:''}
+    </div></div>`));
+  const g=view().querySelector('#togoenroll'); if(g) g.onclick=e=>{e.preventDefault();tab='enroll';renderShell();};
 }
 
 async function viewGroups(){
