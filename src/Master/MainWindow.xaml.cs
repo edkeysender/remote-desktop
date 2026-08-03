@@ -26,7 +26,6 @@ public partial class MainWindow : Window
 
     private readonly Updater _updater = new("app", elevate: false);
     private UpdateInfo? _pendingUpdate;
-    private bool _inSession;      // a viewer is actively connected to this host
     private bool _updating;       // an update is downloading/applying (guard against re-entry)
     private System.Windows.Threading.DispatcherTimer? _updateTimer;
 
@@ -263,11 +262,6 @@ public partial class MainWindow : Window
                 session.OrgAssigned += org => Dispatcher.Invoke(() => { _org = org ?? ""; RefreshDiscovery(); PushState(); });
                 session.GroupAssigned += (gid, gname) => Dispatcher.Invoke(() => { _groupId = gid ?? ""; _groupName = gname ?? ""; RefreshDiscovery(); PushState(); });
                 session.FleetUpdated += list => Dispatcher.Invoke(() => { _relayFleet = list; PushState(); });
-                session.SessionActive += active => Dispatcher.Invoke(() =>
-                {
-                    _inSession = active;
-                    if (!active) TryAutoUpdate();   // a deferred update can apply now that we're idle
-                });
                 session.Branding += (name, accent, logo) => Dispatcher.Invoke(() =>
                 {
                     _brandName = string.IsNullOrWhiteSpace(name) ? "Hangar" : name!;
@@ -471,33 +465,13 @@ public partial class MainWindow : Window
         if (info == null) return;
         _pendingUpdate = info;
         _updateTimer?.Stop();
-        PushState();
-        TryAutoUpdate();     // self-apply straight away unless a session is in progress
-    }
-
-    // Apply a pending update on its own, but never yank the app out from under a live
-    // session — defer until the viewer disconnects (SessionActive(false) retries this).
-    private void TryAutoUpdate()
-    {
-        if (_pendingUpdate == null || _updating || _inSession) return;
-        // Loop guard: if we already auto-applied this version and it didn't take (the running
-        // version is still older on restart — e.g. a locked/permission-blocked swap), stop
-        // auto-applying it. The manual Update button stays available.
-        if (_config.UpdateTriedVersion == _pendingUpdate.Version.ToString() && _config.UpdateTriedCount >= 1)
-            return;
-        _ = DoUpdateAsync();
+        PushState();        // surfaces the "update available" toast; the user clicks to apply
     }
 
     private async Task DoUpdateAsync()
     {
         if (_pendingUpdate is not { } info || _updating) return;
         _updating = true;
-        // Record the attempt BEFORE applying so a restart loop is broken even if we never
-        // return from LaunchAndExit/Shutdown.
-        var v = info.Version.ToString();
-        _config.UpdateTriedCount = _config.UpdateTriedVersion == v ? _config.UpdateTriedCount + 1 : 1;
-        _config.UpdateTriedVersion = v;
-        _config.Save("app");
         try
         {
             _status = $"Downloading v{info.Version}…"; PushState();
