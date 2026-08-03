@@ -131,6 +131,7 @@ public partial class MainWindow : Window
         if (!_ready || Web?.CoreWebView2 == null) return;
 
         var groups = new Dictionary<string, List<object>>();
+        var groupSeen = new HashSet<string>();   // relayIds already placed into a group (dedupe)
 
         // "Your fleet" = account computers (if signed in) + relay-pushed org/group siblings
         // (shown even when only enrolled — no user login needed), deduped by connect id / name.
@@ -142,18 +143,31 @@ public partial class MainWindow : Window
             if (!seen.Add(key)) return;
             rows.Add((name, relayId, online, busy));
         }
+        void AddToGroup(string groupName, string name, string? relayId, bool online)
+        {
+            if (!groups.TryGetValue(groupName, out var list)) { list = new(); groups[groupName] = list; }
+            list.Add(new { name, relayId, online });
+            if (!string.IsNullOrEmpty(relayId)) groupSeen.Add(relayId!);
+        }
         if (_myComp != null)
         {
             var gname = _myComp.Groups.ToDictionary(g => g.Id, g => g.Name);
             foreach (var c in _myComp.Computers.OrderByDescending(c => c.Online).ThenBy(c => c.Name))
             {
                 AddRow(c.Name, c.RelayId, c.Online, c.Busy);
-                var g = c.GroupId != null && gname.TryGetValue(c.GroupId, out var gn) ? gn : "Ungrouped";
-                if (!groups.TryGetValue(g, out var list)) { list = new(); groups[g] = list; }
-                list.Add(new { name = c.Name, relayId = c.RelayId, online = c.Online });
+                AddToGroup(c.GroupId != null && gname.TryGetValue(c.GroupId, out var gn) ? gn : "Ungrouped",
+                           c.Name, c.RelayId, c.Online);
             }
         }
-        foreach (var d in _relayFleet) AddRow(d.Name, d.RelayId, d.Online, false);
+        // Enrolled-only devices learn their group's siblings from the relay — surface those in
+        // the address book too, under this device's group.
+        var myGroup = string.IsNullOrEmpty(_groupName) ? "Ungrouped" : _groupName;
+        foreach (var d in _relayFleet)
+        {
+            AddRow(d.Name, d.RelayId, d.Online, false);
+            if (string.IsNullOrEmpty(d.RelayId) || !groupSeen.Contains(d.RelayId!))
+                AddToGroup(myGroup, d.Name, d.RelayId, d.Online);
+        }
 
         object[] fleet = rows.OrderByDescending(c => c.Online).ThenBy(c => c.Name)
             .Select(c => (object)new { name = c.Name, relayId = c.RelayId, online = c.Online, busy = c.Busy }).ToArray();

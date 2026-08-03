@@ -140,6 +140,12 @@ button.lrow:hover{background:#FAFAFE}
 .lrow .go:hover{opacity:.85}
 .lrow .go.off{background:var(--line);color:var(--muted)}
 .grp-label{font-size:.68rem;font-weight:600;letter-spacing:.08em;text-transform:uppercase;color:var(--muted);padding:16px 4px 8px}
+.grp-wrap{margin-bottom:10px}
+.grp-head{display:flex;align-items:center;gap:10px;width:100%;text-align:left;padding:12px 14px;border:1px solid var(--line);border-radius:12px;background:var(--card);cursor:pointer;font-size:.9rem}
+.grp-head:hover{background:var(--paper)}
+.grp-head .grp-caret{color:var(--muted);font-size:.8rem;width:12px}
+.grp-head .grp-count{margin-left:auto;font-size:.72rem;color:var(--muted);font-weight:500}
+.grp-devs{margin-top:6px}
 .n-ic{width:34px;height:34px;border-radius:11px;flex:none;display:grid;place-items:center;color:#fff}
 .n-ic svg{width:16px;height:16px;stroke:currentColor;fill:none;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
 .n-ic.warn{background:var(--warn)} .n-ic.info{background:var(--accent)} .n-ic.ok{background:var(--ok)}
@@ -367,6 +373,8 @@ $('sec-setpw').addEventListener('click',()=>send({t:'setpw'}));
 $('set-server').addEventListener('click',()=>send({t:'setserver'}));
 $('set-update').addEventListener('click',()=>send({t:'update'}));
 
+// address-book expand state (per group name), preserved across state refreshes
+let bookOpen={};
 // update-available toast (bottom-right)
 let updDismissed=false;
 $('updBtn').addEventListener('click',()=>{ $('updBtn').disabled=true; $('updBtn').textContent='Updating…'; send({t:'update'}); });
@@ -422,12 +430,18 @@ window.chrome?.webview?.addEventListener('message',ev=>{
   const groups=s.groups||{};
   const keys=Object.keys(groups);
   if(!keys.length) bk.innerHTML='<div class="list-card"><div class="empty2">No devices you can control yet.</div></div>';
-  keys.forEach(gn=>{const lab=document.createElement('div');lab.className='grp-label';lab.textContent=gn+' · '+groups[gn].length+' device'+(groups[gn].length===1?'':'s');bk.appendChild(lab);
-    const card=document.createElement('div');card.className='list-card';
-    groups[gn].forEach(c=>{const btn=document.createElement('button');btn.className='lrow';btn.disabled=!c.online;
+  keys.forEach(gn=>{
+    const devs=groups[gn]; const on=devs.filter(d=>d.online).length;
+    const wrap=document.createElement('div'); wrap.className='grp-wrap';
+    const head=document.createElement('button'); head.className='grp-head';
+    head.innerHTML=`<span class="grp-caret">▸</span><b>${esc(gn)}</b><span class="grp-count">${on}/${devs.length} online</span>`;
+    const card=document.createElement('div'); card.className='list-card grp-devs'; card.hidden=(bookOpen[gn]!==true);
+    head.querySelector('.grp-caret').textContent=card.hidden?'▸':'▾';
+    devs.forEach(c=>{const btn=document.createElement('button');btn.className='lrow';btn.disabled=!c.online;
       btn.innerHTML=`<span class="lled ${c.online?'g':'r'}"></span><span><b>${esc(c.name)}</b><span class="did">${c.online?fmtId(c.relayId):'offline'}</span></span><span class="end">${c.online?'<span class="go">Connect</span>':'<span class="go off">Offline</span>'}</span>`;
       if(c.online)btn.addEventListener('click',()=>send({t:'connectDevice',relayId:c.relayId,name:c.name}));card.appendChild(btn);});
-    bk.appendChild(card);});
+    head.onclick=()=>{ const showing=!card.hidden; card.hidden=showing; bookOpen[gn]=!showing; head.querySelector('.grp-caret').textContent=showing?'▸':'▾'; };
+    wrap.appendChild(head); wrap.appendChild(card); bk.appendChild(wrap);});
   // notifications
   const nf=$('notifs'); const al=s.alerts||[];
   nf.innerHTML=al.length?'':'<div class="empty2">No notifications.</div>';
