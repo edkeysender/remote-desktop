@@ -30,7 +30,7 @@ public partial class MainWindow : Window
 
     // live state pushed to the web UI
     private string _id = "", _org = "", _status = "Starting…";
-    private bool _online, _ready;
+    private bool _online, _ready, _initDone;
     private string? _lastError;
     private string _brandName = "Hangar", _brandAccent = "#5B5BF5";
     private string? _brandLogo;
@@ -63,6 +63,8 @@ public partial class MainWindow : Window
         StartUpdateChecks();
         await RestoreSessionAsync();
         StartHosting();
+        _initDone = true;
+        ProcessPendingConnect();   // handle a hangar:// deep link that launched us
     }
 
     private static string LoadHtml()
@@ -267,12 +269,51 @@ public partial class MainWindow : Window
 
     // ------------------------------- connecting out -------------------------------
 
-    private void OpenViewer(string id, string display, string? password, string? authToken)
+    private void OpenViewer(string id, string display, string? password, string? authToken, string? serverOverride = null)
     {
         id = id.Replace(" ", "");
         if (id.Length == 0) return;
-        var w = new ViewerWindow(_config.ServerUrl, id, display, password: password, authToken: authToken) { Owner = this };
+        var server = string.IsNullOrWhiteSpace(serverOverride) ? _config.ServerUrl : serverOverride!;
+        var w = new ViewerWindow(server, id, display, password: password, authToken: authToken) { Owner = this };
         w.Show();
+    }
+
+    // ---- deep link: hangar://connect?id=<relayId>&server=<ws>&name=<name> ----
+    private string? _pendingUri;
+
+    public void HandleConnectUri(string uri)
+    {
+        _pendingUri = uri;
+        if (_initDone) ProcessPendingConnect();   // else it runs when startup finishes
+    }
+
+    private void ProcessPendingConnect()
+    {
+        if (_pendingUri is not { } uri) return;
+        _pendingUri = null;
+        try
+        {
+            var u = new Uri(uri);
+            var q = ParseQuery(u.Query);
+            if (!q.TryGetValue("id", out var id) || string.IsNullOrWhiteSpace(id)) return;
+            var name = q.TryGetValue("name", out var n) && !string.IsNullOrWhiteSpace(n) ? n : id;
+            var server = q.TryGetValue("server", out var s) && !string.IsNullOrWhiteSpace(s) ? s : _config.ServerUrl;
+            // Account token lets it connect password-less to a fleet device.
+            OpenViewer(id, name, password: null, authToken: _acct?.Token, serverOverride: server);
+        }
+        catch { /* ignore malformed deep link */ }
+    }
+
+    private static Dictionary<string, string> ParseQuery(string query)
+    {
+        var d = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+        foreach (var part in query.TrimStart('?').Split('&', StringSplitOptions.RemoveEmptyEntries))
+        {
+            var i = part.IndexOf('=');
+            if (i < 0) d[Uri.UnescapeDataString(part)] = "";
+            else d[Uri.UnescapeDataString(part[..i])] = Uri.UnescapeDataString(part[(i + 1)..]);
+        }
+        return d;
     }
 
     // ------------------------------- small prompts -------------------------------
