@@ -138,14 +138,18 @@ public sealed class Updater
         var scriptPath = Path.Combine(Path.GetTempPath(), "ftd-update-" + Guid.NewGuid().ToString("N") + ".ps1");
         File.WriteAllText(scriptPath, SwapScript, new UTF8Encoding(false));
 
+        // Elevate if asked, or if the install dir isn't writable (e.g. Program Files) — otherwise
+        // the copy silently fails and the app relaunches the OLD exe, looking like "no update".
+        bool elevate = _elevate || !IsWritable(installDir);
+
         var psi = new ProcessStartInfo
         {
             FileName = "powershell.exe",
-            UseShellExecute = _elevate,          // RunAs requires shell execute
-            CreateNoWindow = !_elevate,
+            UseShellExecute = elevate,           // RunAs requires shell execute
+            CreateNoWindow = !elevate,
             WindowStyle = ProcessWindowStyle.Hidden,
         };
-        if (_elevate) psi.Verb = "runas";
+        if (elevate) psi.Verb = "runas";
         psi.ArgumentList.Add("-NoProfile");
         psi.ArgumentList.Add("-ExecutionPolicy"); psi.ArgumentList.Add("Bypass");
         psi.ArgumentList.Add("-WindowStyle"); psi.ArgumentList.Add("Hidden");
@@ -194,6 +198,19 @@ public sealed class Updater
     }
 
     private static Version Normalize(Version v) => new(v.Major, v.Minor, Math.Max(0, v.Build));
+
+    // Can we write into the install dir without elevation? Probe with a temp file.
+    private static bool IsWritable(string dir)
+    {
+        try
+        {
+            var probe = Path.Combine(dir, ".ftd-write-" + Guid.NewGuid().ToString("N"));
+            File.WriteAllText(probe, "x");
+            File.Delete(probe);
+            return true;
+        }
+        catch { return false; }
+    }
 
     private static async Task<string> Sha256Async(string path, CancellationToken ct)
     {

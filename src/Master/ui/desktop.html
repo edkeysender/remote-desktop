@@ -400,6 +400,8 @@ window.chrome?.webview?.addEventListener('message',ev=>{
   $('set-update').hidden=!s.updateAvailable;
   if(s.updateAvailable && !updDismissed){ $('updToast').hidden=false; $('updVer').textContent='Version '+s.updateAvailable+' — installs and restarts the app'; }
   else if(!s.updateAvailable){ $('updToast').hidden=true; }
+  // An update failure re-enables the button and shows why, instead of sticking on "Updating…".
+  if(s.error && /update|swap|checksum/i.test(s.error)){ const b=$('updBtn'); b.disabled=false; b.textContent='Retry'; updDismissed=false; $('updToast').hidden=false; $('updVer').textContent='⚠ '+s.error; }
   syncConsent(!!s.consent);
   if(s.signedIn||org) closeModal();
   if(s.error){ $('m-err').textContent=s.error; $('m-err2').textContent=s.error; }
