@@ -34,6 +34,8 @@ public partial class MainWindow : Window
     private string? _lastError;
     private string _brandName = "Hangar", _brandAccent = "#5B5BF5";
     private string? _brandLogo;
+    private string _groupId = "", _groupName = "";
+    private readonly LanDiscovery _lan = new();
 
     public MainWindow()
     {
@@ -60,6 +62,7 @@ public partial class MainWindow : Window
         };
         Web.CoreWebView2.NavigateToString(LoadHtml());
 
+        _lan.Changed += () => Dispatcher.Invoke(PushState);   // refresh fleet as LAN peers come/go
         StartUpdateChecks();
         await RestoreSessionAsync();
         StartHosting();
@@ -155,6 +158,10 @@ public partial class MainWindow : Window
             consent = _config.AskConsent,
             brand = new { name = _brandName, accent = _brandAccent, logo = _brandLogo },
             computers = fleet,
+            localDevices = _lan.GetDevices()
+                .Where(d => (string.IsNullOrEmpty(_org) || d.Org == _org) && (string.IsNullOrEmpty(_groupId) || d.GroupId == _groupId))
+                .Select(d => (object)new { name = d.Name, relayId = d.Id, online = true, group = d.GroupName, lan = true })
+                .ToArray(),
             groups,
             recent = Array.Empty<object>(),
             alerts = Array.Empty<object>(),
@@ -234,8 +241,9 @@ public partial class MainWindow : Window
             {
                 session = new HostSession(server, pw, token: token, authToken: authToken, hostName: Environment.MachineName, enrollToken: enrollToken);
                 _host = session;
-                session.IdAssigned += id => Dispatcher.Invoke(() => { _id = id; PushState(); });
-                session.OrgAssigned += org => Dispatcher.Invoke(() => { _org = org ?? ""; PushState(); });
+                session.IdAssigned += id => Dispatcher.Invoke(() => { _id = id; RefreshDiscovery(); PushState(); });
+                session.OrgAssigned += org => Dispatcher.Invoke(() => { _org = org ?? ""; RefreshDiscovery(); PushState(); });
+                session.GroupAssigned += (gid, gname) => Dispatcher.Invoke(() => { _groupId = gid ?? ""; _groupName = gname ?? ""; RefreshDiscovery(); PushState(); });
                 session.Branding += (name, accent, logo) => Dispatcher.Invoke(() =>
                 {
                     _brandName = string.IsNullOrWhiteSpace(name) ? "Hangar" : name!;
@@ -257,6 +265,12 @@ public partial class MainWindow : Window
             Dispatcher.Invoke(() => { _online = false; _status = "Reconnecting…"; PushState(); });
             try { await Task.Delay(3000, ct); } catch { break; }
         }
+    }
+
+    // Announce ourselves on the LAN and collect same-network peers (needs our id).
+    private void RefreshDiscovery()
+    {
+        if (!string.IsNullOrEmpty(_id)) _lan.Start(_id, Environment.MachineName, _org, _groupId, _groupName);
     }
 
     private void RegeneratePassword()
@@ -412,6 +426,7 @@ public partial class MainWindow : Window
     protected override async void OnClosed(EventArgs e)
     {
         _hostCts?.Cancel();
+        _lan.Stop();
         if (_host != null) { try { await _host.StopAsync(); } catch { } }
         base.OnClosed(e);
     }

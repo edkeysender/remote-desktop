@@ -350,7 +350,8 @@ $('set-update').addEventListener('click',()=>send({t:'update'}));
 
 // device card renderer
 function devCard(c){const b=document.createElement('button');b.className='r-card';b.disabled=!c.online;
-  b.innerHTML=`<span class="r-thumb"><i></i><i></i><span class="rled ${c.online?'g':'r'}"></span></span><span><b>${esc(c.name)}</b><span class="rid">${c.online?fmtId(c.relayId):'offline'}</span></span>`;
+  const tag=c.lan?' <span style="font-size:.58rem;color:var(--accent);font-weight:700;letter-spacing:.05em">LAN</span>':'';
+  b.innerHTML=`<span class="r-thumb"><i></i><i></i><span class="rled ${c.online?'g':'r'}"></span></span><span><b>${esc(c.name)}${tag}</b><span class="rid">${c.online?fmtId(c.relayId):'offline'}</span></span>`;
   if(c.online) b.addEventListener('click',()=>send({t:'connectDevice',relayId:c.relayId,name:c.name}));
   return b;}
 
@@ -374,10 +375,11 @@ window.chrome?.webview?.addEventListener('message',ev=>{
   syncConsent(!!s.consent);
   if(s.signedIn||org) closeModal();
   if(s.error){ $('m-err').textContent=s.error; $('m-err2').textContent=s.error; }
-  // fleet + recent + book + notifications
-  const fleet=s.computers||[];
-  const qf=$('quickfleet'); qf.innerHTML=''; fleet.slice(0,4).forEach(c=>qf.appendChild(devCard(c)));
-  if(!fleet.length) qf.innerHTML='<div class="empty2" style="grid-column:1/-1">No fleet devices yet.</div>';
+  // fleet = account computers + LAN-detected devices in the same group (deduped)
+  const fleet=[...(s.computers||[])];
+  (s.localDevices||[]).forEach(l=>{ if(!fleet.some(c=>c.relayId&&c.relayId===l.relayId)) fleet.push(l); });
+  const qf=$('quickfleet'); qf.innerHTML=''; fleet.slice(0,8).forEach(c=>qf.appendChild(devCard(c)));
+  if(!fleet.length) qf.innerHTML='<div class="empty2" style="grid-column:1/-1">No fleet devices yet. Devices on this network in your group appear here automatically.</div>';
   const rs=$('recent-strip'); rs.innerHTML=''; (s.recent||[]).slice(0,4).forEach(c=>rs.appendChild(devCard({name:c.name,relayId:c.relayId,online:c.online})));
   if(!(s.recent||[]).length) rs.innerHTML='<div class="empty2" style="grid-column:1/-1">No recent connections.</div>';
   // recent list

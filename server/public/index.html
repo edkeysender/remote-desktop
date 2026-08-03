@@ -166,6 +166,7 @@ async function renderAccept(token){
 // ---------- shell ----------
 function renderShell(){
   if(typeof stopHostTimer==='function') stopHostTimer();
+  if(typeof gridTimer!=='undefined') clearInterval(gridTimer);
   const role=me.user.role;
   const manager=role==='owner'||role==='admin';
   const auditor=manager||role==='viewer';
@@ -191,7 +192,9 @@ function renderShell(){
 }
 const view=()=>document.getElementById('view');
 
+let gridTimer=null;
 async function viewDevices(){
+  clearInterval(gridTimer);
   const role=me.user.role; const manager=role==='owner'||role==='admin';
   const canEdit=manager, canConnect=role!=='viewer';
   let comps,groups;
@@ -232,6 +235,8 @@ async function viewDevices(){
   view().querySelectorAll('[data-manage]').forEach(b=>b.onclick=()=>openHost(b.dataset.manage));
   view().querySelectorAll('[data-wake]').forEach(b=>b.onclick=async()=>{const o=b.textContent;b.textContent='Waking…';try{await api('/api/computers/'+encodeURIComponent(b.dataset.wake)+'/wake','POST',{});b.textContent='Wake sent ✓';}catch(e){b.textContent=o;alert(e.message);}});
   const add=view().querySelector('#add'); if(add) add.onclick=()=>{tab='enroll';renderShell();};
+  // live-refresh the grid (CPU/RAM/disk, online status) every 6s unless the user is editing
+  gridTimer=setInterval(()=>{ if(tab!=='devices'){clearInterval(gridTimer);return;} const a=document.activeElement; if(a&&['INPUT','SELECT'].includes(a.tagName))return; viewDevices(); },6000);
 }
 
 async function viewGroups(){

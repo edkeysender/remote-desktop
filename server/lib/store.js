@@ -326,6 +326,11 @@ export function listGroups(orgId) {
   return Object.values(db.groups).filter((g) => g.orgId === orgId);
 }
 
+export function getGroup(orgId, id) {
+  const g = db.groups[id];
+  return g && g.orgId === orgId ? { id: g.id, name: g.name } : null;
+}
+
 export function renameGroup(groupId, orgId, name) {
   const g = db.groups[groupId];
   if (!g || g.orgId !== orgId) return null;

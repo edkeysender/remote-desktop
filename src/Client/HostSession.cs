@@ -49,6 +49,7 @@ public sealed class HostSession : IDisposable
 
     public event Action<string>? IdAssigned;
     public event Action<string?>? OrgAssigned;   // org name this host is claimed into (null = none)
+    public event Action<string?, string?>? GroupAssigned;   // group id, name (null = ungrouped)
     public event Action<string?, string?, string?>? Branding;   // appName, accent(#hex), logo(data URL)
     public event Action<string>? Status;
     public event Action<bool>? SessionActive;
@@ -88,6 +89,9 @@ public sealed class HostSession : IDisposable
                 IdAssigned?.Invoke(root.GetProperty("id").GetString() ?? "?");
                 OrgAssigned?.Invoke(root.TryGetProperty("org", out var o) && o.ValueKind == JsonValueKind.Object
                     ? o.GetProperty("name").GetString() : null);
+                if (root.TryGetProperty("group", out var gp) && gp.ValueKind == JsonValueKind.Object)
+                    GroupAssigned?.Invoke(gp.GetProperty("id").GetString(), gp.GetProperty("name").GetString());
+                else GroupAssigned?.Invoke(null, null);
                 if (root.TryGetProperty("ice", out var ice) && ice.ValueKind == JsonValueKind.Object)
                     _iceServers = IceConfig.FromJson(ice);
                 if (root.TryGetProperty("branding", out var br) && br.ValueKind == JsonValueKind.Object)

@@ -416,7 +416,7 @@ wss.on('connection', (ws, req) => {
         // Claim this device into an org, two ways (both need the stable device token):
         //  • a signed-in user's session token (auth), or
         //  • a pre-baked enrollment token (enroll) — Phase 0 "enrolled via token".
-        let org = null, claimOrgId = null, enrollGroup = null;
+        let org = null, claimOrgId = null, enrollGroup = null, comp = null;
         const uid = msg.auth ? verifyToken(msg.auth) : null;
         const user = uid ? store.getUser(uid) : null;
         if (user) claimOrgId = user.orgId;
@@ -426,7 +426,7 @@ wss.on('connection', (ws, req) => {
         }
         if (claimOrgId && token) {
           const existed = !!store.findComputerByToken(token);
-          store.upsertComputer({ deviceToken: token, orgId: claimOrgId, defaultName: msg.name || 'Computer', relayId: id, groupId: enrollGroup, mac: typeof msg.mac === 'string' ? msg.mac : null });
+          comp = store.upsertComputer({ deviceToken: token, orgId: claimOrgId, defaultName: msg.name || 'Computer', relayId: id, groupId: enrollGroup, mac: typeof msg.mac === 'string' ? msg.mac : null });
           org = store.getOrg(claimOrgId);
           hosts.get(id).orgId = claimOrgId;
           if (!existed) store.logEvent(claimOrgId, 'computer.enroll', { target: msg.name || id, detail: msg.enroll ? 'via token' : 'via sign-in' });
@@ -434,6 +434,7 @@ wss.on('connection', (ws, req) => {
         send(ws, {
           t: 'registered', id,
           org: org ? { id: org.id, name: org.name } : null,
+          group: comp?.groupId ? store.getGroup(claimOrgId, comp.groupId) : null,
           branding: claimOrgId ? store.getBranding(claimOrgId) : null,
           ice: claimOrgId ? store.getIce(claimOrgId) : null,
         });
