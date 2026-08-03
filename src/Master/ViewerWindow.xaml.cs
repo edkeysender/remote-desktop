@@ -55,6 +55,7 @@ public partial class ViewerWindow : Window
     private System.Windows.Shapes.Rectangle? _miniRect;
     private int _miniIndex = -2;
     private bool _miniDragging;
+    private bool _switching;                          // a device handoff is in progress
     private readonly HashSet<int> _newWin = new();   // monitors with an unseen new window
     private IntPtr _hwnd;
     private bool _clipHooked;
@@ -116,7 +117,7 @@ public partial class ViewerWindow : Window
         _session.Files.ReceiveStarted   += (n, total)       => Dispatcher.Invoke(() => TxProgress(n, false, 0, total));
         _session.Files.ReceiveProgress  += (n, done, total) => Dispatcher.Invoke(() => TxProgress(n, false, done, total));
         _session.Files.ReceiveCompleted += (n, path) => Dispatcher.Invoke(() =>
-            { TxComplete(n, false); SetStatus($"Received {n} → {Path.GetDirectoryName(path)}"); });
+            { TxComplete(n, false); SetRowLocalPath(n, false, path); SetStatus($"Received {n} → {Path.GetDirectoryName(path)}"); });
         _session.Files.Error            += msg => Dispatcher.Invoke(() =>
             { TxError(msg); SetStatus("File transfer failed: " + msg, "#F5484D"); });
 
@@ -135,7 +136,9 @@ public partial class ViewerWindow : Window
     private bool _closing;
     private void CloseSoon()
     {
-        if (_closing) return;
+        // During a device switch the OLD session's teardown fires Closed → don't let that
+        // close the whole window (that was the switch crash). OnConnected clears _switching.
+        if (_switching || _closing) return;
         _closing = true;
         // Give the user a moment to read a rejection/close reason, then close the window.
         var t = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(1500) };
@@ -146,6 +149,7 @@ public partial class ViewerWindow : Window
     private void OnConnected()
     {
         _connected = true;
+        _switching = false;                // handoff finished; normal close behavior resumes
         SetStatus("Connected", "#1FC98B");
         Hint.Visibility = Visibility.Collapsed;
         Scroller.Visibility = Visibility.Visible;
@@ -280,6 +284,7 @@ public partial class ViewerWindow : Window
         DevPopup.IsOpen = false;
         if (id == _id) return;
 
+        _switching = true;                 // suppress the old session's Closed → CloseSoon
         var old = _session; _session = null;
         _connected = false;
         _pingTimer?.Stop(); _timerTick?.Stop();
@@ -712,10 +717,13 @@ public partial class ViewerWindow : Window
     {
         public bool Up; public string Name = ""; public long Done, Total, Prev; public double Speed;
         public bool Completed, Failed; public double TrackWidth = 300;
+        public string? LocalPath;   // where the file is on THIS PC (upload source / download target)
         public System.Windows.Shapes.Rectangle Bar = null!; public TextBlock Sub = null!; public Border Card = null!;
+        public Button? Folder;
     }
 
     private readonly Dictionary<string, TransferRow> _tx = new();
+    private readonly Dictionary<string, string> _uploadPaths = new();   // filename → local source path
     private System.Windows.Threading.DispatcherTimer? _txTimer;
     private bool _trayClosed;
 
@@ -762,8 +770,24 @@ public partial class ViewerWindow : Window
         var title = new TextBlock
         {
             Text = $"{(up ? "↑" : "↓")}  {name}", Foreground = new SolidColorBrush(Res("TextBrush")),
-            FontSize = 12.5, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis
+            FontSize = 12.5, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center
         };
+        if (up && _uploadPaths.TryGetValue(name, out var up0)) row.LocalPath = up0;
+        var folder = new Button
+        {
+            Content = "📁", Width = 26, Height = 22, Cursor = Cursors.Hand, ToolTip = "Open containing folder",
+            Background = Brushes.Transparent, BorderThickness = new Thickness(0), Padding = new Thickness(0),
+            Foreground = new SolidColorBrush(Res("MutedBrush")),
+            Visibility = row.LocalPath != null ? Visibility.Visible : Visibility.Collapsed
+        };
+        folder.Click += (_, _) => RevealInExplorer(row.LocalPath);
+        row.Folder = folder;
+        var titleRow = new Grid();
+        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(title, 0); Grid.SetColumn(folder, 1);
+        titleRow.Children.Add(title); titleRow.Children.Add(folder);
         var route = new TextBlock
         {
             Text = up ? $"This PC → {_display}" : $"{_display} → This PC",
@@ -779,7 +803,7 @@ public partial class ViewerWindow : Window
         };
         var sub = new TextBlock { Text = "", Foreground = new SolidColorBrush(Res("MutedBrush")), FontSize = 10.5, Margin = new Thickness(0, 5, 0, 0) };
         var stack = new StackPanel();
-        stack.Children.Add(title); stack.Children.Add(route); stack.Children.Add(track); stack.Children.Add(sub);
+        stack.Children.Add(titleRow); stack.Children.Add(route); stack.Children.Add(track); stack.Children.Add(sub);
         row.Card = new Border { Margin = new Thickness(0, 0, 0, 12), Child = stack };
         row.Bar = bar; row.Sub = sub;
         TrayList.Children.Add(row.Card);
@@ -820,6 +844,30 @@ public partial class ViewerWindow : Window
         ChipPct.Text = $"{pct}%";
         ChipCount.Text = active > 0 ? $"{active} active" : "done";
         ChipPct.Foreground = new SolidColorBrush(active > 0 ? Res("AccentBrush") : Color.FromRgb(0x1F, 0xC9, 0x8B));
+    }
+
+    private void SetRowLocalPath(string name, bool up, string path)
+    {
+        if (_tx.TryGetValue(TxKey(name, up), out var row))
+        {
+            row.LocalPath = path;
+            if (row.Folder != null) row.Folder.Visibility = Visibility.Visible;
+        }
+    }
+
+    private void RevealInExplorer(string? path)
+    {
+        if (string.IsNullOrEmpty(path)) return;
+        try
+        {
+            if (File.Exists(path))
+                Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true });
+            else if (Directory.Exists(path))
+                Process.Start(new ProcessStartInfo("explorer.exe", $"\"{path}\"") { UseShellExecute = true });
+            else if (Path.GetDirectoryName(path) is { } dir && Directory.Exists(dir))
+                Process.Start(new ProcessStartInfo("explorer.exe", $"\"{dir}\"") { UseShellExecute = true });
+        }
+        catch (Exception ex) { SetStatus("Couldn't open folder: " + ex.Message); }
     }
 
     private bool AnyActive() => _tx.Values.Any(r => !r.Completed && !r.Failed);
@@ -984,6 +1032,7 @@ public partial class ViewerWindow : Window
         int sent = 0;
         foreach (var f in files)
         {
+            _uploadPaths[Path.GetFileName(f)] = f;
             try { await session.Files.SendFileAsync(f, FileTransferChannel.CurrentFolderToken); sent++; }
             catch (Exception ex) { SetStatus($"Send failed on {Path.GetFileName(f)}: {ex.Message}", "#F5484D"); return; }
         }
@@ -1045,6 +1094,7 @@ public partial class ViewerWindow : Window
         int sent = 0;
         foreach (var f in files)
         {
+            _uploadPaths[Path.GetFileName(f)] = f;
             try { await session.Files.SendFileAsync(f, FileTransferChannel.CurrentFolderToken); sent++; }
             catch (Exception ex) { SetStatus($"Paste failed on {Path.GetFileName(f)}: {ex.Message}", "#F5484D"); return; }
         }
