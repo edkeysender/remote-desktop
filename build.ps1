@@ -18,12 +18,11 @@ param(
     [string]$PushTo = '',
     [string]$PiUpdateDir = '~/remote-desktop/server/update',
     [string]$Notes = '',
-    # Version control. By default every build bumps the patch number and writes it back to
-    # VERSION, so each build is a strictly newer version and installed apps always see the
-    # update. Override with -Version x.y.z, change the part with -Bump major|minor|patch,
-    # or keep the current number with -Bump none.
+    # Version control. By default a build KEEPS the current version (VERSION file), so
+    # rebuilding to produce installers doesn't churn the version and nag installed apps.
+    # To RELEASE an update, bump explicitly: -Bump patch|minor|major, or -Version x.y.z.
     [string]$Version = '',
-    [ValidateSet('major','minor','patch','none')][string]$Bump = 'patch',
+    [ValidateSet('major','minor','patch','none')][string]$Bump = 'none',
     # Per-org white-label: produces a custom-named installer whose app exe carries the
     # given icon. e.g. build.ps1 -BrandName "Acme Remote" -BrandIcon C:\acme.ico
     [string]$BrandName = '',
