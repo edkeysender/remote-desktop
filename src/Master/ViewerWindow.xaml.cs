@@ -14,6 +14,7 @@ namespace RemoteDesktop.Master;
 /// A single remote-control session in its own window. Opened by the hub with a target
 /// (server + id) and one auth mode: an account token (password-less), an admin/directory
 /// password, or a per-host password. Closing the window ends the session.
+/// The chrome follows the Hangar design (Appendix D) — dark by default, light on toggle.
 /// </summary>
 public partial class ViewerWindow : Window
 {
@@ -28,18 +29,16 @@ public partial class ViewerWindow : Window
 
     private List<RemoteMonitor> _monitors = new();
     private int _currentMon;
-    private double _zoom;
+    private double _zoom;   // 0 = Fit, else scale factor
     private int _lastFilePct = -1;
 
     private double _panVx, _panVy;
     private System.Windows.Threading.DispatcherTimer? _panTimer;
     private readonly Stopwatch _panClock = new();
 
-    private static readonly Color Accent = Color.FromRgb(0x1f, 0x6f, 0xeb);
-    private static readonly Color AccentBorder = Color.FromRgb(0x58, 0xa6, 0xff);
-    private static readonly Color IdleBg = Color.FromRgb(0x0d, 0x11, 0x17);
-    private static readonly Color IdleBorder = Color.FromRgb(0x30, 0x36, 0x3d);
-    private static readonly Color IdleFg = Color.FromRgb(0x8b, 0x94, 0x9e);
+    private bool _dark = true;
+    private readonly Stopwatch _sessionClock = new();
+    private System.Windows.Threading.DispatcherTimer? _timerTick;
 
     public ViewerWindow(string serverUrl, string id, string display,
                         string? password = null, string? adminPw = null, string? authToken = null)
@@ -47,7 +46,7 @@ public partial class ViewerWindow : Window
         InitializeComponent();
         _serverUrl = serverUrl; _id = id; _display = display;
         _password = password ?? ""; _adminPw = adminPw; _authToken = authToken;
-        Title = $"FTD Remote — {display}";
+        Title = $"Hangar — {display}";
         TitleText.Text = display;
         Loaded += async (_, _) => await StartSessionAsync();
     }
@@ -56,17 +55,17 @@ public partial class ViewerWindow : Window
     {
         _session = new ViewerSession();
         _session.Connected += () => Dispatcher.Invoke(OnConnected);
-        _session.Rejected  += r  => Dispatcher.Invoke(() => { SetStatus("Rejected: " + r); CloseSoon(); });
+        _session.Rejected  += r  => Dispatcher.Invoke(() => { SetStatus("Rejected: " + r, "#F5484D"); CloseSoon(); });
         _session.Frame     += DrawFrame;
         _session.Monitors  += (mons, cur) => Dispatcher.Invoke(() => PopulateMonitors(mons, cur));
-        _session.Closed    += r  => Dispatcher.Invoke(() => { if (_connected) SetStatus("Closed: " + (r ?? "")); CloseSoon(); });
+        _session.Closed    += r  => Dispatcher.Invoke(() => { if (_connected) SetStatus("Closed: " + (r ?? ""), "#8A8DA3"); CloseSoon(); });
 
         _session.Files.SendProgress     += (n, done, total) => FileProgress("Sending", n, done, total);
         _session.Files.ReceiveStarted   += (n, _) => Dispatcher.Invoke(() => SetStatus($"Receiving {n}…"));
         _session.Files.ReceiveProgress  += (n, done, total) => FileProgress("Receiving", n, done, total);
         _session.Files.ReceiveCompleted += (n, path) => Dispatcher.Invoke(() =>
             { _lastFilePct = -1; SetStatus($"Received {n} → {Path.GetDirectoryName(path)}"); });
-        _session.Files.Error            += msg => Dispatcher.Invoke(() => SetStatus("File transfer failed: " + msg));
+        _session.Files.Error            += msg => Dispatcher.Invoke(() => SetStatus("File transfer failed: " + msg, "#F5484D"));
 
         try
         {
@@ -75,7 +74,7 @@ public partial class ViewerWindow : Window
         }
         catch (Exception ex)
         {
-            SetStatus("Connect failed: " + ex.Message);
+            SetStatus("Connect failed: " + ex.Message, "#F5484D");
             CloseSoon();
         }
     }
@@ -94,23 +93,38 @@ public partial class ViewerWindow : Window
     private void OnConnected()
     {
         _connected = true;
-        SetStatus("● connected");
+        SetStatus("Connected", "#1FC98B");
         Hint.Visibility = Visibility.Collapsed;
         Scroller.Visibility = Visibility.Visible;
-        ZoomBox.IsEnabled = true;
-        TransferBtn.IsEnabled = true;
-        WinKeyBtn.IsEnabled = true;
+        foreach (var b in new[] { ZoomFit, Zoom100, Zoom200, TransferBtn, WinKeyBtn }) b.IsEnabled = true;
+        SetZoom(0);   // Fit
+
+        // Live latency + verified P2P/relay state arrive in Phase F; show a neutral live state until then.
+        P2pText.Text = "Live";
+
+        _sessionClock.Restart();
+        _timerTick = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+        _timerTick.Tick += (_, _) =>
+        {
+            var e = _sessionClock.Elapsed;
+            TimerText.Text = e.TotalHours >= 1 ? $"{(int)e.TotalHours}:{e.Minutes:00}:{e.Seconds:00}" : $"{e.Minutes:00}:{e.Seconds:00}";
+        };
+        _timerTick.Start();
         RemoteImage.Focus();
     }
 
     private void DisconnectBtn_Click(object sender, RoutedEventArgs e) => Close();
 
-    private void SetStatus(string s) => StatusText.Text = s;
+    private void SetStatus(string s, string? dotHex = null)
+    {
+        StatusText.Text = s;
+        if (dotHex != null) StatusDot.Fill = new SolidColorBrush((Color)ColorConverter.ConvertFromString(dotHex));
+    }
 
-    // ---- monitor picker ----
+    // ---- monitor picker (moves into the left rail in Phase B) ----
     private void PopulateMonitors(List<RemoteMonitor> mons, int current)
     {
-        _monitors = mons; _currentMon = current; RebuildMonitorButtons();
+        _monitors = mons; _currentMon = current; RebuildMonitorButtons(); UpdateReadout();
     }
 
     private void RebuildMonitorButtons()
@@ -123,29 +137,45 @@ public partial class ViewerWindow : Window
                 $"Display {m.Index + 1} — {m.Width}×{m.Height}{(m.Primary ? " (primary)" : "")}"));
     }
 
+    private Color Res(string key) => ((SolidColorBrush)Resources[key]).Color;
+
     private Button MakeMonButton(int index, string label, string tooltip)
     {
         var btn = new Button { Content = label, Tag = index, ToolTip = tooltip, Style = (Style)FindResource("MonBtn") };
         bool selected = index == _currentMon;
-        btn.Background = new SolidColorBrush(selected ? Accent : IdleBg);
-        btn.BorderBrush = new SolidColorBrush(selected ? AccentBorder : IdleBorder);
-        btn.Foreground = selected ? Brushes.White : new SolidColorBrush(IdleFg);
+        btn.Background = selected ? new SolidColorBrush(Color.FromRgb(0x5B, 0x5B, 0xF5)) : new SolidColorBrush(Res("CardBrush"));
+        btn.BorderBrush = selected ? new SolidColorBrush(Color.FromRgb(0x8B, 0x8B, 0xFF)) : new SolidColorBrush(Res("LineBrush"));
+        btn.Foreground = selected ? Brushes.White : new SolidColorBrush(Res("MutedBrush"));
         btn.Click += (_, _) =>
         {
             if (!_connected || index == _currentMon) return;
             _currentMon = index;
             _session?.SelectMonitor(index);
             RebuildMonitorButtons();
+            SetZoom(0);   // reset view on monitor switch
         };
         return btn;
     }
 
     // ---- zoom + pan ----
-    private void ZoomBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+    private void Zoom_Click(object sender, RoutedEventArgs e)
     {
-        if (ZoomBox.SelectedItem is not ComboBoxItem it || it.Tag is not string tag) return;
-        _zoom = double.Parse(tag, System.Globalization.CultureInfo.InvariantCulture);
+        if (sender is Button b && b.Tag is string tag)
+            SetZoom(tag switch { "1" => 1, "2" => 2, _ => 0 });
+    }
+
+    private void SetZoom(double z)
+    {
+        _zoom = z;
+        // highlight the active segment
+        foreach (var (btn, val) in new[] { (ZoomFit, 0.0), (Zoom100, 1.0), (Zoom200, 2.0) })
+        {
+            bool on = z == val;
+            btn.Background = on ? new SolidColorBrush(Res("AccentBrush")) : Brushes.Transparent;
+            btn.Foreground = on ? Brushes.White : new SolidColorBrush(Res("MutedBrush"));
+        }
         ApplyZoom();
+        UpdateReadout();
     }
 
     private void ApplyZoom()
@@ -174,15 +204,16 @@ public partial class ViewerWindow : Window
         if (!_connected) return;
         if ((Keyboard.Modifiers & ModifierKeys.Control) != 0)
         {
-            int step = e.Delta > 0 ? 1 : -1;
-            ZoomBox.SelectedIndex = Math.Clamp(ZoomBox.SelectedIndex + step, 0, ZoomBox.Items.Count - 1);
+            // cycle Fit -> 100% -> 200%
+            double next = _zoom <= 0 ? (e.Delta > 0 ? 1 : 0) : _zoom >= 2 ? (e.Delta > 0 ? 2 : 1) : (e.Delta > 0 ? 2 : 0);
+            SetZoom(next);
             return;
         }
         _session!.MouseWheel(e.Delta > 0 ? 120 : -120);
     }
 
     private const double PanMaxSpeed = 650;
-    private const double PanBand = 60;
+    private const double PanBand = 14;   // narrow band so view-pan doesn't fight the forwarded remote cursor
 
     private void UpdateEdgePan(MouseEventArgs e)
     {
@@ -196,6 +227,7 @@ public partial class ViewerWindow : Window
         else if (p.Y > vh - PanBand) fy = (p.Y - (vh - PanBand)) / PanBand;
         _panVx = Math.Clamp(fx, -1, 1) * PanMaxSpeed;
         _panVy = Math.Clamp(fy, -1, 1) * PanMaxSpeed;
+        ShowEdges();
         if (_panVx == 0 && _panVy == 0) return;
         if (_panTimer == null)
         {
@@ -206,16 +238,76 @@ public partial class ViewerWindow : Window
         }
     }
 
+    private void ShowEdges()
+    {
+        // dim an edge once panning can go no further in that direction
+        bool canL = Scroller.HorizontalOffset > 0.5, canR = Scroller.HorizontalOffset < Scroller.ScrollableWidth - 0.5;
+        bool canU = Scroller.VerticalOffset > 0.5,   canD = Scroller.VerticalOffset < Scroller.ScrollableHeight - 0.5;
+        Edge(EdgeLeft,   _panVx < 0 && canL);
+        Edge(EdgeRight,  _panVx > 0 && canR);
+        Edge(EdgeTop,    _panVy < 0 && canU);
+        Edge(EdgeBottom, _panVy > 0 && canD);
+    }
+
+    private static void Edge(UIElement el, bool on) => el.Visibility = on ? Visibility.Visible : Visibility.Collapsed;
+
     private void PanTick(object? sender, EventArgs e)
     {
         double dt = _panClock.Elapsed.TotalSeconds; _panClock.Restart();
         if (_panVx == 0 && _panVy == 0) { StopPan(); return; }
         if (_panVx != 0) Scroller.ScrollToHorizontalOffset(Scroller.HorizontalOffset + _panVx * dt);
         if (_panVy != 0) Scroller.ScrollToVerticalOffset(Scroller.VerticalOffset + _panVy * dt);
+        ShowEdges();
     }
 
-    private void StopPan() { _panVx = _panVy = 0; _panTimer?.Stop(); _panTimer = null; }
+    private void StopPan()
+    {
+        _panVx = _panVy = 0; _panTimer?.Stop(); _panTimer = null;
+        Edge(EdgeLeft, false); Edge(EdgeRight, false); Edge(EdgeTop, false); Edge(EdgeBottom, false);
+    }
+
     private void Scroller_MouseLeave(object sender, MouseEventArgs e) => StopPan();
+
+    private void Scroller_ScrollChanged(object sender, ScrollChangedEventArgs e) => UpdateReadout();
+
+    private void UpdateReadout()
+    {
+        if (MonReadout == null) return;
+        if (!_connected) { MonReadout.Text = "—"; return; }
+        string mon = _currentMon == -1 ? "All displays" : $"Display {_currentMon + 1}";
+        string view;
+        if (_zoom <= 0) view = "fit";
+        else
+        {
+            int vw = (int)Math.Round(Math.Min(_srcW, Scroller.ViewportWidth / _zoom));
+            int vh = (int)Math.Round(Math.Min(_srcH, Scroller.ViewportHeight / _zoom));
+            view = $"viewing {vw}×{vh}";
+        }
+        MonReadout.Text = $"{mon} · {_srcW}×{_srcH} · {view}";
+    }
+
+    // ---- theme ----
+    private void ThemeBtn_Click(object sender, RoutedEventArgs e) => ApplyTheme(!_dark);
+
+    private void ApplyTheme(bool dark)
+    {
+        _dark = dark;
+        void Set(string key, string hex) => ((SolidColorBrush)Resources[key]).Color = (Color)ColorConverter.ConvertFromString(hex);
+        if (dark)
+        {
+            Set("StageBrush", "#05060B"); Set("ChromeBrush", "#0B0C15"); Set("CardBrush", "#1A1C2B");
+            Set("LineBrush", "#232538");  Set("TextBrush", "#F3F4F9");   Set("MutedBrush", "#8A8DA3");
+            ThemeBtn.Content = "☾";
+        }
+        else
+        {
+            Set("StageBrush", "#E9EAF0"); Set("ChromeBrush", "#FFFFFF"); Set("CardBrush", "#F5F6F9");
+            Set("LineBrush", "#E8E9F0");  Set("TextBrush", "#0B0C15");   Set("MutedBrush", "#6E7185");
+            ThemeBtn.Content = "☀";
+        }
+        RebuildMonitorButtons();
+        SetZoom(_zoom);   // refresh segment colours for the new theme
+    }
 
     // ---- frame rendering ----
     private WriteableBitmap? _wb;
@@ -224,6 +316,7 @@ public partial class ViewerWindow : Window
         if (w <= 0 || h <= 0 || bgr.Length < w * h * 3) return;
         Dispatcher.Invoke(() =>
         {
+            bool sizeChanged = _srcW != w || _srcH != h;
             _srcW = w; _srcH = h;
             if (_wb == null || _wb.PixelWidth != w || _wb.PixelHeight != h)
             {
@@ -231,6 +324,7 @@ public partial class ViewerWindow : Window
                 RemoteImage.Source = _wb;
             }
             _wb.WritePixels(new Int32Rect(0, 0, w, h), bgr, w * 3, 0);
+            if (sizeChanged) UpdateReadout();
         });
     }
 
@@ -288,6 +382,9 @@ public partial class ViewerWindow : Window
         _browser.Show();
     }
 
+    private void ClipboardBtn_Click(object sender, RoutedEventArgs e)
+        => SetStatus("Clipboard sync arrives in a later update.");
+
     private void WinKeyBtn_Click(object sender, RoutedEventArgs e)
     {
         if (!_connected) return;
@@ -328,7 +425,7 @@ public partial class ViewerWindow : Window
         foreach (var f in files)
         {
             try { await session.Files.SendFileAsync(f); sent++; }
-            catch (Exception ex) { SetStatus($"Send failed on {Path.GetFileName(f)}: {ex.Message}"); return; }
+            catch (Exception ex) { SetStatus($"Send failed on {Path.GetFileName(f)}: {ex.Message}", "#F5484D"); return; }
         }
         _lastFilePct = -1;
         SetStatus(files.Length == 1
@@ -367,6 +464,7 @@ public partial class ViewerWindow : Window
 
     protected override async void OnClosed(EventArgs e)
     {
+        _timerTick?.Stop();
         StopPan();
         if (_session != null) { try { await _session.CloseAsync(); } catch { } _session.Dispose(); _session = null; }
         base.OnClosed(e);

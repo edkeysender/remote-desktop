@@ -1,14 +1,83 @@
 <Window x:Class="RemoteDesktop.Master.ViewerWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="FTD Remote — session" Height="720" Width="1200"
-        WindowStartupLocation="CenterScreen" Background="#010409">
+        Title="Hangar — session" Height="760" Width="1240"
+        WindowStartupLocation="CenterScreen"
+        FontFamily="Segoe UI"
+        Background="{DynamicResource StageBrush}">
     <Window.Resources>
-        <Style x:Key="MonBtn" TargetType="Button">
-            <Setter Property="Background" Value="#0d1117"/>
-            <Setter Property="BorderBrush" Value="#30363d"/>
-            <Setter Property="Foreground" Value="#8b949e"/>
+        <!-- Theme brushes (swapped at runtime by ApplyTheme). Defaults = dark. -->
+        <SolidColorBrush x:Key="StageBrush"  Color="#05060B"/>
+        <SolidColorBrush x:Key="ChromeBrush" Color="#0B0C15"/>
+        <SolidColorBrush x:Key="CardBrush"   Color="#1A1C2B"/>
+        <SolidColorBrush x:Key="LineBrush"   Color="#232538"/>
+        <SolidColorBrush x:Key="TextBrush"   Color="#F3F4F9"/>
+        <SolidColorBrush x:Key="MutedBrush"  Color="#8A8DA3"/>
+        <SolidColorBrush x:Key="AccentBrush" Color="#5B5BF5"/>
+        <LinearGradientBrush x:Key="GradBrush" StartPoint="0,0" EndPoint="1,1">
+            <GradientStop Color="#5B5BF5" Offset="0"/>
+            <GradientStop Color="#9D5CFF" Offset="0.55"/>
+            <GradientStop Color="#3EC8FF" Offset="1"/>
+        </LinearGradientBrush>
+
+        <!-- Toolbar ghost button -->
+        <Style x:Key="ToolBtn" TargetType="Button">
+            <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+            <Setter Property="Background" Value="{DynamicResource CardBrush}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Height" Value="32"/>
+            <Setter Property="Padding" Value="12,0"/>
+            <Setter Property="FontSize" Value="12.5"/>
             <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                BorderBrush="{DynamicResource LineBrush}" BorderThickness="1"
+                                CornerRadius="9" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="bd" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Segmented zoom button -->
+        <Style x:Key="SegBtn" TargetType="Button">
+            <Setter Property="Foreground" Value="{DynamicResource MutedBrush}"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Height" Value="28"/>
+            <Setter Property="Padding" Value="12,0"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="bd" Background="{TemplateBinding Background}" CornerRadius="7"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter Property="Foreground" Value="{DynamicResource TextBrush}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Monitor chip in toolbar -->
+        <Style x:Key="MonBtn" TargetType="Button">
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Margin" Value="0,0,5,0"/>
             <Setter Property="Template">
@@ -17,7 +86,7 @@
                         <StackPanel>
                             <Border x:Name="Screen" Background="{TemplateBinding Background}"
                                     BorderBrush="{TemplateBinding BorderBrush}"
-                                    BorderThickness="1.5" CornerRadius="3" Width="38" Height="24">
+                                    BorderThickness="1.5" CornerRadius="4" Width="38" Height="24">
                                 <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
                             </Border>
                             <Border Background="{TemplateBinding BorderBrush}" Width="12" Height="2"
@@ -25,68 +94,115 @@
                         </StackPanel>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True">
-                                <Setter TargetName="Screen" Property="BorderBrush" Value="#58a6ff"/>
+                                <Setter TargetName="Screen" Property="BorderBrush" Value="{DynamicResource AccentBrush}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
             </Setter>
         </Style>
-        <Style x:Key="ToolBtn" TargetType="Button">
-            <Setter Property="Background" Value="#21262d"/>
-            <Setter Property="Foreground" Value="#e6edf3"/>
-            <Setter Property="BorderThickness" Value="0"/>
-            <Setter Property="Cursor" Value="Hand"/>
-            <Setter Property="Height" Value="30"/>
-            <Setter Property="Padding" Value="12,0"/>
-        </Style>
     </Window.Resources>
+
     <Grid>
         <Grid.RowDefinitions>
             <RowDefinition Height="Auto"/>
             <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <Border Grid.Row="0" Background="#161b22" BorderBrush="#30363d" BorderThickness="0,0,0,1" Padding="10,8">
-            <StackPanel Orientation="Horizontal">
-                <TextBlock x:Name="TitleText" Text="Connecting…" Foreground="#e6edf3" FontWeight="SemiBold"
-                           VerticalAlignment="Center" Margin="0,0,8,0"/>
+        <!-- ============ TOOLBAR ============ -->
+        <Border Grid.Row="0" Background="{DynamicResource ChromeBrush}"
+                BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,0,1" Padding="12,9">
+            <Grid>
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
 
-                <StackPanel x:Name="MonitorPanel" Orientation="Horizontal" Margin="12,0,0,0" VerticalAlignment="Center"/>
+                <!-- device name (dropdown arrives in Phase E) -->
+                <Button Grid.Column="0" x:Name="DeviceBtn" Style="{StaticResource ToolBtn}"
+                        Background="{DynamicResource CardBrush}">
+                    <StackPanel Orientation="Horizontal">
+                        <Ellipse Width="8" Height="8" Margin="0,0,8,0" VerticalAlignment="Center">
+                            <Ellipse.Fill><SolidColorBrush Color="#1FC98B"/></Ellipse.Fill>
+                        </Ellipse>
+                        <TextBlock x:Name="TitleText" Text="Connecting…" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </Button>
 
-                <TextBlock Text="Zoom" Foreground="#8b949e" VerticalAlignment="Center" Margin="14,0,6,0"/>
-                <ComboBox x:Name="ZoomBox" Width="74" IsEnabled="False" VerticalAlignment="Center"
-                          SelectionChanged="ZoomBox_SelectionChanged">
-                    <ComboBoxItem Content="Fit" Tag="0" IsSelected="True"/>
-                    <ComboBoxItem Content="50 %" Tag="0.5"/>
-                    <ComboBoxItem Content="100 %" Tag="1"/>
-                    <ComboBoxItem Content="150 %" Tag="1.5"/>
-                    <ComboBoxItem Content="200 %" Tag="2"/>
-                </ComboBox>
+                <StackPanel Grid.Column="1" x:Name="MonitorPanel" Orientation="Horizontal"
+                            Margin="12,0,0,0" VerticalAlignment="Center"/>
 
-                <Button x:Name="WinKeyBtn" Content="⊞ Win" Style="{StaticResource ToolBtn}"
-                        Margin="14,0,0,0" IsEnabled="False" Click="WinKeyBtn_Click"
-                        ToolTip="Send the Windows (Start) key to the remote PC"/>
-                <Button x:Name="TransferBtn" Content="📁 Transfer files" Style="{StaticResource ToolBtn}"
-                        Margin="6,0,0,0" IsEnabled="False" Click="TransferBtn_Click"
-                        ToolTip="Browse the remote PC's files — download or upload"/>
-                <Button x:Name="DisconnectBtn" Content="Disconnect" Margin="14,0,0,0"
-                        Background="#da3633" Foreground="White" BorderThickness="0" Cursor="Hand"
-                        Height="30" Padding="12,0" Click="DisconnectBtn_Click"/>
+                <!-- center: zoom segmented control -->
+                <Border Grid.Column="2" HorizontalAlignment="Center" VerticalAlignment="Center"
+                        Background="{DynamicResource CardBrush}" BorderBrush="{DynamicResource LineBrush}"
+                        BorderThickness="1" CornerRadius="9" Padding="3">
+                    <StackPanel Orientation="Horizontal">
+                        <Button x:Name="ZoomFit" Content="Fit"   Style="{StaticResource SegBtn}" IsEnabled="False" Click="Zoom_Click" Tag="0"/>
+                        <Button x:Name="Zoom100" Content="100 %" Style="{StaticResource SegBtn}" IsEnabled="False" Click="Zoom_Click" Tag="1"/>
+                        <Button x:Name="Zoom200" Content="200 %" Style="{StaticResource SegBtn}" IsEnabled="False" Click="Zoom_Click" Tag="2"/>
+                    </StackPanel>
+                </Border>
 
-                <TextBlock x:Name="StatusText" Text="" Foreground="#8b949e"
-                           VerticalAlignment="Center" Margin="14,0,0,0"/>
-            </StackPanel>
+                <!-- right cluster -->
+                <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
+                    <Button x:Name="WinKeyBtn" Content="⊞ Win" Style="{StaticResource ToolBtn}"
+                            Margin="0,0,6,0" IsEnabled="False" Click="WinKeyBtn_Click"
+                            ToolTip="Send the Windows (Start) key to the remote PC"/>
+                    <Button x:Name="TransferBtn" Content="📁 Transfer" Style="{StaticResource ToolBtn}"
+                            Margin="0,0,6,0" IsEnabled="False" Click="TransferBtn_Click"
+                            ToolTip="Browse the remote PC's files — download or upload"/>
+                    <Button x:Name="ClipboardBtn" Content="📋 Clipboard" Style="{StaticResource ToolBtn}"
+                            Margin="0,0,6,0" IsEnabled="False" Click="ClipboardBtn_Click"
+                            ToolTip="Clipboard sync (coming soon)"/>
+                    <Button x:Name="ThemeBtn" Content="☾" Style="{StaticResource ToolBtn}"
+                            Margin="0,0,10,0" Click="ThemeBtn_Click" ToolTip="Toggle light / dark"/>
+
+                    <!-- P2P badge -->
+                    <Border x:Name="P2pBadge" Background="#1A2B3A" CornerRadius="999" Padding="10,5" Margin="0,0,8,0">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse x:Name="P2pDot" Width="7" Height="7" Margin="0,0,7,0" VerticalAlignment="Center">
+                                <Ellipse.Fill><SolidColorBrush Color="#3EC8FF"/></Ellipse.Fill>
+                            </Ellipse>
+                            <TextBlock x:Name="P2pText" Text="Connecting" Foreground="#9FE8FF"
+                                       FontSize="11.5" FontWeight="SemiBold" VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </Border>
+
+                    <TextBlock x:Name="TimerText" Text="00:00" FontFamily="Consolas"
+                               Foreground="{DynamicResource MutedBrush}" FontSize="13"
+                               VerticalAlignment="Center" Margin="0,0,12,0"/>
+
+                    <Button x:Name="DisconnectBtn" Content="Disconnect" Click="DisconnectBtn_Click"
+                            Foreground="White" Cursor="Hand" Height="32" Padding="14,0" FontWeight="SemiBold">
+                        <Button.Template>
+                            <ControlTemplate TargetType="Button">
+                                <Border x:Name="bd" Background="#F5484D" CornerRadius="9" Padding="{TemplateBinding Padding}">
+                                    <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center"/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsMouseOver" Value="True">
+                                        <Setter TargetName="bd" Property="Background" Value="#D93A3F"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Button.Template>
+                    </Button>
+                </StackPanel>
+            </Grid>
         </Border>
 
+        <!-- ============ STAGE ============ -->
         <Grid Grid.Row="1">
-            <TextBlock x:Name="Hint" Foreground="#6e7681" FontSize="14" TextAlignment="Center"
+            <TextBlock x:Name="Hint" Foreground="{DynamicResource MutedBrush}" FontSize="14" TextAlignment="Center"
                        HorizontalAlignment="Center" VerticalAlignment="Center"
                        Text="Connecting to the remote computer…"/>
-            <ScrollViewer x:Name="Scroller" Visibility="Collapsed" Background="#010409"
+            <ScrollViewer x:Name="Scroller" Visibility="Collapsed" Background="{DynamicResource StageBrush}"
                           HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled"
                           Focusable="False" PreviewMouseWheel="Scroller_PreviewMouseWheel"
-                          MouseLeave="Scroller_MouseLeave"
+                          MouseLeave="Scroller_MouseLeave" ScrollChanged="Scroller_ScrollChanged"
                           AllowDrop="True" DragOver="RemoteView_DragOver" Drop="RemoteView_Drop"
                           DragLeave="RemoteView_DragLeave">
                 <Image x:Name="RemoteImage" Stretch="Uniform" Focusable="True" AllowDrop="True"
@@ -96,13 +212,69 @@
                        MouseUp="RemoteImage_MouseUp"/>
             </ScrollViewer>
 
+            <!-- edge-pan indicators (non-interactive) -->
+            <Grid IsHitTestVisible="False">
+                <Border x:Name="EdgeTop" Height="46" VerticalAlignment="Top" Visibility="Collapsed">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                            <GradientStop Color="#663EC8FF" Offset="0"/><GradientStop Color="#003EC8FF" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Border.Background>
+                    <TextBlock Text="⌃" Foreground="#3EC8FF" FontSize="22" HorizontalAlignment="Center" VerticalAlignment="Top"/>
+                </Border>
+                <Border x:Name="EdgeBottom" Height="46" VerticalAlignment="Bottom" Visibility="Collapsed">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,1" EndPoint="0,0">
+                            <GradientStop Color="#663EC8FF" Offset="0"/><GradientStop Color="#003EC8FF" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Border.Background>
+                    <TextBlock Text="⌄" Foreground="#3EC8FF" FontSize="22" HorizontalAlignment="Center" VerticalAlignment="Bottom"/>
+                </Border>
+                <Border x:Name="EdgeLeft" Width="46" HorizontalAlignment="Left" Visibility="Collapsed">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                            <GradientStop Color="#663EC8FF" Offset="0"/><GradientStop Color="#003EC8FF" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Border.Background>
+                    <TextBlock Text="‹" Foreground="#3EC8FF" FontSize="22" HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                </Border>
+                <Border x:Name="EdgeRight" Width="46" HorizontalAlignment="Right" Visibility="Collapsed">
+                    <Border.Background>
+                        <LinearGradientBrush StartPoint="1,0" EndPoint="0,0">
+                            <GradientStop Color="#663EC8FF" Offset="0"/><GradientStop Color="#003EC8FF" Offset="1"/>
+                        </LinearGradientBrush>
+                    </Border.Background>
+                    <TextBlock Text="›" Foreground="#3EC8FF" FontSize="22" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                </Border>
+            </Grid>
+
             <Border x:Name="DropHint" Visibility="Collapsed" IsHitTestVisible="False"
-                    Background="#cc010409" BorderBrush="#58a6ff" BorderThickness="2"
-                    Margin="24" CornerRadius="12">
-                <TextBlock Text="⬇  Drop files to send them to the remote PC" Foreground="#58a6ff"
+                    Background="#CC05060B" BorderBrush="#5B5BF5" BorderThickness="2"
+                    Margin="24" CornerRadius="14">
+                <TextBlock Text="⬇  Drop files to send them to the remote PC" Foreground="#8B8BFF"
                            FontSize="18" FontWeight="SemiBold"
                            HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
         </Grid>
+
+        <!-- ============ STATUS BAR ============ -->
+        <Border Grid.Row="2" Background="{DynamicResource ChromeBrush}"
+                BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,1,0,0" Padding="14,6">
+            <StackPanel Orientation="Horizontal">
+                <Ellipse x:Name="StatusDot" Width="8" Height="8" Margin="0,0,7,0" VerticalAlignment="Center">
+                    <Ellipse.Fill><SolidColorBrush Color="#8A8DA3"/></Ellipse.Fill>
+                </Ellipse>
+                <TextBlock x:Name="StatusText" Text="Connecting…" Foreground="{DynamicResource MutedBrush}"
+                           FontSize="12" VerticalAlignment="Center"/>
+                <Border Width="1" Background="{DynamicResource LineBrush}" Margin="14,2,14,2"/>
+                <TextBlock x:Name="EncText" Text="🔒 End-to-end encrypted (DTLS)" Foreground="{DynamicResource MutedBrush}"
+                           FontSize="12" VerticalAlignment="Center"/>
+                <Border Width="1" Background="{DynamicResource LineBrush}" Margin="14,2,14,2"/>
+                <TextBlock x:Name="MonReadout" Text="—" Foreground="{DynamicResource MutedBrush}"
+                           FontSize="12" FontFamily="Consolas" VerticalAlignment="Center"/>
+                <TextBlock x:Name="RecNotice" Text="● Recording" Foreground="#F5484D" Visibility="Collapsed"
+                           FontSize="12" FontWeight="SemiBold" VerticalAlignment="Center" Margin="14,0,0,0"/>
+            </StackPanel>
+        </Border>
     </Grid>
 </Window>
