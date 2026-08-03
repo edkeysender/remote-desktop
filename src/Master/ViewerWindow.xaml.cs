@@ -1,7 +1,9 @@
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
 using System.Windows;
+using System.Windows.Interop;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -54,6 +56,8 @@ public partial class ViewerWindow : Window
     private int _miniIndex = -2;
     private bool _miniDragging;
     private readonly HashSet<int> _newWin = new();   // monitors with an unseen new window
+    private IntPtr _hwnd;
+    private bool _clipHooked;
 
     public ViewerWindow(string serverUrl, string id, string display,
                         string? password = null, string? adminPw = null, string? authToken = null, string? peerToken = null,
@@ -66,6 +70,34 @@ public partial class ViewerWindow : Window
         Title = $"Hangar — {display}";
         TitleText.Text = display;
         Loaded += async (_, _) => await StartSessionAsync();
+    }
+
+    // ---- clipboard sync (local → remote) ----
+    private const int WM_CLIPBOARDUPDATE = 0x031D;
+    [DllImport("user32.dll")] private static extern bool AddClipboardFormatListener(IntPtr hwnd);
+    [DllImport("user32.dll")] private static extern bool RemoveClipboardFormatListener(IntPtr hwnd);
+
+    protected override void OnSourceInitialized(EventArgs e)
+    {
+        base.OnSourceInitialized(e);
+        _hwnd = new WindowInteropHelper(this).Handle;
+        HwndSource.FromHwnd(_hwnd)?.AddHook(WndProc);
+        try { _clipHooked = AddClipboardFormatListener(_hwnd); } catch { }
+    }
+
+    private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr w, IntPtr l, ref bool handled)
+    {
+        // Any local clipboard change (Ctrl+C in any app) pushes text to the remote so a
+        // remote Ctrl+V pastes it. Files are handled at paste time (see ForwardKey).
+        if (msg == WM_CLIPBOARDUPDATE) PushLocalClipboardText();
+        return IntPtr.Zero;
+    }
+
+    private void PushLocalClipboardText()
+    {
+        if (!_connected || _session == null) return;
+        try { if (Clipboard.ContainsText()) { var t = Clipboard.GetText(); if (!string.IsNullOrEmpty(t)) _session.SendClipboard(t); } }
+        catch { /* clipboard briefly locked by another app */ }
     }
 
     private async Task StartSessionAsync()
@@ -134,6 +166,7 @@ public partial class ViewerWindow : Window
             TimerText.Text = e.TotalHours >= 1 ? $"{(int)e.TotalHours}:{e.Minutes:00}:{e.Seconds:00}" : $"{e.Minutes:00}:{e.Seconds:00}";
         };
         _timerTick.Start();
+        PushLocalClipboardText();   // make anything already copied available to paste remotely
         RemoteImage.Focus();
     }
 
@@ -983,6 +1016,21 @@ public partial class ViewerWindow : Window
             Close();
             return true;
         }
+        // Ctrl+V of copied FILES → transfer them into the remote's open folder instead of
+        // forwarding the keystroke (text paste falls through and pastes the synced clipboard).
+        if (down && e.Key == Key.V && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+        {
+            try
+            {
+                if (Clipboard.ContainsFileDropList())
+                {
+                    var files = Clipboard.GetFileDropList().Cast<string>().Where(File.Exists).ToArray();
+                    if (files.Length > 0) { _ = PasteFilesAsync(files); return true; }
+                }
+            }
+            catch { /* fall through to a normal keystroke */ }
+        }
+
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
         int vk = KeyInterop.VirtualKeyFromKey(key);
         if (vk == 0) return false;
@@ -990,11 +1038,25 @@ public partial class ViewerWindow : Window
         return true;
     }
 
+    private async Task PasteFilesAsync(string[] files)
+    {
+        if (_session is not { } session) return;
+        SetStatus(files.Length == 1 ? $"Pasting {Path.GetFileName(files[0])}…" : $"Pasting {files.Length} files…");
+        int sent = 0;
+        foreach (var f in files)
+        {
+            try { await session.Files.SendFileAsync(f, FileTransferChannel.CurrentFolderToken); sent++; }
+            catch (Exception ex) { SetStatus($"Paste failed on {Path.GetFileName(f)}: {ex.Message}", "#F5484D"); return; }
+        }
+        SetStatus(sent == 1 ? $"Pasted {Path.GetFileName(files[0])} → remote open folder ✓" : $"Pasted {sent} files → remote open folder ✓");
+    }
+
     protected override async void OnClosed(EventArgs e)
     {
         _timerTick?.Stop();
         _pingTimer?.Stop();
         _txTimer?.Stop();
+        if (_clipHooked) { try { RemoveClipboardFormatListener(_hwnd); } catch { } _clipHooked = false; }
         StopPan();
         if (_session != null) { try { await _session.CloseAsync(); } catch { } _session.Dispose(); _session = null; }
         base.OnClosed(e);
