@@ -18,7 +18,7 @@ public sealed class RecentConnection
 
 public sealed class AppConfig
 {
-    public string ServerUrl { get; set; } = "ws://localhost:8080";
+    public string ServerUrl { get; set; } = "wss://allviewer.tech";
 
     /// <summary>Client only: if set, used instead of a random per-launch password.</summary>
     public string? FixedPassword { get; set; }

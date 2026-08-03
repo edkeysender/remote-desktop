@@ -172,7 +172,7 @@ if ($PushTo) {
     Write-Host "   Update v$ver is live. Connected apps will offer it on next launch." -ForegroundColor Green
 }
 else {
-    Write-Host "`nTo publish the update to the Pi:" -ForegroundColor Yellow
-    Write-Host "  scp publish\update\* sim@raspberrypi:~/remote-desktop/server/update/"
-    Write-Host "  (or re-run:  build.ps1 -PushTo sim@raspberrypi )"
+    Write-Host "`nTo publish the update to the server:" -ForegroundColor Yellow
+    Write-Host "  build.ps1 -PushTo root@allviewer.tech -PiUpdateDir /opt/hangar/server/update"
+    Write-Host "  (then on the server:  chown -R hangar:hangar /opt/hangar/server/update )"
 }

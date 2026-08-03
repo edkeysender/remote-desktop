@@ -19,7 +19,7 @@ Files referenced below live in this `deploy/` folder.
 - Add your SSH key. Note the public IP.
 
 ## 2. DNS
-Point an A record at the droplet, e.g. `hangar.example.com → <droplet-ip>`.
+Point an A record at the droplet, e.g. `allviewer.tech → <droplet-ip>`.
 (TURN can share the same name.)
 
 ## 3. Base setup
@@ -55,8 +55,8 @@ cp /opt/hangar/deploy/Caddyfile /etc/caddy/Caddyfile
 # EDIT it: set your domain + email
 systemctl reload caddy
 ```
-Caddy now serves `https://hangar.example.com` and `wss://hangar.example.com` with an
-auto-renewing certificate. Verify: `curl https://hangar.example.com/health` → `ok`.
+Caddy now serves `https://allviewer.tech` and `wss://allviewer.tech` with an
+auto-renewing certificate. Verify: `curl https://allviewer.tech/health` → `ok`.
 
 ## 6. TURN relay (coturn)
 ```bash
@@ -67,8 +67,8 @@ cp /opt/hangar/deploy/turnserver.conf /etc/turnserver.conf
 systemctl enable --now coturn
 ```
 Then in the org dashboard → **Configurations → Network / relay**:
-- STUN: `stun:hangar.example.com:3478`
-- TURN URL: `turn:hangar.example.com:3478` · user `hangar` · password `<your secret>`
+- STUN: `stun:allviewer.tech:3478`
+- TURN URL: `turn:allviewer.tech:3478` · user `hangar` · password `<your secret>`
 
 ## 7. Firewall
 ```bash
@@ -85,16 +85,22 @@ Do **not** expose 8081 publicly — it's localhost-only behind Caddy.
 ## 8. Point the apps at it
 In the desktop app: **Settings → Signaling server → Change** to:
 ```
-wss://hangar.example.com
+wss://allviewer.tech
 ```
 (No port — 443 is implied.) New device enrollments and the web dashboard are then reachable
-at `https://hangar.example.com`.
+at `https://allviewer.tech`.
 
 ## 9. First-run security
 - Change `ADMIN_PASSWORD` and `PLATFORM_PASSWORD` (done in step 4) — never leave defaults.
 - Create your org via the web dashboard, then create users/enrollment tokens.
-- Publish the app installers: from your build machine
-  `build.ps1 -PushTo hangar@hangar.example.com:/opt/hangar/server/update` (adjust user/path),
+- Publish the app installers + update package from your build machine (the `hangar` service
+  user has no SSH login, so push as root, then hand ownership back):
+  ```powershell
+  build.ps1 -PushTo root@allviewer.tech -PiUpdateDir /opt/hangar/server/update
+  ```
+  ```bash
+  ssh root@allviewer.tech 'chown -R hangar:hangar /opt/hangar/server/update'
+  ```
   so the dashboard's **Download** tab and in-app updates work.
 
 ## Updating the server later

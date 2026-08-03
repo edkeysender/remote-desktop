@@ -2,17 +2,17 @@
 # Caddy fetches/renews a Let's Encrypt certificate for the domain automatically and
 # transparently proxies WebSocket upgrades, so the app connects over wss:// on 443.
 #
-# 1. Point an A record (e.g. hangar.example.com) at the droplet's public IP.
+# 1. Point an A record (e.g. allviewer.tech) at the droplet's public IP.
 # 2. Replace the domain below and email.
 # 3. Put this at /etc/caddy/Caddyfile and: sudo systemctl reload caddy
 #
 # The Node server keeps listening on 127.0.0.1:8081 (not exposed publicly).
 
 {
-	email you@example.com
+	email admin@allviewer.tech
 }
 
-hangar.example.com {
+allviewer.tech {
 	encode zstd gzip
 	reverse_proxy 127.0.0.1:8081
 }

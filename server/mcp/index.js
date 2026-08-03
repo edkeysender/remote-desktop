@@ -8,7 +8,7 @@ import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
-const BASE = (process.env.HANGAR_URL || 'http://localhost:8080').replace(/\/$/, '');
+const BASE = (process.env.HANGAR_URL || 'https://allviewer.tech').replace(/\/$/, '');
 const TOKEN = process.env.HANGAR_TOKEN || '';
 
 async function api(path, opts = {}) {
