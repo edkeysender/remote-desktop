@@ -10,6 +10,9 @@ namespace RemoteDesktop.Master;
 /// <summary>A monitor the host is offering, as advertised over signaling.</summary>
 public readonly record struct RemoteMonitor(int Index, int Width, int Height, bool Primary, string Name);
 
+/// <summary>A file copied on the remote clipboard (to be pulled to the local machine).</summary>
+public readonly record struct RemoteClipFile(string Path, string Name, long Size);
+
 /// <summary>
 /// Master (viewer) side, Phase 2. The WebSocket carries only signaling; video and
 /// input travel over a direct WebRTC peer connection. The master is the answerer:
@@ -33,6 +36,8 @@ public sealed class ViewerSession : IDisposable
     public event Action<int, int, int, byte[]>? Thumbnail;    // monitor index, w, h, JPEG bytes
     public event Action<int>? NewWindow;                      // a new top-level window appeared on this monitor
     public event Action<long>? PongReceived;                  // echo of a ping timestamp (for RTT)
+    public event Action<string>? ClipboardText;               // text copied on the remote → set locally
+    public event Action<List<RemoteClipFile>>? ClipboardFiles;// files copied on the remote → pull + set locally
     public event Action<string?>? Closed;
 
     /// <summary>File send/receive over the session's "file" data channel.</summary>
@@ -165,6 +170,18 @@ public sealed class ViewerSession : IDisposable
             var kind = r.TryGetProperty("t", out var tt) ? tt.GetString() : "thumb";
             if (kind == "newwin") { NewWindow?.Invoke(r.GetProperty("i").GetInt32()); return; }
             if (kind == "pong") { PongReceived?.Invoke(r.GetProperty("ts").GetInt64()); return; }
+            if (kind == "clip") { ClipboardText?.Invoke(r.GetProperty("text").GetString() ?? ""); return; }
+            if (kind == "clipfiles")
+            {
+                var list = new List<RemoteClipFile>();
+                foreach (var f in r.GetProperty("files").EnumerateArray())
+                    list.Add(new RemoteClipFile(
+                        f.GetProperty("path").GetString() ?? "",
+                        f.TryGetProperty("name", out var nm) ? nm.GetString() ?? "" : "",
+                        f.TryGetProperty("size", out var sz) ? sz.GetInt64() : 0));
+                if (list.Count > 0) ClipboardFiles?.Invoke(list);
+                return;
+            }
             if (kind != "thumb") return;
             int i = r.GetProperty("i").GetInt32(), w = r.GetProperty("w").GetInt32(), h = r.GetProperty("h").GetInt32();
             var bytes = Convert.FromBase64String(r.GetProperty("img").GetString() ?? "");

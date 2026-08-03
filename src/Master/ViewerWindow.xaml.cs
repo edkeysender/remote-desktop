@@ -59,6 +59,7 @@ public partial class ViewerWindow : Window
     private readonly HashSet<int> _newWin = new();   // monitors with an unseen new window
     private IntPtr _hwnd;
     private bool _clipHooked;
+    private string _lastClipText = "";   // guards the text sync loop (both directions)
 
     public ViewerWindow(string serverUrl, string id, string display,
                         string? password = null, string? adminPw = null, string? authToken = null, string? peerToken = null,
@@ -97,8 +98,49 @@ public partial class ViewerWindow : Window
     private void PushLocalClipboardText()
     {
         if (!_connected || _session == null) return;
-        try { if (Clipboard.ContainsText()) { var t = Clipboard.GetText(); if (!string.IsNullOrEmpty(t)) _session.SendClipboard(t); } }
+        try
+        {
+            if (!Clipboard.ContainsText()) return;
+            var t = Clipboard.GetText();
+            if (string.IsNullOrEmpty(t) || t == _lastClipText) return;   // don't echo remote-set text
+            _lastClipText = t;
+            _session.SendClipboard(t);
+        }
         catch { /* clipboard briefly locked by another app */ }
+    }
+
+    // Text copied on the remote → put it on this machine's clipboard (guarded against echo).
+    private void OnRemoteClipText(string text)
+    {
+        if (string.IsNullOrEmpty(text) || text == _lastClipText) return;
+        _lastClipText = text;
+        try { Clipboard.SetText(text); SetStatus("Clipboard synced from remote ✓"); } catch { }
+    }
+
+    // Files copied on the remote → pull them here and put them on the local clipboard so a
+    // normal Ctrl+V in Explorer pastes the real files.
+    private async void OnRemoteClipFiles(List<RemoteClipFile> files)
+    {
+        if (_session is not { } session) return;
+        var stage = Path.Combine(Path.GetTempPath(), "AllViewer", "clip");
+        try { Directory.CreateDirectory(stage); } catch { }
+        var local = new System.Collections.Specialized.StringCollection();
+        SetStatus($"Fetching {files.Count} file(s) from the remote clipboard…");
+        foreach (var f in files)
+        {
+            try
+            {
+                var name = string.IsNullOrEmpty(f.Name) ? Path.GetFileName(f.Path) : f.Name;
+                var saved = await session.Files.DownloadAsync(f.Path, Path.Combine(stage, name));
+                local.Add(saved);
+            }
+            catch (Exception ex) { SetStatus("Clipboard file fetch failed: " + ex.Message, "#F5484D"); return; }
+        }
+        if (local.Count > 0)
+        {
+            try { Clipboard.SetFileDropList(local); SetStatus($"{local.Count} file(s) from remote ready to paste ✓"); }
+            catch (Exception ex) { SetStatus("Couldn't set local clipboard: " + ex.Message, "#F5484D"); }
+        }
     }
 
     private async Task StartSessionAsync()
@@ -111,6 +153,8 @@ public partial class ViewerWindow : Window
         _session.Thumbnail += (i, _, _, bytes) => Dispatcher.Invoke(() => OnThumb(i, bytes));
         _session.NewWindow += i => Dispatcher.Invoke(() => OnNewWindow(i));
         _session.PongReceived += ts => Dispatcher.Invoke(() => OnPong(ts));
+        _session.ClipboardText += t => Dispatcher.Invoke(() => OnRemoteClipText(t));
+        _session.ClipboardFiles += list => Dispatcher.Invoke(() => OnRemoteClipFiles(list));
         _session.Closed    += r  => Dispatcher.Invoke(() => { if (_connected) SetStatus("Closed: " + (r ?? ""), "#8A8DA3"); CloseSoon(); });
 
         _session.Files.SendProgress     += (n, done, total) => Dispatcher.Invoke(() => TxProgress(n, true, done, total));

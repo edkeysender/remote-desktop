@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.IO;
 using System.Net.NetworkInformation;
 using System.Runtime.Versioning;
 using System.Text;
@@ -37,6 +38,7 @@ public sealed class HostSession : IDisposable
     private RTCDataChannel? _thumbChannel;
     private ThumbnailStreamer? _thumbs;
     private WindowWatcher? _winWatch;
+    private ClipboardMonitor? _clipMon;
     private VpxVideoEncoder? _encoder;
     private CancellationTokenSource? _pumpCts;
     private Task? _pumpTask;
@@ -227,6 +229,19 @@ public sealed class HostSession : IDisposable
             try { if (_thumbChannel is { IsOpened: true }) _thumbChannel.send($"{{\"t\":\"newwin\",\"i\":{idx}}}"); } catch { }
         });
 
+        // Remote→local clipboard: push text/files copied on this machine to the viewer.
+        _clipMon = new ClipboardMonitor(
+            text => { try { if (_thumbChannel is { IsOpened: true }) _thumbChannel.send(JsonSerializer.Serialize(new { t = "clip", text })); } catch { } },
+            files =>
+            {
+                try
+                {
+                    var arr = files.Select(f => { long sz = 0; try { sz = new FileInfo(f).Length; } catch { } return new { path = f, name = Path.GetFileName(f), size = sz }; }).ToArray();
+                    if (arr.Length > 0 && _thumbChannel is { IsOpened: true }) _thumbChannel.send(JsonSerializer.Serialize(new { t = "clipfiles", files = arr }));
+                }
+                catch { }
+            });
+
         _pc.onicecandidate += c =>
         {
             if (c != null) _ = _conn!.SendJsonAsync(new { t = "ice", candidate = c.ToString() });
@@ -241,6 +256,7 @@ public sealed class HostSession : IDisposable
                 StartPump();
                 _thumbs?.Start();
                 _winWatch?.Start();
+                _clipMon?.Start();
             }
             else if (s is RTCPeerConnectionState.failed or RTCPeerConnectionState.disconnected or RTCPeerConnectionState.closed)
                 StopPump();
@@ -368,7 +384,13 @@ public sealed class HostSession : IDisposable
                     // Echo the probe back over the thumbs channel so the viewer can measure RTT.
                     try { if (_thumbChannel is { IsOpened: true }) _thumbChannel.send($"{{\"t\":\"pong\",\"ts\":{r.GetProperty("ts").GetInt64()}}}"); } catch { }
                     break;
-                case "clip": ClipboardHelper.SetText(r.GetProperty("text").GetString() ?? ""); break;
+                case "clip":
+                {
+                    var text = r.GetProperty("text").GetString() ?? "";
+                    ClipboardHelper.SetText(text);
+                    _clipMon?.NoteText(text);   // don't echo it back to the viewer
+                    break;
+                }
             }
         }
         catch { /* ignore malformed input packet */ }
@@ -402,6 +424,7 @@ public sealed class HostSession : IDisposable
         StopPump();                                 // guarantees the pump loop has exited
         _thumbs?.Dispose(); _thumbs = null;
         _winWatch?.Dispose(); _winWatch = null;
+        _clipMon?.Dispose(); _clipMon = null;
         Files.Detach();
         try { _fileChannel?.close(); } catch { }
         try { _inputChannel?.close(); } catch { }
