@@ -1,22 +1,22 @@
-# systemd unit for the Hangar signaling/relay + web control plane.
-# Install to /etc/systemd/system/hangar-signal.service, then:
-#   sudo systemctl daemon-reload && sudo systemctl enable --now hangar-signal
+# systemd unit for the AllViewer signaling/relay + web control plane.
+# Install to /etc/systemd/system/allviewer-signal.service, then:
+#   sudo systemctl daemon-reload && sudo systemctl enable --now allviewer-signal
 #
 # IMPORTANT: change ADMIN_PASSWORD and PLATFORM_PASSWORD before exposing this publicly.
 
 [Unit]
-Description=Hangar signaling/relay + web control plane
+Description=AllViewer signaling/relay + web control plane
 After=network-online.target
 Wants=network-online.target
 
 [Service]
 Type=simple
-User=hangar
-WorkingDirectory=/opt/hangar/server
+User=allviewer
+WorkingDirectory=/opt/allviewer/server
 # Bind to localhost only — Caddy terminates TLS on 443 and proxies to this port.
 Environment=PORT=8081
 Environment=NODE_ENV=production
-Environment=UPDATE_DIR=/opt/hangar/server/update
+Environment=UPDATE_DIR=/opt/allviewer/server/update
 Environment=ADMIN_PASSWORD=change-me-admin
 Environment=PLATFORM_PASSWORD=change-me-platform
 ExecStart=/usr/bin/node index.js

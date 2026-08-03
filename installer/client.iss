@@ -1,15 +1,15 @@
 ; Inno Setup script — Remote Desktop CLIENT (the PC being controlled)
 ; Build: publish first (see build.ps1), then compile this with ISCC.exe.
 
-#define AppName "Hangar Agent"
+#define AppName "AllViewer Agent"
 ; Version can be overridden from build.ps1 via ISCC /DAppVersion=x.y.z
 #ifndef AppVersion
   #define AppVersion "0.2.0"
 #endif
 #define AppPublisher "allviewer.tech"
-#define AppExe "HangarAgent.exe"
-#define SvcExe "HangarService.exe"
-#define SvcName "HangarService"
+#define AppExe "AllViewerAgent.exe"
+#define SvcExe "AllViewerService.exe"
+#define SvcName "AllViewerService"
 
 [Setup]
 ; A stable, unique GUID keeps upgrades/uninstall coherent across versions.
@@ -17,13 +17,13 @@ AppId={{7C1E9A2B-3D4F-4A55-9C11-A1B2C3D4E5F6}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
-DefaultDirName={autopf}\Hangar\Client
-DefaultGroupName=Hangar
+DefaultDirName={autopf}\AllViewer\Client
+DefaultGroupName=AllViewer
 UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\{#AppExe}
 OutputDir=dist
-OutputBaseFilename=HangarAgent-Setup-{#AppVersion}
-SetupIconFile=..\assets\hangar.ico
+OutputBaseFilename=AllViewerAgent-Setup-{#AppVersion}
+SetupIconFile=..\assets\allviewer.ico
 Compression=lzma2/max
 SolidCompression=yes
 ; Self-contained x64 build → require 64-bit Windows.
@@ -53,28 +53,28 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 [Registry]
 ; Optional per-user autostart (only if the task is selected).
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; \
-    ValueName: "HangarAgent"; ValueData: """{app}\{#AppExe}"""; \
+    ValueName: "AllViewerAgent"; ValueData: """{app}\{#AppExe}"""; \
     Flags: uninsdeletevalue; Tasks: autostart
 
 [Run]
 ; Register + start the unattended service only if the user opted in. `binPath= ` needs the
 ; trailing space; the doubled quotes wrap the path (may contain spaces).
 Filename: "{sys}\sc.exe"; \
-    Parameters: "create {#SvcName} binPath= ""{app}\{#SvcExe}"" start= auto DisplayName= ""Hangar Service"""; \
+    Parameters: "create {#SvcName} binPath= ""{app}\{#SvcExe}"" start= auto DisplayName= ""AllViewer Service"""; \
     Flags: runhidden; Tasks: unattended
 Filename: "{sys}\sc.exe"; \
-    Parameters: "description {#SvcName} ""Unattended remote access for Hangar (LocalSystem)."""; \
+    Parameters: "description {#SvcName} ""Unattended remote access for AllViewer (LocalSystem)."""; \
     Flags: runhidden; Tasks: unattended
 Filename: "{sys}\sc.exe"; Parameters: "start {#SvcName}"; Flags: runhidden; Tasks: unattended
 Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName} now"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 ; Runs before files are removed, so stopping releases the exe lock. Harmless if absent.
-Filename: "{sys}\sc.exe"; Parameters: "stop {#SvcName}"; Flags: runhidden; RunOnceId: "StopHangarSvc"
-Filename: "{sys}\sc.exe"; Parameters: "delete {#SvcName}"; Flags: runhidden; RunOnceId: "DelHangarSvc"
+Filename: "{sys}\sc.exe"; Parameters: "stop {#SvcName}"; Flags: runhidden; RunOnceId: "StopAllViewerSvc"
+Filename: "{sys}\sc.exe"; Parameters: "delete {#SvcName}"; Flags: runhidden; RunOnceId: "DelAllViewerSvc"
 
 [Code]
-// On upgrade the service may be running and holding HangarService.exe open, which would
+// On upgrade the service may be running and holding AllViewerService.exe open, which would
 // block [Files] from overwriting it. Stop it (best-effort) before files are copied.
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var

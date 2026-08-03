@@ -8,11 +8,11 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>RemoteDesktop.Client</RootNamespace>
-    <AssemblyName>HangarAgent</AssemblyName>
+    <AssemblyName>AllViewerAgent</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon>..\..\assets\hangar.ico</ApplicationIcon>
+    <ApplicationIcon>..\..\assets\allviewer.ico</ApplicationIcon>
     <Version>0.3.0</Version>
-    <Product>Hangar Client</Product>
+    <Product>AllViewer Client</Product>
     <Company>allviewer.tech</Company>
   </PropertyGroup>
 

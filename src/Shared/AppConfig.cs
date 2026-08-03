@@ -4,8 +4,8 @@ namespace RemoteDesktop.Shared;
 
 /// <summary>
 /// Tiny JSON settings store. Two scopes:
-///   • per-user (<c>Load</c>/<c>Save</c>) under %AppData%\Hangar — attended apps.
-///   • machine-wide (<c>LoadMachine</c>/<c>SaveMachine</c>) under %ProgramData%\Hangar —
+///   • per-user (<c>Load</c>/<c>Save</c>) under %AppData%\AllViewer — attended apps.
+///   • machine-wide (<c>LoadMachine</c>/<c>SaveMachine</c>) under %ProgramData%\AllViewer —
 ///     used by the unattended service/worker (which runs as SYSTEM, not a user).
 /// </summary>
 /// <summary>One entry in the Recent connections list.</summary>
@@ -55,7 +55,7 @@ public sealed class AppConfig
     /// <summary>Last ID the server assigned this host (written by the worker for display).</summary>
     public string? CurrentId { get; set; }
 
-    private const string Dir = "Hangar";
+    private const string Dir = "AllViewer";
 
     private static string UserPath(string name) => System.IO.Path.Combine(
         Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), Dir, name + ".json");

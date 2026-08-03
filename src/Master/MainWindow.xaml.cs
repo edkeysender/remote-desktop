@@ -9,7 +9,7 @@ using RemoteDesktop.Shared;
 namespace RemoteDesktop.Master;
 
 /// <summary>
-/// Unified Hangar desktop app. The hub UI is the approved Hangar design (Appendix C)
+/// Unified AllViewer desktop app. The hub UI is the approved AllViewer design (Appendix C)
 /// rendered pixel-exact in a WebView2; C# bridges it to the account/host/connect logic.
 /// Each remote session opens in a separate native <see cref="ViewerWindow"/>.
 /// </summary>
@@ -33,7 +33,7 @@ public partial class MainWindow : Window
     private string _id = "", _org = "", _status = "Starting…";
     private bool _online, _ready, _initDone;
     private string? _lastError;
-    private string _brandName = "Hangar", _brandAccent = "#5B5BF5";
+    private string _brandName = "AllViewer", _brandAccent = "#5B5BF5";
     private string? _brandLogo;
     private string _groupId = "", _groupName = "";
     private readonly LanDiscovery _lan = new();
@@ -59,7 +59,7 @@ public partial class MainWindow : Window
         catch (Exception ex)
         {
             MessageBox.Show(this, "Microsoft Edge WebView2 Runtime is required.\n\n" + ex.Message,
-                "Hangar", MessageBoxButton.OK, MessageBoxImage.Error);
+                "AllViewer", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
         Web.CoreWebView2.WebMessageReceived += (_, e) =>
@@ -73,7 +73,7 @@ public partial class MainWindow : Window
         await RestoreSessionAsync();
         StartHosting();
         _initDone = true;
-        ProcessPendingConnect();   // handle a hangar:// deep link that launched us
+        ProcessPendingConnect();   // handle a allviewer:// deep link that launched us
     }
 
     private static string LoadHtml()
@@ -278,7 +278,7 @@ public partial class MainWindow : Window
                 session.FleetUpdated += list => Dispatcher.Invoke(() => { _relayFleet = list; PushState(); });
                 session.Branding += (name, accent, logo) => Dispatcher.Invoke(() =>
                 {
-                    _brandName = string.IsNullOrWhiteSpace(name) ? "Hangar" : name!;
+                    _brandName = string.IsNullOrWhiteSpace(name) ? "AllViewer" : name!;
                     _brandAccent = string.IsNullOrWhiteSpace(accent) ? "#5B5BF5" : accent!;
                     _brandLogo = logo;
                     Title = _brandName;
@@ -376,7 +376,7 @@ public partial class MainWindow : Window
         return list;
     }
 
-    // ---- deep link: hangar://connect?id=<relayId>&server=<ws>&name=<name> ----
+    // ---- deep link: allviewer://connect?id=<relayId>&server=<ws>&name=<name> ----
     private string? _pendingUri;
 
     public void HandleConnectUri(string uri)

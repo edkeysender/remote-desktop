@@ -7,10 +7,10 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>RemoteDesktop.Service</RootNamespace>
-    <AssemblyName>HangarService</AssemblyName>
+    <AssemblyName>AllViewerService</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Version>0.3.0</Version>
-    <Product>Hangar Service</Product>
+    <Product>AllViewer Service</Product>
     <Company>allviewer.tech</Company>
   </PropertyGroup>
 

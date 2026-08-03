@@ -1,31 +1,31 @@
-; Inno Setup script — Hangar (unified app: host + viewer in one).
+; Inno Setup script — AllViewer (unified app: host + viewer in one).
 ; Build: publish first (see build.ps1), then compile this with ISCC.exe.
 ; Per-org white-label overrides (build.ps1 -BrandName …): /DAppName, /DBrandIcon, /DOutFile.
 
 ; Version via ISCC /DAppVersion=x.y.z. Per-org white-label via env vars set by build.ps1
-; (HANGAR_BRAND_NAME / HANGAR_BRAND_ICON / HANGAR_OUTFILE) — avoids command-line quoting.
+; (ALLVIEWER_BRAND_NAME / ALLVIEWER_BRAND_ICON / ALLVIEWER_OUTFILE) — avoids command-line quoting.
 #ifndef AppVersion
   #define AppVersion "0.3.0"
 #endif
-#define BrandNameEnv GetEnv("HANGAR_BRAND_NAME")
+#define BrandNameEnv GetEnv("ALLVIEWER_BRAND_NAME")
 #if BrandNameEnv != ""
   #define AppName BrandNameEnv
 #else
-  #define AppName "Hangar"
+  #define AppName "AllViewer"
 #endif
-#define BrandIconEnv GetEnv("HANGAR_BRAND_ICON")
+#define BrandIconEnv GetEnv("ALLVIEWER_BRAND_ICON")
 #if BrandIconEnv != ""
   #define BrandIcon BrandIconEnv
 #else
-  #define BrandIcon "..\assets\hangar.ico"
+  #define BrandIcon "..\assets\allviewer.ico"
 #endif
-#define OutFileEnv GetEnv("HANGAR_OUTFILE")
+#define OutFileEnv GetEnv("ALLVIEWER_OUTFILE")
 #if OutFileEnv != ""
   #define OutFile OutFileEnv
 #else
-  #define OutFile "Hangar-Setup-" + AppVersion
+  #define OutFile "AllViewer-Setup-" + AppVersion
 #endif
-#define AppPublisher "Hangar"
+#define AppPublisher "AllViewer"
 #define AppExe "RemoteControl.exe"
 
 [Setup]

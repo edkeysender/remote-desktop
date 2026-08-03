@@ -1,9 +1,9 @@
 {
-  "name": "hangar-mcp",
+  "name": "allviewer-mcp",
   "version": "0.1.0",
-  "description": "MCP server exposing a Hangar organization's computers + task manager",
+  "description": "MCP server exposing a AllViewer organization's computers + task manager",
   "type": "module",
-  "bin": { "hangar-mcp": "index.js" },
+  "bin": { "allviewer-mcp": "index.js" },
   "scripts": { "start": "node index.js" },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0"

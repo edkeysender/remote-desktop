@@ -1,7 +1,7 @@
 <Window x:Class="RemoteDesktop.Master.ViewerWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Hangar — session" Height="760" Width="1240"
+        Title="AllViewer — session" Height="760" Width="1240"
         WindowStartupLocation="CenterScreen"
         FontFamily="Segoe UI"
         Background="{DynamicResource StageBrush}">

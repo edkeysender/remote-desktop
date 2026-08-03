@@ -1,10 +1,10 @@
-# Generates a multi-resolution Hangar .ico from the brand mark (gradient rounded
-# square + the "hangar" roof glyph). Emits classic 32bpp BMP/DIB frames for maximum
+# Generates a multi-resolution AllViewer .ico from the brand mark (gradient rounded
+# square + the "allviewer" roof glyph). Emits classic 32bpp BMP/DIB frames for maximum
 # shell + toolchain compatibility. Run: powershell -File tools/gen-icon.ps1
 Add-Type -AssemblyName System.Drawing
 $ErrorActionPreference = 'Stop'
 $root = Split-Path $PSScriptRoot -Parent
-$out  = Join-Path $root 'assets\hangar.ico'
+$out  = Join-Path $root 'assets\allviewer.ico'
 $sizes = 16,24,32,48,64,128,256
 
 function New-Frame([int]$s) {

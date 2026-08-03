@@ -8,10 +8,10 @@
     <Nullable>enable</Nullable>
     <RootNamespace>RemoteDesktop.Master</RootNamespace>
     <AssemblyName>RemoteControl</AssemblyName>
-    <ApplicationIcon>..\..\assets\hangar.ico</ApplicationIcon>
+    <ApplicationIcon>..\..\assets\allviewer.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Version>0.3.0</Version>
-    <Product>Hangar</Product>
+    <Product>AllViewer</Product>
     <Company>allviewer.tech</Company>
   </PropertyGroup>
 
@@ -34,7 +34,7 @@
     <Resource Include="..\..\assets\logo-ftd.png">
       <Link>logo-ftd.png</Link>
     </Resource>
-    <!-- The Hangar desktop UI (Appendix C), rendered pixel-exact in WebView2. -->
+    <!-- The AllViewer desktop UI (Appendix C), rendered pixel-exact in WebView2. -->
     <EmbeddedResource Include="ui\desktop.html" />
   </ItemGroup>
 

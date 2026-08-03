@@ -6,8 +6,8 @@ using Microsoft.Extensions.Logging;
 namespace RemoteDesktop.Service;
 
 /// <summary>
-/// The Hangar service body. Keeps exactly one capture worker
-/// (HangarAgent.exe --worker) alive in the ACTIVE console session, running as
+/// The AllViewer service body. Keeps exactly one capture worker
+/// (AllViewerAgent.exe --worker) alive in the ACTIVE console session, running as
 /// LocalSystem, on the CURRENT input desktop. Respawns it when:
 ///   • the active session changes (user logs on / fast-user-switch), or
 ///   • the input desktop changes (Default ↔ Winlogon — i.e. a UAC prompt appears or
@@ -30,12 +30,12 @@ public sealed class Supervisor : BackgroundService
     public Supervisor(ILogger<Supervisor> log)
     {
         _log = log;
-        _workerExe = Path.Combine(AppContext.BaseDirectory, "HangarAgent.exe");
+        _workerExe = Path.Combine(AppContext.BaseDirectory, "AllViewerAgent.exe");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stop)
     {
-        _log.LogInformation("Hangar service starting. Worker: {Worker}", _workerExe);
+        _log.LogInformation("AllViewer service starting. Worker: {Worker}", _workerExe);
         if (!File.Exists(_workerExe))
             _log.LogError("Worker exe not found next to the service. The capture worker will not start.");
 

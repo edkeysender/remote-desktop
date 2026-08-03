@@ -1,4 +1,4 @@
-# Hangar control plane — automatic HTTPS + WSS reverse proxy in front of the Node server.
+# AllViewer control plane — automatic HTTPS + WSS reverse proxy in front of the Node server.
 # Caddy fetches/renews a Let's Encrypt certificate for the domain automatically and
 # transparently proxies WebSocket upgrades, so the app connects over wss:// on 443.
 #
