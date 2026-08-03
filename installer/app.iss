@@ -45,8 +45,10 @@ SolidCompression=yes
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 WizardStyle=modern
-; The unified app hosts + views as the normal user (asInvoker) — install per-user, no UAC.
-PrivilegesRequired=lowest
+; Install into Program Files by default (requires admin). {autopf} resolves to
+; Program Files in administrative install mode. The app itself still runs as the normal
+; user (asInvoker); updates auto-elevate the file swap since Program Files needs admin.
+PrivilegesRequired=admin
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"
