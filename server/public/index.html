@@ -136,7 +136,7 @@ function applyBrand(b){
 }
 async function boot(){
   const tok=inviteToken(); if(tok) return renderAccept(tok);
-  try{ me=await api('/api/me'); applyBrand(me.branding); renderShell(); }catch{ renderAuth(); }
+  try{ me=await api('/api/me'); applyBrand(me.branding); const h=location.hash.slice(1); if(h) tab=h; renderShell(); }catch{ renderAuth(); }
 }
 
 // ---------- auth ----------
@@ -188,6 +188,7 @@ function renderShell(){
   nav.forEach(([k,label])=>{const b=$(`<button class="nav-item ${k===tab?'active':''}">${label}</button>`);b.onclick=()=>{tab=k;renderShell();};navEl.appendChild(b);});
   el.querySelector('#out').onclick=async()=>{await api('/api/logout','POST');me=null;renderAuth();};
   const valid=nav.map(n=>n[0]); if(!valid.includes(tab)) tab='devices';
+  history.replaceState(null,'','#'+tab);   // keep the active tab in the URL so refresh stays put
   ({devices:viewDevices,groups:viewGroups,users:viewUsers,enroll:viewEnroll,sessions:viewSessions,activity:viewActivity,branding:viewBranding,configs:viewConfigs,mcp:viewMcp}[tab]||viewDevices)();
 }
 const view=()=>document.getElementById('view');
@@ -236,7 +237,7 @@ async function viewDevices(){
   view().querySelectorAll('[data-wake]').forEach(b=>b.onclick=async()=>{const o=b.textContent;b.textContent='Waking…';try{await api('/api/computers/'+encodeURIComponent(b.dataset.wake)+'/wake','POST',{});b.textContent='Wake sent ✓';}catch(e){b.textContent=o;alert(e.message);}});
   const add=view().querySelector('#add'); if(add) add.onclick=()=>{tab='enroll';renderShell();};
   // live-refresh the grid (CPU/RAM/disk, online status) every 6s unless the user is editing
-  gridTimer=setInterval(()=>{ if(tab!=='devices'){clearInterval(gridTimer);return;} const a=document.activeElement; if(a&&['INPUT','SELECT'].includes(a.tagName))return; viewDevices(); },6000);
+  gridTimer=setInterval(()=>{ if(tab!=='devices'||hostDt){clearInterval(gridTimer);return;} const a=document.activeElement; if(a&&['INPUT','SELECT'].includes(a.tagName))return; viewDevices(); },6000);
 }
 
 async function viewGroups(){
@@ -449,7 +450,7 @@ async function viewConfigs(){
 // ---------- host administration page (full-page, tabbed) ----------
 let hostTimer=null, hostDt=null, hostTab='overview';
 function stopHostTimer(){ if(hostTimer){clearInterval(hostTimer);hostTimer=null;} }
-function openHost(dt){ hostDt=dt; hostTab='overview'; renderHostPage(); }
+function openHost(dt){ clearInterval(gridTimer); hostDt=dt; hostTab='overview'; renderHostPage(); }
 function backToDevices(){ stopHostTimer(); hostDt=null; tab='devices'; renderShell(); }
 window.backToDevices=backToDevices;
 function meterRow(l,v){ return `<div class="mrow"><span>${l}</span><div class="mbar"><i style="width:${v}%;${v>=90?'background:var(--danger)':(v>=75?'background:var(--warn)':'')}"></i></div><b>${v}%</b></div>`; }
