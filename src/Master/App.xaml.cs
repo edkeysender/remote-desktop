@@ -21,6 +21,10 @@ public partial class App : Application
 
     private void OnStartup(object sender, StartupEventArgs e)
     {
+        // If launched loose (e.g. from Downloads), install into a proper per-user location and
+        // relaunch from there — then this instance exits.
+        if (SelfInstall.RelocateIfLoose(e.Args)) { Shutdown(); return; }
+
         RegisterUriScheme();
         var uri = e.Args.FirstOrDefault(a => a.StartsWith(Scheme + "://", StringComparison.OrdinalIgnoreCase));
 
