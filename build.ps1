@@ -53,7 +53,8 @@ if ($Version) {
     }
 }
 # Persist so the number is monotonic across builds (commit VERSION with each release).
-Set-Content "$root\VERSION" $ver -Encoding utf8
+# ASCII (no BOM) — a UTF-8 BOM here can corrupt the version string for downstream readers.
+Set-Content "$root\VERSION" $ver -Encoding ascii -NoNewline
 if (-not $Notes) { $Notes = "FTD Remote $ver" }
 Write-Host "== Building version $ver ==" -ForegroundColor Cyan
 
