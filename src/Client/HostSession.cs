@@ -36,6 +36,7 @@ public sealed class HostSession : IDisposable
     private RTCDataChannel? _fileChannel;
     private RTCDataChannel? _thumbChannel;
     private ThumbnailStreamer? _thumbs;
+    private WindowWatcher? _winWatch;
     private VpxVideoEncoder? _encoder;
     private CancellationTokenSource? _pumpCts;
     private Task? _pumpTask;
@@ -200,6 +201,13 @@ public sealed class HostSession : IDisposable
         _thumbChannel = await _pc.createDataChannel("thumbs", null);
         _thumbs = new ThumbnailStreamer(_monitors, s => { try { if (_thumbChannel is { IsOpened: true }) _thumbChannel.send(s); } catch { } });
 
+        // Flag a monitor the operator isn't watching when a new top-level window appears there.
+        _winWatch = new WindowWatcher(_monitors, idx =>
+        {
+            if (idx == _currentMon) return;   // they're already looking at it
+            try { if (_thumbChannel is { IsOpened: true }) _thumbChannel.send($"{{\"t\":\"newwin\",\"i\":{idx}}}"); } catch { }
+        });
+
         _pc.onicecandidate += c =>
         {
             if (c != null) _ = _conn!.SendJsonAsync(new { t = "ice", candidate = c.ToString() });
@@ -213,6 +221,7 @@ public sealed class HostSession : IDisposable
                 SendMonitorList();
                 StartPump();
                 _thumbs?.Start();
+                _winWatch?.Start();
             }
             else if (s is RTCPeerConnectionState.failed or RTCPeerConnectionState.disconnected or RTCPeerConnectionState.closed)
                 StopPump();
@@ -336,6 +345,11 @@ public sealed class HostSession : IDisposable
                               r.GetProperty("btn").GetInt32(), r.GetProperty("down").GetBoolean()); break;
                 case "w": InputInjector.MouseWheel(r.GetProperty("dy").GetInt32()); break;
                 case "k": InputInjector.KeyVirtual(r.GetProperty("vk").GetInt32(), r.GetProperty("down").GetBoolean()); break;
+                case "ping":
+                    // Echo the probe back over the thumbs channel so the viewer can measure RTT.
+                    try { if (_thumbChannel is { IsOpened: true }) _thumbChannel.send($"{{\"t\":\"pong\",\"ts\":{r.GetProperty("ts").GetInt64()}}}"); } catch { }
+                    break;
+                case "clip": ClipboardHelper.SetText(r.GetProperty("text").GetString() ?? ""); break;
             }
         }
         catch { /* ignore malformed input packet */ }
@@ -368,6 +382,7 @@ public sealed class HostSession : IDisposable
         _pcConnected = false;
         StopPump();                                 // guarantees the pump loop has exited
         _thumbs?.Dispose(); _thumbs = null;
+        _winWatch?.Dispose(); _winWatch = null;
         Files.Detach();
         try { _fileChannel?.close(); } catch { }
         try { _inputChannel?.close(); } catch { }

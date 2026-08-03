@@ -31,6 +31,8 @@ public sealed class ViewerSession : IDisposable
     public event Action<bool>? ControlReady;        // input data channel open/closed
     public event Action<List<RemoteMonitor>, int>? Monitors;  // available monitors, current index
     public event Action<int, int, int, byte[]>? Thumbnail;    // monitor index, w, h, JPEG bytes
+    public event Action<int>? NewWindow;                      // a new top-level window appeared on this monitor
+    public event Action<long>? PongReceived;                  // echo of a ping timestamp (for RTT)
     public event Action<string?>? Closed;
 
     /// <summary>File send/receive over the session's "file" data channel.</summary>
@@ -158,7 +160,10 @@ public sealed class ViewerSession : IDisposable
         {
             using var doc = JsonDocument.Parse(data);
             var r = doc.RootElement;
-            if (r.TryGetProperty("t", out var tt) && tt.GetString() != "thumb") return;
+            var kind = r.TryGetProperty("t", out var tt) ? tt.GetString() : "thumb";
+            if (kind == "newwin") { NewWindow?.Invoke(r.GetProperty("i").GetInt32()); return; }
+            if (kind == "pong") { PongReceived?.Invoke(r.GetProperty("ts").GetInt64()); return; }
+            if (kind != "thumb") return;
             int i = r.GetProperty("i").GetInt32(), w = r.GetProperty("w").GetInt32(), h = r.GetProperty("h").GetInt32();
             var bytes = Convert.FromBase64String(r.GetProperty("img").GetString() ?? "");
             if (bytes.Length > 0) Thumbnail?.Invoke(i, w, h, bytes);
@@ -191,6 +196,11 @@ public sealed class ViewerSession : IDisposable
     public void MouseButton(double nx, double ny, int btn, bool down) => Send(new { t = "b", x = nx, y = ny, btn, down });
     public void MouseWheel(int dy) => Send(new { t = "w", dy });
     public void KeyVirtual(int vk, bool down) => Send(new { t = "k", vk, down });
+
+    /// <summary>Send a latency probe; the host echoes it back over the "thumbs" channel as a pong.</summary>
+    public void Ping(long ts) => Send(new { t = "ping", ts });
+    /// <summary>Push the operator's clipboard text to the remote machine.</summary>
+    public void SendClipboard(string text) => Send(new { t = "clip", text });
 
     /// <summary>Ask the host to switch the captured monitor (-1 = all). Sent over signaling.</summary>
     public void SelectMonitor(int index) => _ = _conn.SendJsonAsync(new { t = "selmon", index });

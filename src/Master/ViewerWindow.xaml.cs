@@ -39,6 +39,7 @@ public partial class ViewerWindow : Window
     private bool _dark = true;
     private readonly Stopwatch _sessionClock = new();
     private System.Windows.Threading.DispatcherTimer? _timerTick;
+    private System.Windows.Threading.DispatcherTimer? _pingTimer;
 
     // monitor rail + minimap + overview
     private readonly Dictionary<int, BitmapSource> _thumbImg = new();
@@ -49,6 +50,7 @@ public partial class ViewerWindow : Window
     private System.Windows.Shapes.Rectangle? _miniRect;
     private int _miniIndex = -2;
     private bool _miniDragging;
+    private readonly HashSet<int> _newWin = new();   // monitors with an unseen new window
 
     public ViewerWindow(string serverUrl, string id, string display,
                         string? password = null, string? adminPw = null, string? authToken = null)
@@ -69,6 +71,8 @@ public partial class ViewerWindow : Window
         _session.Frame     += DrawFrame;
         _session.Monitors  += (mons, cur) => Dispatcher.Invoke(() => PopulateMonitors(mons, cur));
         _session.Thumbnail += (i, _, _, bytes) => Dispatcher.Invoke(() => OnThumb(i, bytes));
+        _session.NewWindow += i => Dispatcher.Invoke(() => OnNewWindow(i));
+        _session.PongReceived += ts => Dispatcher.Invoke(() => OnPong(ts));
         _session.Closed    += r  => Dispatcher.Invoke(() => { if (_connected) SetStatus("Closed: " + (r ?? ""), "#8A8DA3"); CloseSoon(); });
 
         _session.Files.SendProgress     += (n, done, total) => FileProgress("Sending", n, done, total);
@@ -107,11 +111,14 @@ public partial class ViewerWindow : Window
         SetStatus("Connected", "#1FC98B");
         Hint.Visibility = Visibility.Collapsed;
         Scroller.Visibility = Visibility.Visible;
-        foreach (var b in new[] { ZoomFit, Zoom100, Zoom200, TransferBtn, WinKeyBtn }) b.IsEnabled = true;
+        foreach (var b in new[] { ZoomFit, Zoom100, Zoom200, TransferBtn, WinKeyBtn, ClipboardBtn }) b.IsEnabled = true;
+        ClipboardBtn.ToolTip = "Send your clipboard text to the remote PC";
         SetZoom(0);   // Fit
 
-        // Live latency + verified P2P/relay state arrive in Phase F; show a neutral live state until then.
         P2pText.Text = "Live";
+        _pingTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _pingTimer.Tick += (_, _) => _session?.Ping(_sessionClock.ElapsedMilliseconds);
+        _pingTimer.Start();
 
         _sessionClock.Restart();
         _timerTick = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -339,6 +346,30 @@ public partial class ViewerWindow : Window
         catch { /* ignore a bad thumbnail */ }
     }
 
+    private void OnNewWindow(int index)
+    {
+        if (index == _currentMon || !_monitors.Any(m => m.Index == index)) return;
+        if (!_newWin.Add(index)) return;
+        RebuildRail();
+        if (Overview.Visibility == Visibility.Visible) BuildOverview();
+    }
+
+    private void UpdateRailBadge()
+    {
+        bool alert = _newWin.Count > 0;
+        RailBadge.Background = new SolidColorBrush(alert ? Color.FromRgb(0xFF, 0xAA, 0x1D) : Res("AccentBrush"));
+        RailBadgeText.Text = alert ? "!" : _monitors.Count.ToString();
+    }
+
+    private void OnPong(long ts)
+    {
+        long rtt = _sessionClock.ElapsedMilliseconds - ts;
+        if (rtt < 0 || rtt > 10000) return;
+        P2pText.Text = $"Live · {rtt} ms";
+        var c = rtt < 80 ? Color.FromRgb(0x1F, 0xC9, 0x8B) : rtt < 200 ? Color.FromRgb(0x3E, 0xC8, 0xFF) : Color.FromRgb(0xFF, 0xAA, 0x1D);
+        P2pDot.Fill = new SolidColorBrush(c);
+    }
+
     private void RailToggle_Click(object sender, RoutedEventArgs e)
     {
         _railExpanded = !_railExpanded;
@@ -351,12 +382,13 @@ public partial class ViewerWindow : Window
         if (RailList == null) return;
         RailList.Children.Clear(); _railImg.Clear();
         _miniCanvas = null; _miniRect = null; _miniIndex = -2;
-        RailBadgeText.Text = _monitors.Count.ToString();
+        UpdateRailBadge();
         double dispW = _railExpanded ? 172 : 40;
         foreach (var m in _monitors)
         {
             double dispH = Math.Max(24, dispW * m.Height / Math.Max(1, m.Width));
             bool active = m.Index == _currentMon;
+            bool flagged = _newWin.Contains(m.Index);
             int idx = m.Index;
 
             var img = new Image { Stretch = Stretch.Fill };
@@ -365,6 +397,13 @@ public partial class ViewerWindow : Window
 
             var overlay = new Grid();
             overlay.Children.Add(img);
+            if (flagged)
+                overlay.Children.Add(new System.Windows.Shapes.Ellipse
+                {
+                    Width = 10, Height = 10, Margin = new Thickness(0, 4, 4, 0),
+                    HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top,
+                    Fill = new SolidColorBrush(Color.FromRgb(0xFF, 0xAA, 0x1D))
+                });
             if (active && _railExpanded)
             {
                 var cv = new Canvas { Width = dispW, Height = dispH, Background = Brushes.Transparent, ClipToBounds = true, Cursor = Cursors.SizeAll };
@@ -382,8 +421,9 @@ public partial class ViewerWindow : Window
             var frame = new Border
             {
                 Width = dispW, Height = dispH, CornerRadius = new CornerRadius(6), ClipToBounds = true,
-                BorderThickness = new Thickness(active ? 2 : 1),
-                BorderBrush = new SolidColorBrush(active ? Color.FromRgb(0x5B, 0x5B, 0xF5) : Res("LineBrush")),
+                BorderThickness = new Thickness(active || flagged ? 2 : 1),
+                BorderBrush = new SolidColorBrush(active ? Color.FromRgb(0x5B, 0x5B, 0xF5)
+                                                : flagged ? Color.FromRgb(0xFF, 0xAA, 0x1D) : Res("LineBrush")),
                 Background = new SolidColorBrush(Color.FromRgb(0x0d, 0x11, 0x17)),
                 Child = overlay, Cursor = Cursors.Hand
             };
@@ -407,7 +447,8 @@ public partial class ViewerWindow : Window
     {
         if (!_connected) return;
         CloseOverview();
-        if (index == _currentMon) return;
+        _newWin.Remove(index);        // viewing it clears the flag
+        if (index == _currentMon) { RebuildRail(); return; }
         _currentMon = index;
         _session?.SelectMonitor(index);
         RebuildMonitorButtons(); RebuildRail(); SetZoom(0);
@@ -462,6 +503,7 @@ public partial class ViewerWindow : Window
         {
             double dispH = Math.Max(60, dispW * m.Height / Math.Max(1, m.Width));
             bool active = m.Index == _currentMon;
+            bool flagged = _newWin.Contains(m.Index);
             int idx = m.Index;
 
             var img = new Image { Stretch = Stretch.Fill };
@@ -471,8 +513,9 @@ public partial class ViewerWindow : Window
             var frame = new Border
             {
                 Width = dispW, Height = dispH, CornerRadius = new CornerRadius(10), ClipToBounds = true,
-                BorderThickness = new Thickness(active ? 3 : 1),
-                BorderBrush = new SolidColorBrush(active ? Color.FromRgb(0x3E, 0xC8, 0xFF) : Res("LineBrush")),
+                BorderThickness = new Thickness(active || flagged ? 3 : 1),
+                BorderBrush = new SolidColorBrush(active ? Color.FromRgb(0x3E, 0xC8, 0xFF)
+                                                : flagged ? Color.FromRgb(0xFF, 0xAA, 0x1D) : Res("LineBrush")),
                 Background = new SolidColorBrush(Color.FromRgb(0x0d, 0x11, 0x17)),
                 Child = img, Cursor = Cursors.Hand
             };
@@ -480,10 +523,12 @@ public partial class ViewerWindow : Window
 
             var card = new StackPanel { Margin = new Thickness(0, 0, 16, 16), Width = dispW };
             card.Children.Add(frame);
+            string tag = flagged ? "  ● New window" : active ? "  (viewing)" : "";
             card.Children.Add(new TextBlock
             {
-                Text = $"Display {m.Index + 1} · {m.Name} · {m.Width}×{m.Height}" + (active ? "  (viewing)" : ""),
-                Foreground = new SolidColorBrush(active ? Color.FromRgb(0x3E, 0xC8, 0xFF) : Res("MutedBrush")),
+                Text = $"Display {m.Index + 1} · {m.Name} · {m.Width}×{m.Height}{tag}",
+                Foreground = new SolidColorBrush(flagged ? Color.FromRgb(0xFF, 0xAA, 0x1D)
+                                               : active ? Color.FromRgb(0x3E, 0xC8, 0xFF) : Res("MutedBrush")),
                 FontSize = 12, Margin = new Thickness(2, 6, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis
             });
             OverviewGrid.Children.Add(card);
@@ -564,7 +609,18 @@ public partial class ViewerWindow : Window
     }
 
     private void ClipboardBtn_Click(object sender, RoutedEventArgs e)
-        => SetStatus("Clipboard sync arrives in a later update.");
+    {
+        if (!_connected) return;
+        try
+        {
+            string text = Clipboard.ContainsText() ? Clipboard.GetText() : "";
+            if (string.IsNullOrEmpty(text)) { SetStatus("Your clipboard has no text to send."); return; }
+            _session!.SendClipboard(text);
+            SetStatus($"Sent {text.Length} chars to the remote clipboard ✓");
+        }
+        catch (Exception ex) { SetStatus("Clipboard read failed: " + ex.Message, "#F5484D"); }
+        RemoteImage.Focus();
+    }
 
     private void WinKeyBtn_Click(object sender, RoutedEventArgs e)
     {
@@ -647,6 +703,7 @@ public partial class ViewerWindow : Window
     protected override async void OnClosed(EventArgs e)
     {
         _timerTick?.Stop();
+        _pingTimer?.Stop();
         StopPan();
         if (_session != null) { try { await _session.CloseAsync(); } catch { } _session.Dispose(); _session = null; }
         base.OnClosed(e);
