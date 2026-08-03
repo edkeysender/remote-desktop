@@ -46,6 +46,10 @@ public partial class MainWindow : Window
         _config = AppConfig.Load("app");
         if (string.IsNullOrEmpty(_config.HostToken)) _config.HostToken = Guid.NewGuid().ToString("N");
         if (string.IsNullOrEmpty(_config.FixedPassword)) _config.FixedPassword = GeneratePassword();
+        // Clear the update-attempt marker once we're actually running the target version (or newer).
+        if (!string.IsNullOrEmpty(_config.UpdateTriedVersion) && Version.TryParse(_config.UpdateTriedVersion, out var tv)
+            && Updater.Current >= new Version(tv.Major, tv.Minor, Math.Max(0, tv.Build)))
+        { _config.UpdateTriedVersion = null; _config.UpdateTriedCount = 0; }
         _config.Save("app");
         _ = InitAsync();
     }
@@ -476,6 +480,11 @@ public partial class MainWindow : Window
     private void TryAutoUpdate()
     {
         if (_pendingUpdate == null || _updating || _inSession) return;
+        // Loop guard: if we already auto-applied this version and it didn't take (the running
+        // version is still older on restart — e.g. a locked/permission-blocked swap), stop
+        // auto-applying it. The manual Update button stays available.
+        if (_config.UpdateTriedVersion == _pendingUpdate.Version.ToString() && _config.UpdateTriedCount >= 1)
+            return;
         _ = DoUpdateAsync();
     }
 
@@ -483,6 +492,12 @@ public partial class MainWindow : Window
     {
         if (_pendingUpdate is not { } info || _updating) return;
         _updating = true;
+        // Record the attempt BEFORE applying so a restart loop is broken even if we never
+        // return from LaunchAndExit/Shutdown.
+        var v = info.Version.ToString();
+        _config.UpdateTriedCount = _config.UpdateTriedVersion == v ? _config.UpdateTriedCount + 1 : 1;
+        _config.UpdateTriedVersion = v;
+        _config.Save("app");
         try
         {
             _status = $"Downloading v{info.Version}…"; PushState();

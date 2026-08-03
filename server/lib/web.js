@@ -15,7 +15,9 @@ const PUBLIC_DIR = join(__dirname, '..', 'public');
 
 export function buildWebApp({ relayStatus, sendCommand, onlinePeer }) {
   const app = express.Router();
-  app.use(express.json());
+  // 8 MB: branding logos, device wallpapers and login backgrounds are data-URL JSON bodies
+  // that exceed Express's 100 KB default (was causing PayloadTooLargeError on upload).
+  app.use(express.json({ limit: '8mb' }));
 
   // Attach req.user from the session cookie or a Bearer token (desktop app).
   app.use((req, _res, next) => {

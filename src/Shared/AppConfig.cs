@@ -41,6 +41,12 @@ public sealed class AppConfig
     /// <summary>Recently-connected devices (most recent first), for the app's Recent list.</summary>
     public List<RecentConnection> Recent { get; set; } = new();
 
+    // ---- auto-update loop guard ----
+    /// <summary>The version we last auto-applied, so a failed swap can't loop forever.</summary>
+    public string? UpdateTriedVersion { get; set; }
+    /// <summary>How many times we've auto-applied that version without the running version advancing.</summary>
+    public int UpdateTriedCount { get; set; }
+
     // ---- unattended (machine) fields ----
     /// <summary>Stable host token → the server maps it to a fixed ID across restarts.</summary>
     public string? HostToken { get; set; }
