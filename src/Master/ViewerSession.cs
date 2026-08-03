@@ -30,6 +30,7 @@ public sealed class ViewerSession : IDisposable
     public event Action<int, int, byte[]>? Frame;   // width, height, BGR24
     public event Action<bool>? ControlReady;        // input data channel open/closed
     public event Action<List<RemoteMonitor>, int>? Monitors;  // available monitors, current index
+    public event Action<int, int, int, byte[]>? Thumbnail;    // monitor index, w, h, JPEG bytes
     public event Action<string?>? Closed;
 
     /// <summary>File send/receive over the session's "file" data channel.</summary>
@@ -115,8 +116,9 @@ public sealed class ViewerSession : IDisposable
 
         _pc.ondatachannel += chan =>
         {
-            // The host opens two channels: "input" for control, "file" for transfers.
+            // The host opens: "input" for control, "file" for transfers, "thumbs" for the rail.
             if (chan.label == "file") { Files.Attach(chan); return; }
+            if (chan.label == "thumbs") { chan.onmessage += (_, _, data) => OnThumb(data); return; }
             _inputChannel = chan;
             // On the answerer, the received channel's onopen does not reliably fire
             // (SIPSorcery), so poll IsOpened to detect readiness. Keep onopen too.
@@ -148,6 +150,20 @@ public sealed class ViewerSession : IDisposable
         var answer = _pc.createAnswer(null);
         await _pc.setLocalDescription(answer);
         await _conn.SendJsonAsync(new { t = "answer", sdp = answer.sdp });
+    }
+
+    private void OnThumb(byte[] data)
+    {
+        try
+        {
+            using var doc = JsonDocument.Parse(data);
+            var r = doc.RootElement;
+            if (r.TryGetProperty("t", out var tt) && tt.GetString() != "thumb") return;
+            int i = r.GetProperty("i").GetInt32(), w = r.GetProperty("w").GetInt32(), h = r.GetProperty("h").GetInt32();
+            var bytes = Convert.FromBase64String(r.GetProperty("img").GetString() ?? "");
+            if (bytes.Length > 0) Thumbnail?.Invoke(i, w, h, bytes);
+        }
+        catch { /* ignore a malformed thumbnail frame */ }
     }
 
     private void MarkControlReady()

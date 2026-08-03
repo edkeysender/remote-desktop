@@ -40,6 +40,16 @@ public partial class ViewerWindow : Window
     private readonly Stopwatch _sessionClock = new();
     private System.Windows.Threading.DispatcherTimer? _timerTick;
 
+    // monitor rail + minimap + overview
+    private readonly Dictionary<int, BitmapSource> _thumbImg = new();
+    private readonly Dictionary<int, Image> _railImg = new();
+    private readonly Dictionary<int, Image> _ovImg = new();
+    private bool _railExpanded;
+    private Canvas? _miniCanvas;
+    private System.Windows.Shapes.Rectangle? _miniRect;
+    private int _miniIndex = -2;
+    private bool _miniDragging;
+
     public ViewerWindow(string serverUrl, string id, string display,
                         string? password = null, string? adminPw = null, string? authToken = null)
     {
@@ -58,6 +68,7 @@ public partial class ViewerWindow : Window
         _session.Rejected  += r  => Dispatcher.Invoke(() => { SetStatus("Rejected: " + r, "#F5484D"); CloseSoon(); });
         _session.Frame     += DrawFrame;
         _session.Monitors  += (mons, cur) => Dispatcher.Invoke(() => PopulateMonitors(mons, cur));
+        _session.Thumbnail += (i, _, _, bytes) => Dispatcher.Invoke(() => OnThumb(i, bytes));
         _session.Closed    += r  => Dispatcher.Invoke(() => { if (_connected) SetStatus("Closed: " + (r ?? ""), "#8A8DA3"); CloseSoon(); });
 
         _session.Files.SendProgress     += (n, done, total) => FileProgress("Sending", n, done, total);
@@ -124,7 +135,9 @@ public partial class ViewerWindow : Window
     // ---- monitor picker (moves into the left rail in Phase B) ----
     private void PopulateMonitors(List<RemoteMonitor> mons, int current)
     {
-        _monitors = mons; _currentMon = current; RebuildMonitorButtons(); UpdateReadout();
+        _monitors = mons; _currentMon = current;
+        OverviewBtn.IsEnabled = mons.Count > 0;
+        RebuildMonitorButtons(); RebuildRail(); UpdateReadout();
     }
 
     private void RebuildMonitorButtons()
@@ -284,6 +297,7 @@ public partial class ViewerWindow : Window
             view = $"viewing {vw}×{vh}";
         }
         MonReadout.Text = $"{mon} · {_srcW}×{_srcH} · {view}";
+        UpdateMinimap();
     }
 
     // ---- theme ----
@@ -306,7 +320,174 @@ public partial class ViewerWindow : Window
             ThemeBtn.Content = "☀";
         }
         RebuildMonitorButtons();
+        RebuildRail();
         SetZoom(_zoom);   // refresh segment colours for the new theme
+    }
+
+    // ---- monitor rail + minimap + all-monitors overview (Phase B) ----
+    private void OnThumb(int index, byte[] jpeg)
+    {
+        try
+        {
+            var bi = new BitmapImage();
+            bi.BeginInit(); bi.CacheOption = BitmapCacheOption.OnLoad;
+            bi.StreamSource = new MemoryStream(jpeg); bi.EndInit(); bi.Freeze();
+            _thumbImg[index] = bi;
+            if (_railImg.TryGetValue(index, out var im)) im.Source = bi;
+            if (_ovImg.TryGetValue(index, out var im2)) im2.Source = bi;
+        }
+        catch { /* ignore a bad thumbnail */ }
+    }
+
+    private void RailToggle_Click(object sender, RoutedEventArgs e)
+    {
+        _railExpanded = !_railExpanded;
+        Rail.Width = _railExpanded ? 196 : 56;
+        RebuildRail();
+    }
+
+    private void RebuildRail()
+    {
+        if (RailList == null) return;
+        RailList.Children.Clear(); _railImg.Clear();
+        _miniCanvas = null; _miniRect = null; _miniIndex = -2;
+        RailBadgeText.Text = _monitors.Count.ToString();
+        double dispW = _railExpanded ? 172 : 40;
+        foreach (var m in _monitors)
+        {
+            double dispH = Math.Max(24, dispW * m.Height / Math.Max(1, m.Width));
+            bool active = m.Index == _currentMon;
+            int idx = m.Index;
+
+            var img = new Image { Stretch = Stretch.Fill };
+            if (_thumbImg.TryGetValue(idx, out var src)) img.Source = src;
+            _railImg[idx] = img;
+
+            var overlay = new Grid();
+            overlay.Children.Add(img);
+            if (active && _railExpanded)
+            {
+                var cv = new Canvas { Width = dispW, Height = dispH, Background = Brushes.Transparent, ClipToBounds = true, Cursor = Cursors.SizeAll };
+                var rect = new System.Windows.Shapes.Rectangle
+                {
+                    Stroke = new SolidColorBrush(Color.FromRgb(0x3E, 0xC8, 0xFF)), StrokeThickness = 1.5,
+                    Fill = new SolidColorBrush(Color.FromArgb(0x22, 0x3E, 0xC8, 0xFF)), Visibility = Visibility.Collapsed
+                };
+                cv.Children.Add(rect);
+                cv.MouseLeftButtonDown += MiniDown; cv.MouseMove += MiniMove; cv.MouseLeftButtonUp += MiniUp;
+                overlay.Children.Add(cv);
+                _miniCanvas = cv; _miniRect = rect; _miniIndex = idx;
+            }
+
+            var frame = new Border
+            {
+                Width = dispW, Height = dispH, CornerRadius = new CornerRadius(6), ClipToBounds = true,
+                BorderThickness = new Thickness(active ? 2 : 1),
+                BorderBrush = new SolidColorBrush(active ? Color.FromRgb(0x5B, 0x5B, 0xF5) : Res("LineBrush")),
+                Background = new SolidColorBrush(Color.FromRgb(0x0d, 0x11, 0x17)),
+                Child = overlay, Cursor = Cursors.Hand
+            };
+            frame.MouseLeftButtonUp += (_, _) => SwitchTo(idx);
+
+            var card = new StackPanel { Margin = new Thickness(0, 0, 0, 8) };
+            card.Children.Add(frame);
+            if (_railExpanded)
+                card.Children.Add(new TextBlock
+                {
+                    Text = $"{m.Index + 1} · {m.Width}×{m.Height}",
+                    Foreground = new SolidColorBrush(Res("MutedBrush")), FontSize = 10.5,
+                    Margin = new Thickness(2, 3, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis
+                });
+            RailList.Children.Add(card);
+        }
+        UpdateMinimap();
+    }
+
+    private void SwitchTo(int index)
+    {
+        if (!_connected) return;
+        CloseOverview();
+        if (index == _currentMon) return;
+        _currentMon = index;
+        _session?.SelectMonitor(index);
+        RebuildMonitorButtons(); RebuildRail(); SetZoom(0);
+    }
+
+    private void UpdateMinimap()
+    {
+        if (_miniRect == null || _miniCanvas == null || _miniIndex != _currentMon) return;
+        if (_zoom <= 0 || _srcW <= 0 || _srcH <= 0) { _miniRect.Visibility = Visibility.Collapsed; return; }
+        double cw = _miniCanvas.Width, ch = _miniCanvas.Height;
+        double sx = cw / _srcW, sy = ch / _srcH;
+        double visW = Math.Min(_srcW, Scroller.ViewportWidth / _zoom);
+        double visH = Math.Min(_srcH, Scroller.ViewportHeight / _zoom);
+        _miniRect.Visibility = Visibility.Visible;
+        _miniRect.Width = Math.Max(6, visW * sx);
+        _miniRect.Height = Math.Max(6, visH * sy);
+        Canvas.SetLeft(_miniRect, Scroller.HorizontalOffset / _zoom * sx);
+        Canvas.SetTop(_miniRect, Scroller.VerticalOffset / _zoom * sy);
+    }
+
+    private void MiniDown(object sender, MouseButtonEventArgs e)
+    { _miniDragging = true; _miniCanvas?.CaptureMouse(); MiniTo(e.GetPosition(_miniCanvas)); e.Handled = true; }
+    private void MiniMove(object sender, MouseEventArgs e)
+    { if (_miniDragging) { MiniTo(e.GetPosition(_miniCanvas)); e.Handled = true; } }
+    private void MiniUp(object sender, MouseButtonEventArgs e)
+    { _miniDragging = false; _miniCanvas?.ReleaseMouseCapture(); e.Handled = true; }
+
+    private void MiniTo(Point p)
+    {
+        if (_miniCanvas == null || _zoom <= 0) return;
+        double cw = _miniCanvas.Width, ch = _miniCanvas.Height;
+        double srcX = p.X / cw * _srcW, srcY = p.Y / ch * _srcH;
+        Scroller.ScrollToHorizontalOffset(srcX * _zoom - Scroller.ViewportWidth / 2);
+        Scroller.ScrollToVerticalOffset(srcY * _zoom - Scroller.ViewportHeight / 2);
+    }
+
+    private void OverviewBtn_Click(object sender, RoutedEventArgs e)
+    {
+        BuildOverview();
+        Overview.Visibility = Visibility.Visible;
+    }
+
+    private void OverviewClose_Click(object sender, RoutedEventArgs e) => CloseOverview();
+    private void CloseOverview() { if (Overview != null) Overview.Visibility = Visibility.Collapsed; }
+
+    private void BuildOverview()
+    {
+        OverviewGrid.Children.Clear(); _ovImg.Clear();
+        OverviewTitle.Text = _monitors.Count > 1 ? $"All monitors · {_monitors.Count}" : "Display";
+        double dispW = 280;
+        foreach (var m in _monitors)
+        {
+            double dispH = Math.Max(60, dispW * m.Height / Math.Max(1, m.Width));
+            bool active = m.Index == _currentMon;
+            int idx = m.Index;
+
+            var img = new Image { Stretch = Stretch.Fill };
+            if (_thumbImg.TryGetValue(idx, out var src)) img.Source = src;
+            _ovImg[idx] = img;
+
+            var frame = new Border
+            {
+                Width = dispW, Height = dispH, CornerRadius = new CornerRadius(10), ClipToBounds = true,
+                BorderThickness = new Thickness(active ? 3 : 1),
+                BorderBrush = new SolidColorBrush(active ? Color.FromRgb(0x3E, 0xC8, 0xFF) : Res("LineBrush")),
+                Background = new SolidColorBrush(Color.FromRgb(0x0d, 0x11, 0x17)),
+                Child = img, Cursor = Cursors.Hand
+            };
+            frame.MouseLeftButtonUp += (_, _) => SwitchTo(idx);
+
+            var card = new StackPanel { Margin = new Thickness(0, 0, 16, 16), Width = dispW };
+            card.Children.Add(frame);
+            card.Children.Add(new TextBlock
+            {
+                Text = $"Display {m.Index + 1} · {m.Name} · {m.Width}×{m.Height}" + (active ? "  (viewing)" : ""),
+                Foreground = new SolidColorBrush(active ? Color.FromRgb(0x3E, 0xC8, 0xFF) : Res("MutedBrush")),
+                FontSize = 12, Margin = new Thickness(2, 6, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis
+            });
+            OverviewGrid.Children.Add(card);
+        }
     }
 
     // ---- frame rendering ----
@@ -436,6 +617,7 @@ public partial class ViewerWindow : Window
     // ---- keyboard ----
     protected override void OnPreviewKeyDown(KeyEventArgs e)
     {
+        if (e.Key == Key.Escape && Overview.Visibility == Visibility.Visible) { CloseOverview(); e.Handled = true; return; }
         if (ForwardKey(e, down: true)) e.Handled = true; else base.OnPreviewKeyDown(e);
     }
 

@@ -194,66 +194,115 @@
             </Grid>
         </Border>
 
-        <!-- ============ STAGE ============ -->
+        <!-- ============ RAIL + STAGE ============ -->
         <Grid Grid.Row="1">
-            <TextBlock x:Name="Hint" Foreground="{DynamicResource MutedBrush}" FontSize="14" TextAlignment="Center"
-                       HorizontalAlignment="Center" VerticalAlignment="Center"
-                       Text="Connecting to the remote computer…"/>
-            <ScrollViewer x:Name="Scroller" Visibility="Collapsed" Background="{DynamicResource StageBrush}"
-                          HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled"
-                          Focusable="False" PreviewMouseWheel="Scroller_PreviewMouseWheel"
-                          MouseLeave="Scroller_MouseLeave" ScrollChanged="Scroller_ScrollChanged"
-                          AllowDrop="True" DragOver="RemoteView_DragOver" Drop="RemoteView_Drop"
-                          DragLeave="RemoteView_DragLeave">
-                <Image x:Name="RemoteImage" Stretch="Uniform" Focusable="True" AllowDrop="True"
-                       HorizontalAlignment="Center" VerticalAlignment="Center"
-                       MouseMove="RemoteImage_MouseMove"
-                       MouseDown="RemoteImage_MouseDown"
-                       MouseUp="RemoteImage_MouseUp"/>
-            </ScrollViewer>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
 
-            <!-- edge-pan indicators (non-interactive) -->
-            <Grid IsHitTestVisible="False">
-                <Border x:Name="EdgeTop" Height="46" VerticalAlignment="Top" Visibility="Collapsed">
-                    <Border.Background>
-                        <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
-                            <GradientStop Color="#663EC8FF" Offset="0"/><GradientStop Color="#003EC8FF" Offset="1"/>
-                        </LinearGradientBrush>
-                    </Border.Background>
-                    <TextBlock Text="⌃" Foreground="#3EC8FF" FontSize="22" HorizontalAlignment="Center" VerticalAlignment="Top"/>
-                </Border>
-                <Border x:Name="EdgeBottom" Height="46" VerticalAlignment="Bottom" Visibility="Collapsed">
-                    <Border.Background>
-                        <LinearGradientBrush StartPoint="0,1" EndPoint="0,0">
-                            <GradientStop Color="#663EC8FF" Offset="0"/><GradientStop Color="#003EC8FF" Offset="1"/>
-                        </LinearGradientBrush>
-                    </Border.Background>
-                    <TextBlock Text="⌄" Foreground="#3EC8FF" FontSize="22" HorizontalAlignment="Center" VerticalAlignment="Bottom"/>
-                </Border>
-                <Border x:Name="EdgeLeft" Width="46" HorizontalAlignment="Left" Visibility="Collapsed">
-                    <Border.Background>
-                        <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
-                            <GradientStop Color="#663EC8FF" Offset="0"/><GradientStop Color="#003EC8FF" Offset="1"/>
-                        </LinearGradientBrush>
-                    </Border.Background>
-                    <TextBlock Text="‹" Foreground="#3EC8FF" FontSize="22" HorizontalAlignment="Left" VerticalAlignment="Center"/>
-                </Border>
-                <Border x:Name="EdgeRight" Width="46" HorizontalAlignment="Right" Visibility="Collapsed">
-                    <Border.Background>
-                        <LinearGradientBrush StartPoint="1,0" EndPoint="0,0">
-                            <GradientStop Color="#663EC8FF" Offset="0"/><GradientStop Color="#003EC8FF" Offset="1"/>
-                        </LinearGradientBrush>
-                    </Border.Background>
-                    <TextBlock Text="›" Foreground="#3EC8FF" FontSize="22" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+            <!-- MONITOR RAIL -->
+            <Border x:Name="Rail" Grid.Column="0" Width="56" Background="{DynamicResource ChromeBrush}"
+                    BorderBrush="{DynamicResource LineBrush}" BorderThickness="0,0,1,0">
+                <DockPanel LastChildFill="True">
+                    <!-- header: expand toggle + monitor count badge -->
+                    <Border DockPanel.Dock="Top" Padding="8,10,8,6">
+                        <Grid>
+                            <Button x:Name="RailToggle" Style="{StaticResource ToolBtn}" HorizontalAlignment="Left"
+                                    Padding="8,0" Click="RailToggle_Click" ToolTip="Expand / collapse the monitor rail"
+                                    Content="🖥"/>
+                            <Border x:Name="RailBadge" Background="{DynamicResource AccentBrush}" CornerRadius="999"
+                                    Padding="6,1" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,-2,0,0">
+                                <TextBlock x:Name="RailBadgeText" Text="1" Foreground="White" FontSize="10.5" FontWeight="Bold"/>
+                            </Border>
+                        </Grid>
+                    </Border>
+                    <!-- footer: all-monitors overview -->
+                    <Button x:Name="OverviewBtn" DockPanel.Dock="Bottom" Style="{StaticResource ToolBtn}"
+                            Margin="8,6,8,10" IsEnabled="False" Click="OverviewBtn_Click"
+                            Content="▦" ToolTip="Show all monitors"/>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <StackPanel x:Name="RailList" Margin="8,0"/>
+                    </ScrollViewer>
+                </DockPanel>
+            </Border>
+
+            <!-- STAGE -->
+            <Grid Grid.Column="1">
+                <TextBlock x:Name="Hint" Foreground="{DynamicResource MutedBrush}" FontSize="14" TextAlignment="Center"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           Text="Connecting to the remote computer…"/>
+                <ScrollViewer x:Name="Scroller" Visibility="Collapsed" Background="{DynamicResource StageBrush}"
+                              HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled"
+                              Focusable="False" PreviewMouseWheel="Scroller_PreviewMouseWheel"
+                              MouseLeave="Scroller_MouseLeave" ScrollChanged="Scroller_ScrollChanged"
+                              AllowDrop="True" DragOver="RemoteView_DragOver" Drop="RemoteView_Drop"
+                              DragLeave="RemoteView_DragLeave">
+                    <Image x:Name="RemoteImage" Stretch="Uniform" Focusable="True" AllowDrop="True"
+                           HorizontalAlignment="Center" VerticalAlignment="Center"
+                           MouseMove="RemoteImage_MouseMove"
+                           MouseDown="RemoteImage_MouseDown"
+                           MouseUp="RemoteImage_MouseUp"/>
+                </ScrollViewer>
+
+                <!-- edge-pan indicators (non-interactive) -->
+                <Grid IsHitTestVisible="False">
+                    <Border x:Name="EdgeTop" Height="46" VerticalAlignment="Top" Visibility="Collapsed">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="0,1">
+                                <GradientStop Color="#663EC8FF" Offset="0"/><GradientStop Color="#003EC8FF" Offset="1"/>
+                            </LinearGradientBrush>
+                        </Border.Background>
+                        <TextBlock Text="⌃" Foreground="#3EC8FF" FontSize="22" HorizontalAlignment="Center" VerticalAlignment="Top"/>
+                    </Border>
+                    <Border x:Name="EdgeBottom" Height="46" VerticalAlignment="Bottom" Visibility="Collapsed">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0,1" EndPoint="0,0">
+                                <GradientStop Color="#663EC8FF" Offset="0"/><GradientStop Color="#003EC8FF" Offset="1"/>
+                            </LinearGradientBrush>
+                        </Border.Background>
+                        <TextBlock Text="⌄" Foreground="#3EC8FF" FontSize="22" HorizontalAlignment="Center" VerticalAlignment="Bottom"/>
+                    </Border>
+                    <Border x:Name="EdgeLeft" Width="46" HorizontalAlignment="Left" Visibility="Collapsed">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="0,0" EndPoint="1,0">
+                                <GradientStop Color="#663EC8FF" Offset="0"/><GradientStop Color="#003EC8FF" Offset="1"/>
+                            </LinearGradientBrush>
+                        </Border.Background>
+                        <TextBlock Text="‹" Foreground="#3EC8FF" FontSize="22" HorizontalAlignment="Left" VerticalAlignment="Center"/>
+                    </Border>
+                    <Border x:Name="EdgeRight" Width="46" HorizontalAlignment="Right" Visibility="Collapsed">
+                        <Border.Background>
+                            <LinearGradientBrush StartPoint="1,0" EndPoint="0,0">
+                                <GradientStop Color="#663EC8FF" Offset="0"/><GradientStop Color="#003EC8FF" Offset="1"/>
+                            </LinearGradientBrush>
+                        </Border.Background>
+                        <TextBlock Text="›" Foreground="#3EC8FF" FontSize="22" HorizontalAlignment="Right" VerticalAlignment="Center"/>
+                    </Border>
+                </Grid>
+
+                <Border x:Name="DropHint" Visibility="Collapsed" IsHitTestVisible="False"
+                        Background="#CC05060B" BorderBrush="#5B5BF5" BorderThickness="2"
+                        Margin="24" CornerRadius="14">
+                    <TextBlock Text="⬇  Drop files to send them to the remote PC" Foreground="#8B8BFF"
+                               FontSize="18" FontWeight="SemiBold"
+                               HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>
             </Grid>
 
-            <Border x:Name="DropHint" Visibility="Collapsed" IsHitTestVisible="False"
-                    Background="#CC05060B" BorderBrush="#5B5BF5" BorderThickness="2"
-                    Margin="24" CornerRadius="14">
-                <TextBlock Text="⬇  Drop files to send them to the remote PC" Foreground="#8B8BFF"
-                           FontSize="18" FontWeight="SemiBold"
-                           HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            <!-- ALL-MONITORS OVERVIEW (spans rail + stage) -->
+            <Border x:Name="Overview" Grid.ColumnSpan="2" Visibility="Collapsed" Background="#E6060810">
+                <DockPanel LastChildFill="True" Margin="28">
+                    <Grid DockPanel.Dock="Top" Margin="0,0,0,18">
+                        <TextBlock x:Name="OverviewTitle" Text="All monitors" Foreground="{DynamicResource TextBrush}"
+                                   FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
+                        <Button Content="✕ Close" Style="{StaticResource ToolBtn}" HorizontalAlignment="Right"
+                                Click="OverviewClose_Click"/>
+                    </Grid>
+                    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <WrapPanel x:Name="OverviewGrid"/>
+                    </ScrollViewer>
+                </DockPanel>
             </Border>
         </Grid>
 

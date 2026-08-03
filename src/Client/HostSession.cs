@@ -34,6 +34,8 @@ public sealed class HostSession : IDisposable
     private RTCPeerConnection? _pc;
     private RTCDataChannel? _inputChannel;
     private RTCDataChannel? _fileChannel;
+    private RTCDataChannel? _thumbChannel;
+    private ThumbnailStreamer? _thumbs;
     private VpxVideoEncoder? _encoder;
     private CancellationTokenSource? _pumpCts;
     private Task? _pumpTask;
@@ -194,6 +196,10 @@ public sealed class HostSession : IDisposable
         _fileChannel = await _pc.createDataChannel("file", null);
         Files.Attach(_fileChannel);
 
+        // Low-fps per-monitor thumbnails for the viewer's rail + all-monitors overview.
+        _thumbChannel = await _pc.createDataChannel("thumbs", null);
+        _thumbs = new ThumbnailStreamer(_monitors, s => { try { if (_thumbChannel is { IsOpened: true }) _thumbChannel.send(s); } catch { } });
+
         _pc.onicecandidate += c =>
         {
             if (c != null) _ = _conn!.SendJsonAsync(new { t = "ice", candidate = c.ToString() });
@@ -206,6 +212,7 @@ public sealed class HostSession : IDisposable
                 Status?.Invoke("Session active — streaming");
                 SendMonitorList();
                 StartPump();
+                _thumbs?.Start();
             }
             else if (s is RTCPeerConnectionState.failed or RTCPeerConnectionState.disconnected or RTCPeerConnectionState.closed)
                 StopPump();
@@ -360,11 +367,13 @@ public sealed class HostSession : IDisposable
     {
         _pcConnected = false;
         StopPump();                                 // guarantees the pump loop has exited
+        _thumbs?.Dispose(); _thumbs = null;
         Files.Detach();
         try { _fileChannel?.close(); } catch { }
         try { _inputChannel?.close(); } catch { }
+        try { _thumbChannel?.close(); } catch { }
         try { _pc?.Close("session ended"); } catch { }
-        _inputChannel = null; _fileChannel = null; _pc = null;
+        _inputChannel = null; _fileChannel = null; _thumbChannel = null; _pc = null;
         lock (_encLock) { _encoder?.Dispose(); _encoder = null; }
     }
 
