@@ -10,9 +10,29 @@ public partial class App : Application
 
     private void OnStartup(object sender, StartupEventArgs e)
     {
+        // Installer seeds a custom unattended password: `--set-password <pw>` writes it to the
+        // machine config (runs elevated from the installer) and exits.
+        int pi = Array.FindIndex(e.Args, a => a.Equals("--set-password", StringComparison.OrdinalIgnoreCase));
+        if (pi >= 0 && pi + 1 < e.Args.Length)
+        {
+            SetUnattendedPassword(e.Args[pi + 1]);
+            Shutdown();
+            return;
+        }
+
         bool worker = e.Args.Any(a => a.Equals("--worker", StringComparison.OrdinalIgnoreCase));
         if (worker) StartWorkerMode();
         else new MainWindow().Show();
+    }
+
+    private static void SetUnattendedPassword(string pw)
+    {
+        pw = (pw ?? "").Trim();
+        if (pw.Length == 0) return;
+        var cfg = AppConfig.LoadMachine("machine");
+        cfg.UnattendedPassword = pw;
+        if (string.IsNullOrEmpty(cfg.HostToken)) cfg.HostToken = Guid.NewGuid().ToString("N");
+        cfg.SaveMachine("machine");
     }
 
     /// <summary>

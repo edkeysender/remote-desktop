@@ -65,6 +65,10 @@ Filename: "{sys}\sc.exe"; \
 Filename: "{sys}\sc.exe"; \
     Parameters: "description {#SvcName} ""Unattended remote access for AllViewer (LocalSystem)."""; \
     Flags: runhidden; Tasks: unattended
+; Seed a custom unattended password (if the admin typed one) BEFORE the service starts,
+; so the worker picks it up instead of auto-generating a random one.
+Filename: "{app}\{#AppExe}"; Parameters: "--set-password ""{code:GetUnattendedPw}"""; \
+    Flags: runhidden waituntilterminated; Tasks: unattended; Check: HasUnattendedPw
 Filename: "{sys}\sc.exe"; Parameters: "start {#SvcName}"; Flags: runhidden; Tasks: unattended
 Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName} now"; Flags: nowait postinstall skipifsilent
 
@@ -74,6 +78,37 @@ Filename: "{sys}\sc.exe"; Parameters: "stop {#SvcName}"; Flags: runhidden; RunOn
 Filename: "{sys}\sc.exe"; Parameters: "delete {#SvcName}"; Flags: runhidden; RunOnceId: "DelAllViewerSvc"
 
 [Code]
+var
+  UnPwPage: TInputQueryWizardPage;
+
+// A password page (masked) for the unattended service, shown only when that task is chosen.
+procedure InitializeWizard;
+begin
+  UnPwPage := CreateInputQueryPage(wpSelectTasks,
+    'Unattended password',
+    'Password for unattended access',
+    'Set the password technicians will use to connect to this PC when no one is signed in. ' +
+    'Leave blank to auto-generate a random one (you can see/change it later in the app).');
+  UnPwPage.Add('Unattended password:', True);
+end;
+
+function ShouldSkipPage(PageID: Integer): Boolean;
+begin
+  Result := False;
+  if PageID = UnPwPage.ID then
+    Result := not WizardIsTaskSelected('unattended');
+end;
+
+function GetUnattendedPw(Param: String): String;
+begin
+  Result := UnPwPage.Values[0];
+end;
+
+function HasUnattendedPw: Boolean;
+begin
+  Result := Trim(UnPwPage.Values[0]) <> '';
+end;
+
 // On upgrade the service may be running and holding AllViewerService.exe open, which would
 // block [Files] from overwriting it. Stop it (best-effort) before files are copied.
 function PrepareToInstall(var NeedsRestart: Boolean): String;
