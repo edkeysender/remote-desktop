@@ -316,8 +316,45 @@ export function revokeInvite(token, orgId) {
 // ------------------------------- groups -------------------------------
 
 export function createGroup(orgId, name) {
-  const g = { id: id('grp_'), orgId, name: name || 'Group' };
+  const g = { id: id('grp_'), orgId, name: name || 'Group', description: '', email: '', phone: '', address: '' };
   db.groups[g.id] = g;
+  save();
+  return g;
+}
+
+// Update a group's editable fields (name + description + contact info).
+export function updateGroup(groupId, orgId, fields) {
+  const g = db.groups[groupId];
+  if (!g || g.orgId !== orgId) return null;
+  if (typeof fields.name === 'string' && fields.name.trim()) g.name = fields.name.trim();
+  for (const k of ['description', 'email', 'phone', 'address'])
+    if (typeof fields[k] === 'string') g[k] = fields[k];
+  save();
+  return g;
+}
+
+// Set exactly which users and devices belong to a group (from the group editor).
+export function setGroupMembers(groupId, orgId, { userIds, deviceTokens }) {
+  const g = db.groups[groupId];
+  if (!g || g.orgId !== orgId) return null;
+  if (Array.isArray(userIds)) {
+    const want = new Set(userIds);
+    for (const u of Object.values(db.users)) {
+      if (u.orgId !== orgId) continue;
+      u.groupIds = u.groupIds || [];
+      const has = u.groupIds.includes(groupId);
+      if (want.has(u.id) && !has) u.groupIds.push(groupId);
+      else if (!want.has(u.id) && has) u.groupIds = u.groupIds.filter((x) => x !== groupId);
+    }
+  }
+  if (Array.isArray(deviceTokens)) {
+    const want = new Set(deviceTokens);
+    for (const c of Object.values(db.computers)) {
+      if (c.orgId !== orgId) continue;
+      if (want.has(c.deviceToken)) c.groupId = groupId;
+      else if (c.groupId === groupId) c.groupId = null;
+    }
+  }
   save();
   return g;
 }

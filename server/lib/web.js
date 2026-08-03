@@ -161,15 +161,35 @@ export function buildWebApp({ relayStatus, sendCommand, onlinePeer }) {
 
   // ------------------------------- groups -------------------------------
 
-  app.get('/api/groups', requireUser, (req, res) => res.json(store.listGroups(req.user.orgId)));
+  app.get('/api/groups', requireUser, (req, res) => {
+    const users = store.listUsers(req.user.orgId);
+    const comps = store.listComputers(req.user.orgId);
+    res.json(store.listGroups(req.user.orgId).map((g) => ({
+      id: g.id, name: g.name, description: g.description || '',
+      email: g.email || '', phone: g.phone || '', address: g.address || '',
+      deviceCount: comps.filter((c) => c.groupId === g.id).length,
+      userCount: users.filter((u) => (u.groupIds || []).includes(g.id)).length,
+    })));
+  });
   app.post('/api/groups', requireUser, requireAdmin, (req, res) => {
     const g = store.createGroup(req.user.orgId, (req.body?.name || '').trim());
     store.logEvent(req.user.orgId, 'group.create', { actorEmail: req.user.email, target: g.name });
     res.json(g);
   });
   app.patch('/api/groups/:id', requireUser, requireAdmin, (req, res) => {
-    const g = store.renameGroup(req.params.id, req.user.orgId, (req.body?.name || '').trim());
-    g ? res.json(g) : res.status(404).json({ error: 'no such group' });
+    const g = store.updateGroup(req.params.id, req.user.orgId, req.body || {});
+    if (!g) return res.status(404).json({ error: 'no such group' });
+    store.logEvent(req.user.orgId, 'group.update', { actorEmail: req.user.email, target: g.name });
+    res.json(g);
+  });
+  // Set which users + devices belong to a group (from the group editor).
+  app.put('/api/groups/:id/members', requireUser, requireAdmin, (req, res) => {
+    const g = store.setGroupMembers(req.params.id, req.user.orgId, {
+      userIds: req.body?.userIds, deviceTokens: req.body?.deviceTokens,
+    });
+    if (!g) return res.status(404).json({ error: 'no such group' });
+    store.logEvent(req.user.orgId, 'group.members', { actorEmail: req.user.email, target: g.name });
+    res.json({ ok: true });
   });
   app.delete('/api/groups/:id', requireUser, requireAdmin, (req, res) => {
     store.deleteGroup(req.params.id, req.user.orgId);
