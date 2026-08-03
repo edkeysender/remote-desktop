@@ -177,7 +177,7 @@ public partial class MainWindow : Window
                 .Select(d => (object)new { name = d.Name, relayId = d.Id, online = true, group = d.GroupName, lan = true })
                 .ToArray(),
             groups,
-            recent = Array.Empty<object>(),
+            recent = BuildRecent(),
             alerts = Array.Empty<object>(),
             error = _lastError,
         };
@@ -307,10 +307,42 @@ public partial class MainWindow : Window
     {
         id = id.Replace(" ", "");
         if (id.Length == 0) return;
+        RecordRecent(string.IsNullOrWhiteSpace(display) ? id : display, id);
         var server = string.IsNullOrWhiteSpace(serverOverride) ? _config.ServerUrl : serverOverride!;
         var w = new ViewerWindow(server, id, display, password: password, authToken: authToken,
                                  peerToken: _config.HostToken, fleetProvider: CurrentFleetSnapshot) { Owner = this };
         w.Show();
+    }
+
+    // Recent connections for the app's Recent list; mark each online if it's reachable now.
+    private object[] BuildRecent()
+    {
+        var online = new HashSet<string>(CurrentFleetSnapshot().Where(f => f.Online && !string.IsNullOrEmpty(f.RelayId)).Select(f => f.RelayId!));
+        return _config.Recent.Select(r => (object)new
+        {
+            name = r.Name, relayId = r.RelayId, online = online.Contains(r.RelayId), when = RelWhen(r.WhenUnixMs)
+        }).ToArray();
+    }
+
+    private static string RelWhen(long ms)
+    {
+        if (ms <= 0) return "";
+        var dt = DateTimeOffset.FromUnixTimeMilliseconds(ms);
+        var s = (DateTimeOffset.UtcNow - dt).TotalSeconds;
+        if (s < 60) return "just now";
+        if (s < 3600) return $"{(int)(s / 60)}m ago";
+        if (s < 86400) return $"{(int)(s / 3600)}h ago";
+        return dt.LocalDateTime.ToString("MMM d");
+    }
+
+    private void RecordRecent(string name, string relayId)
+    {
+        if (string.IsNullOrWhiteSpace(relayId)) return;
+        _config.Recent.RemoveAll(r => r.RelayId == relayId);
+        _config.Recent.Insert(0, new RecentConnection { Name = name, RelayId = relayId, WhenUnixMs = DateTimeOffset.UtcNow.ToUnixTimeMilliseconds() });
+        if (_config.Recent.Count > 12) _config.Recent.RemoveRange(12, _config.Recent.Count - 12);
+        _config.Save("app");
+        PushState();
     }
 
     // Snapshot of devices this app can reach right now (account computers + relay siblings +

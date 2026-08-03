@@ -8,6 +8,14 @@ namespace RemoteDesktop.Shared;
 ///   • machine-wide (<c>LoadMachine</c>/<c>SaveMachine</c>) under %ProgramData%\FTD Remote —
 ///     used by the unattended service/worker (which runs as SYSTEM, not a user).
 /// </summary>
+/// <summary>One entry in the Recent connections list.</summary>
+public sealed class RecentConnection
+{
+    public string Name { get; set; } = "";
+    public string RelayId { get; set; } = "";
+    public long WhenUnixMs { get; set; }
+}
+
 public sealed class AppConfig
 {
     public string ServerUrl { get; set; } = "ws://localhost:8080";
@@ -29,6 +37,9 @@ public sealed class AppConfig
     public string? EnrollToken { get; set; }
     /// <summary>Host: show a consent prompt before accepting each incoming session (attended mode).</summary>
     public bool AskConsent { get; set; }
+
+    /// <summary>Recently-connected devices (most recent first), for the app's Recent list.</summary>
+    public List<RecentConnection> Recent { get; set; } = new();
 
     // ---- unattended (machine) fields ----
     /// <summary>Stable host token → the server maps it to a fixed ID across restarts.</summary>
