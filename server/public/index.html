@@ -327,9 +327,9 @@ async function viewBranding(){
       <label>App name</label><input id="bname" value="${esc(b.appName)}" maxlength="40">
       <label>Accent colour</label>
       <div class="rowline" style="border:none;padding:6px 0"><input id="bcolor" type="color" value="${esc(b.accent)}" style="width:60px;height:38px;padding:2px"><input id="bcolorhex" value="${esc(b.accent)}" style="max-width:120px" maxlength="7"></div>
-      <label>Logo (PNG/SVG, small)</label>
+      <label>Logo (PNG/SVG) — auto-scaled to fit, any shape</label>
       <div class="rowline" style="border:none;padding:6px 0">
-        <div id="blogo" style="width:44px;height:44px;border-radius:11px;background:${esc(b.accent)};display:grid;place-items:center;overflow:hidden">${b.logo?`<img src="${esc(b.logo)}" style="width:100%;height:100%;object-fit:cover">`:''}</div>
+        <div id="blogo" style="width:44px;height:44px;border-radius:11px;background:${esc(b.accent)};display:grid;place-items:center;overflow:hidden">${b.logo?`<img src="${esc(b.logo)}" style="width:100%;height:100%;object-fit:contain">`:''}</div>
         <input id="bfile" type="file" accept="image/png,image/svg+xml" style="max-width:260px">
         <button class="ghost sm" id="bclear">Remove</button>
       </div>
@@ -339,8 +339,23 @@ async function viewBranding(){
   const sync=(v)=>{ view().querySelector('#bcolor').value=v; view().querySelector('#bcolorhex').value=v; view().querySelector('#blogo').style.background=v; };
   view().querySelector('#bcolor').oninput=e=>sync(e.target.value);
   view().querySelector('#bcolorhex').onchange=e=>{ if(/^#[0-9a-fA-F]{6}$/.test(e.target.value)) sync(e.target.value); };
-  view().querySelector('#bfile').onchange=e=>{ const f=e.target.files[0]; if(!f)return; if(f.size>300000){view().querySelector('#bmsg').textContent='Logo too large (max ~300 KB).';return;}
-    const rd=new FileReader(); rd.onload=()=>{ logo=rd.result; view().querySelector('#blogo').innerHTML=`<img src="${logo}" style="width:100%;height:100%;object-fit:cover">`; }; rd.readAsDataURL(f); };
+  const normalizeLogo=(f)=>new Promise((res,rej)=>{
+    // SVGs are resolution-independent — store as-is and let object-fit:contain scale them.
+    if(f.type==='image/svg+xml'){ const r=new FileReader(); r.onload=()=>res(r.result); r.onerror=rej; r.readAsDataURL(f); return; }
+    const r=new FileReader();
+    r.onload=()=>{ const img=new Image(); img.onload=()=>{
+      const S=128, cv=document.createElement('canvas'); cv.width=S; cv.height=S;
+      const ctx=cv.getContext('2d'); const scale=Math.min(S/img.width,S/img.height);
+      const w=img.width*scale, h=img.height*scale;
+      ctx.clearRect(0,0,S,S); ctx.drawImage(img,(S-w)/2,(S-h)/2,w,h);
+      res(cv.toDataURL('image/png')); }; img.onerror=rej; img.src=r.result; };
+    r.onerror=rej; r.readAsDataURL(f);
+  });
+  view().querySelector('#bfile').onchange=async e=>{ const f=e.target.files[0]; if(!f)return;
+    if(f.size>1500000){view().querySelector('#bmsg').textContent='Image too large (max ~1.5 MB before scaling).';return;}
+    view().querySelector('#bmsg').textContent='';
+    try{ logo=await normalizeLogo(f); view().querySelector('#blogo').innerHTML=`<img src="${logo}" style="width:100%;height:100%;object-fit:contain">`; }
+    catch{ view().querySelector('#bmsg').textContent='Could not read that image.'; } };
   view().querySelector('#bclear').onclick=()=>{ logo=null; view().querySelector('#blogo').innerHTML=''; };
   view().querySelector('#bsave').onclick=async()=>{ try{ await api('/api/branding','PUT',{appName:view().querySelector('#bname').value,accent:view().querySelector('#bcolorhex').value,logo}); view().querySelector('#bmsg').textContent='Saved ✓ — enrolled apps update on next launch.'; }catch(x){ view().querySelector('#bmsg').textContent=x.message; } };
 }
