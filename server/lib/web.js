@@ -96,6 +96,14 @@ export function buildWebApp({ relayStatus, sendCommand, onlinePeer }) {
     res.json({ ok: true });
   });
 
+  // ---- per-org network / ICE (STUN/TURN): any member reads; managers set ----
+  app.get('/api/ice', requireUser, (req, res) => res.json(store.getIce(req.user.orgId)));
+  app.put('/api/ice', requireUser, requireAdmin, (req, res) => {
+    const i = store.setIce(req.user.orgId, req.body || {});
+    store.logEvent(req.user.orgId, 'network', { actorEmail: req.user.email });
+    res.json(i);
+  });
+
   // ---- per-org branding (white-label): any member can read; managers can set ----
   app.get('/api/branding', requireUser, (req, res) => res.json(store.getBranding(req.user.orgId)));
   app.put('/api/branding', requireUser, requireAdmin, (req, res) => {

@@ -45,6 +45,7 @@ public sealed class HostSession : IDisposable
 
     private readonly SystemMetrics _metrics = new();
     private System.Threading.Timer? _metricsTimer;   // periodic health report over signaling
+    private List<RTCIceServer>? _iceServers;          // org network settings from 'registered'
 
     public event Action<string>? IdAssigned;
     public event Action<string?>? OrgAssigned;   // org name this host is claimed into (null = none)
@@ -87,6 +88,8 @@ public sealed class HostSession : IDisposable
                 IdAssigned?.Invoke(root.GetProperty("id").GetString() ?? "?");
                 OrgAssigned?.Invoke(root.TryGetProperty("org", out var o) && o.ValueKind == JsonValueKind.Object
                     ? o.GetProperty("name").GetString() : null);
+                if (root.TryGetProperty("ice", out var ice) && ice.ValueKind == JsonValueKind.Object)
+                    _iceServers = IceConfig.FromJson(ice);
                 if (root.TryGetProperty("branding", out var br) && br.ValueKind == JsonValueKind.Object)
                     Branding?.Invoke(
                         br.TryGetProperty("appName", out var an) ? an.GetString() : null,
@@ -170,7 +173,7 @@ public sealed class HostSession : IDisposable
         _encoder = new VpxVideoEncoder();
         var config = new RTCConfiguration
         {
-            iceServers = new List<RTCIceServer> { new() { urls = "stun:stun.l.google.com:19302" } }
+            iceServers = _iceServers ?? IceConfig.Default()
         };
         _pc = new RTCPeerConnection(config);
 

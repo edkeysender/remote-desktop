@@ -177,6 +177,33 @@ export function setComputerConfig(deviceToken, orgId, configId) {
   save(); return c;
 }
 
+// ---- per-org network / ICE settings (STUN/TURN for WebRTC) ----
+// Default = a public STUN server (helps first NAT hole-punch). On a flat internal
+// network you can set stun:[] (host candidates only → pure LAN-direct, nothing external),
+// or point at your own coturn. Media is always P2P; TURN is only a last-resort relay.
+export function getIce(orgId) {
+  const i = db.orgs[orgId]?.ice;
+  if (!i) return { stun: ['stun:stun.l.google.com:19302'], turnUrl: null, turnUser: null, turnPass: null };
+  return {
+    stun: Array.isArray(i.stun) ? i.stun : ['stun:stun.l.google.com:19302'],
+    turnUrl: i.turnUrl || null, turnUser: i.turnUser || null, turnPass: i.turnPass || null,
+  };
+}
+export function setIce(orgId, { stun, turnUrl, turnUser, turnPass } = {}) {
+  const o = db.orgs[orgId]; if (!o) return null;
+  let s;
+  if (Array.isArray(stun)) s = stun.map((x) => (x || '').toString().trim()).filter(Boolean);
+  else if (typeof stun === 'string') s = stun.split(',').map((x) => x.trim()).filter(Boolean);
+  o.ice = {
+    stun: s !== undefined ? s : (o.ice?.stun || ['stun:stun.l.google.com:19302']),
+    turnUrl: (turnUrl || '').toString().trim() || null,
+    turnUser: (turnUser || '').toString().trim() || null,
+    turnPass: (turnPass || '').toString().trim() || null,
+  };
+  save();
+  return getIce(orgId);
+}
+
 // ---- per-org branding (white-label) ----
 export function getBranding(orgId) {
   const b = db.orgs[orgId]?.branding || {};

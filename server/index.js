@@ -435,6 +435,7 @@ wss.on('connection', (ws, req) => {
           t: 'registered', id,
           org: org ? { id: org.id, name: org.name } : null,
           branding: claimOrgId ? store.getBranding(claimOrgId) : null,
+          ice: claimOrgId ? store.getIce(claimOrgId) : null,
         });
         console.log(`[server] host registered id=${id}${token ? ' (persistent)' : ''}${org ? ` org=${org.name}` : ''}`);
         break;
@@ -472,7 +473,7 @@ wss.on('connection', (ws, req) => {
           if (!entry) { send(viewer, { t: 'rejected', reason: 'host gone' }); break; }
           entry.viewer = viewer;
           viewer.id = ws.id;
-          send(viewer, { t: 'connected' });
+          send(viewer, { t: 'connected', ice: entry.orgId ? store.getIce(entry.orgId) : null });
           // Record a session (org-scoped) for history/audit when the host is enrolled.
           if (entry.orgId) {
             const comp = entry.deviceToken ? store.findComputerByToken(entry.deviceToken) : null;

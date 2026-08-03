@@ -23,6 +23,7 @@ public sealed class ViewerSession : IDisposable
     private RTCPeerConnection? _pc;
     private RTCDataChannel? _inputChannel;
     private int _controlReadyFired;   // 0/1 guard so ControlReady fires once
+    private List<RTCIceServer>? _iceServers;   // org network settings from 'connected'
 
     public event Action? Connected;
     public event Action<string>? Rejected;
@@ -61,6 +62,8 @@ public sealed class ViewerSession : IDisposable
         switch (t)
         {
             case "connected":
+                if (root.TryGetProperty("ice", out var ice) && ice.ValueKind == JsonValueKind.Object)
+                    _iceServers = IceConfig.FromJson(ice);
                 Connected?.Invoke();
                 SetupPeer();
                 break;
@@ -102,7 +105,7 @@ public sealed class ViewerSession : IDisposable
     {
         var config = new RTCConfiguration
         {
-            iceServers = new List<RTCIceServer> { new() { urls = "stun:stun.l.google.com:19302" } }
+            iceServers = _iceServers ?? IceConfig.Default()
         };
         _pc = new RTCPeerConnection(config);
 

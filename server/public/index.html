@@ -367,6 +367,7 @@ async function viewMcp(){
 // ---------- device configurations ----------
 async function viewConfigs(){
   const cfgs=await api('/api/configs');
+  const ice=await api('/api/ice');
   const card=(c)=>`<div class="card" style="margin-bottom:14px" data-cfg="${c.id}">
     <div class="rowline" style="border:none;padding:0 0 8px"><input class="cn" value="${esc(c.name)}" style="font-weight:600;max-width:280px"><span class="sp" style="flex:1"></span><button class="danger sm" data-del="${c.id}">Delete</button></div>
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">
@@ -387,8 +388,21 @@ async function viewConfigs(){
       </div>
     </div></div>`;
   view().replaceChildren($(`<div><div class="head"><h1>Configurations</h1><div class="sp" style="flex:1"></div><button class="primary" id="addcfg">+ New configuration</button></div>
-    <p class="muted" style="margin-bottom:12px">Define desired state, then assign a configuration to devices (in a device's admin panel) and apply. More checks will be added over time.</p>
+    <h2 style="font-size:.9rem">Network / relay</h2>
+    <div class="card" style="margin-bottom:16px">
+      <p class="muted" style="margin-bottom:8px">Computers on the same network connect <b>directly, peer-to-peer</b> — the server only brokers the handshake and never carries the stream. STUN helps first-time NAT hole-punching; a TURN relay is a last resort for hard NATs. For a flat internal network you can clear STUN entirely (LAN-direct, nothing external).</p>
+      <label>STUN servers (comma-separated; blank = LAN-only, no external)</label>
+      <input id="stun" value="${esc((ice.stun||[]).join(', '))}" placeholder="stun:stun.l.google.com:19302">
+      <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-top:8px">
+        <div><label>TURN URL (optional)</label><input id="turl" value="${esc(ice.turnUrl||'')}" placeholder="turn:relay.example:3478"></div>
+        <div><label>TURN user</label><input id="tuser" value="${esc(ice.turnUser||'')}"></div>
+        <div><label>TURN password</label><input id="tpass" value="${esc(ice.turnPass||'')}"></div>
+      </div>
+      <div style="margin-top:10px"><button class="primary sm" id="saveice">Save network</button> <span class="muted" id="icemsg"></span></div>
+    </div>
+    <h2 style="font-size:.9rem">Configurations</h2>
     <div id="cfgs">${cfgs.map(card).join('')||'<div class="card empty">No configurations yet.</div>'}</div></div>`));
+  view().querySelector('#saveice').onclick=async()=>{ try{ await api('/api/ice','PUT',{stun:view().querySelector('#stun').value,turnUrl:view().querySelector('#turl').value,turnUser:view().querySelector('#tuser').value,turnPass:view().querySelector('#tpass').value}); view().querySelector('#icemsg').textContent='Saved ✓ — applies to new connections.'; }catch(x){ view().querySelector('#icemsg').textContent=x.message; } };
   view().querySelector('#addcfg').onclick=async()=>{await api('/api/configs','POST',{name:'New configuration'});viewConfigs();};
   // per-card staged image state
   const staged={};
