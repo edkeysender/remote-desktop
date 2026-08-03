@@ -8,12 +8,12 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>RemoteDesktop.Client</RootNamespace>
-    <AssemblyName>FtdRemoteClient</AssemblyName>
+    <AssemblyName>HangarAgent</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <ApplicationIcon>..\..\assets\hangar.ico</ApplicationIcon>
     <Version>0.3.0</Version>
-    <Product>FTD Remote Client</Product>
-    <Company>FTD.aero</Company>
+    <Product>Hangar Client</Product>
+    <Company>allviewer.tech</Company>
   </PropertyGroup>
 
   <ItemGroup>

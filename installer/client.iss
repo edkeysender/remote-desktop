@@ -6,10 +6,10 @@
 #ifndef AppVersion
   #define AppVersion "0.2.0"
 #endif
-#define AppPublisher "FTD.aero"
-#define AppExe "FtdRemoteClient.exe"
-#define SvcExe "FtdRemoteService.exe"
-#define SvcName "FtdRemoteService"
+#define AppPublisher "allviewer.tech"
+#define AppExe "HangarAgent.exe"
+#define SvcExe "HangarService.exe"
+#define SvcName "HangarService"
 
 [Setup]
 ; A stable, unique GUID keeps upgrades/uninstall coherent across versions.
@@ -17,8 +17,8 @@ AppId={{7C1E9A2B-3D4F-4A55-9C11-A1B2C3D4E5F6}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
-DefaultDirName={autopf}\FTD Remote\Client
-DefaultGroupName=FTD Remote
+DefaultDirName={autopf}\Hangar\Client
+DefaultGroupName=Hangar
 UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\{#AppExe}
 OutputDir=dist
@@ -53,28 +53,28 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 [Registry]
 ; Optional per-user autostart (only if the task is selected).
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; \
-    ValueName: "FtdRemoteClient"; ValueData: """{app}\{#AppExe}"""; \
+    ValueName: "HangarAgent"; ValueData: """{app}\{#AppExe}"""; \
     Flags: uninsdeletevalue; Tasks: autostart
 
 [Run]
 ; Register + start the unattended service only if the user opted in. `binPath= ` needs the
 ; trailing space; the doubled quotes wrap the path (may contain spaces).
 Filename: "{sys}\sc.exe"; \
-    Parameters: "create {#SvcName} binPath= ""{app}\{#SvcExe}"" start= auto DisplayName= ""FTD Remote Service"""; \
+    Parameters: "create {#SvcName} binPath= ""{app}\{#SvcExe}"" start= auto DisplayName= ""Hangar Service"""; \
     Flags: runhidden; Tasks: unattended
 Filename: "{sys}\sc.exe"; \
-    Parameters: "description {#SvcName} ""Unattended remote access for FTD Remote (LocalSystem)."""; \
+    Parameters: "description {#SvcName} ""Unattended remote access for Hangar (LocalSystem)."""; \
     Flags: runhidden; Tasks: unattended
 Filename: "{sys}\sc.exe"; Parameters: "start {#SvcName}"; Flags: runhidden; Tasks: unattended
 Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName} now"; Flags: nowait postinstall skipifsilent
 
 [UninstallRun]
 ; Runs before files are removed, so stopping releases the exe lock. Harmless if absent.
-Filename: "{sys}\sc.exe"; Parameters: "stop {#SvcName}"; Flags: runhidden; RunOnceId: "StopFtdSvc"
-Filename: "{sys}\sc.exe"; Parameters: "delete {#SvcName}"; Flags: runhidden; RunOnceId: "DelFtdSvc"
+Filename: "{sys}\sc.exe"; Parameters: "stop {#SvcName}"; Flags: runhidden; RunOnceId: "StopHangarSvc"
+Filename: "{sys}\sc.exe"; Parameters: "delete {#SvcName}"; Flags: runhidden; RunOnceId: "DelHangarSvc"
 
 [Code]
-// On upgrade the service may be running and holding FtdRemoteService.exe open, which would
+// On upgrade the service may be running and holding HangarService.exe open, which would
 // block [Files] from overwriting it. Stop it (best-effort) before files are copied.
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var

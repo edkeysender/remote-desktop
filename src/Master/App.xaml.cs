@@ -15,7 +15,7 @@ namespace RemoteDesktop.Master;
 public partial class App : Application
 {
     private const string Scheme = "hangar";
-    private const string PipeName = "FtdRemoteControl.connect";
+    private const string PipeName = "Hangar.connect";
     private static Mutex? _mutex;
     private MainWindow? _main;
 
@@ -28,7 +28,7 @@ public partial class App : Application
         RegisterUriScheme();
         var uri = e.Args.FirstOrDefault(a => a.StartsWith(Scheme + "://", StringComparison.OrdinalIgnoreCase));
 
-        _mutex = new Mutex(true, @"Local\FtdRemoteControlSingleton", out bool isNew);
+        _mutex = new Mutex(true, @"Local\HangarSingleton", out bool isNew);
         if (!isNew)
         {
             // Already running — hand the connect URI to the primary instance and exit.

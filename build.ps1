@@ -8,9 +8,9 @@
 # assemblies, installers, and update manifest.
 #
 # Outputs:
-#   publish\client\FtdRemoteClient.exe   publish\master\FtdRemoteMaster.exe
+#   publish\client\HangarAgent.exe   publish\master\RemoteControl.exe
 #   publish\update\manifest.json  + the exes    (upload this dir to the Pi)
-#   installer\dist\FTDRemoteClient-Setup-<ver>.exe   (+ Master)
+#   installer\dist\HangarAgent-Setup-<ver>.exe   (+ Master)
 #
 # -PushTo <user@host> scp's publish\update\* to the Pi so connected apps see the update.
 
@@ -54,7 +54,7 @@ if ($Version) {
 # Persist so the number is monotonic across builds (commit VERSION with each release).
 # ASCII (no BOM) — a UTF-8 BOM here can corrupt the version string for downstream readers.
 Set-Content "$root\VERSION" $ver -Encoding ascii -NoNewline
-if (-not $Notes) { $Notes = "FTD Remote $ver" }
+if (-not $Notes) { $Notes = "Hangar $ver" }
 Write-Host "== Building version $ver ==" -ForegroundColor Cyan
 
 function Find-ISCC {
@@ -73,7 +73,7 @@ function Find-ISCC {
 # Stop only processes running from THIS repo's publish folder — never the installed
 # apps or the SYSTEM service.
 $pubRoot = Join-Path $root 'publish'
-Get-Process RemoteControl,FtdRemote,FtdRemoteClient,FtdRemoteMaster,FtdRemoteService -ErrorAction SilentlyContinue |
+Get-Process RemoteControl,HangarAgent,HangarService -ErrorAction SilentlyContinue |
     Where-Object { $_.Path -and $_.Path.StartsWith($pubRoot, [StringComparison]::OrdinalIgnoreCase) } |
     ForEach-Object {
         Write-Host "   stopping running test build: $($_.ProcessName) (pid $($_.Id))" -ForegroundColor DarkYellow
@@ -86,7 +86,7 @@ $publishArgs = @(
     '/p:EnableCompressionInSingleFile=true',"/p:Version=$ver",'-nologo'
 )
 
-# The unified attended app (host + viewer in one), FtdRemote.exe. A branded build bakes
+# The unified attended app (host + viewer in one), RemoteControl.exe. A branded build bakes
 # the org's icon (Explorer/taskbar) into the exe; name/colour/logo also apply at runtime.
 $brandIconPath = if ($BrandName -and $BrandIcon -and (Test-Path $BrandIcon)) { (Resolve-Path $BrandIcon).Path } else { "$root\assets\hangar.ico" }
 $appPubArgs = $publishArgs
@@ -96,7 +96,7 @@ Write-Host "== Publishing App (unified)$brandLabel ==" -ForegroundColor Cyan
 dotnet publish "$root\src\Master\Master.csproj" @appPubArgs -o "$root\publish\app"
 
 # The unattended host worker + Windows service (headless). The service finds the worker
-# exe (FtdRemoteClient.exe) next to itself, so both live in publish\client.
+# exe (HangarAgent.exe) next to itself, so both live in publish\client.
 Write-Host '== Publishing Client worker ==' -ForegroundColor Cyan
 dotnet publish "$root\src\Client\Client.csproj" @publishArgs -o "$root\publish\client"
 Write-Host '== Publishing Service ==' -ForegroundColor Cyan
@@ -128,8 +128,8 @@ $manifest = [ordered]@{
     notes          = $Notes
     app            = @( New-Entry "$root\publish\app\RemoteControl.exe" )
     client         = @(
-        New-Entry "$root\publish\client\FtdRemoteClient.exe"
-        New-Entry "$root\publish\client\FtdRemoteService.exe"
+        New-Entry "$root\publish\client\HangarAgent.exe"
+        New-Entry "$root\publish\client\HangarService.exe"
     )
     appInstaller   = "$appOut.exe"      # attended app installer (dashboard Download tab)
     agentInstaller = "$agentOut.exe"    # unattended agent + service installer

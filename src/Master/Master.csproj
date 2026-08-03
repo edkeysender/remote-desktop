@@ -11,8 +11,8 @@
     <ApplicationIcon>..\..\assets\hangar.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Version>0.3.0</Version>
-    <Product>FTD Remote</Product>
-    <Company>FTD.aero</Company>
+    <Product>Hangar</Product>
+    <Company>allviewer.tech</Company>
   </PropertyGroup>
 
   <ItemGroup>

@@ -7,11 +7,11 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>RemoteDesktop.Service</RootNamespace>
-    <AssemblyName>FtdRemoteService</AssemblyName>
+    <AssemblyName>HangarService</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Version>0.3.0</Version>
-    <Product>FTD Remote Service</Product>
-    <Company>FTD.aero</Company>
+    <Product>Hangar Service</Product>
+    <Company>allviewer.tech</Company>
   </PropertyGroup>
 
   <ItemGroup>

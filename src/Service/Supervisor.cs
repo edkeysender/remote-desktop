@@ -6,8 +6,8 @@ using Microsoft.Extensions.Logging;
 namespace RemoteDesktop.Service;
 
 /// <summary>
-/// The FTD Remote service body. Keeps exactly one capture worker
-/// (FtdRemoteClient.exe --worker) alive in the ACTIVE console session, running as
+/// The Hangar service body. Keeps exactly one capture worker
+/// (HangarAgent.exe --worker) alive in the ACTIVE console session, running as
 /// LocalSystem, on the CURRENT input desktop. Respawns it when:
 ///   • the active session changes (user logs on / fast-user-switch), or
 ///   • the input desktop changes (Default ↔ Winlogon — i.e. a UAC prompt appears or
@@ -30,12 +30,12 @@ public sealed class Supervisor : BackgroundService
     public Supervisor(ILogger<Supervisor> log)
     {
         _log = log;
-        _workerExe = Path.Combine(AppContext.BaseDirectory, "FtdRemoteClient.exe");
+        _workerExe = Path.Combine(AppContext.BaseDirectory, "HangarAgent.exe");
     }
 
     protected override async Task ExecuteAsync(CancellationToken stop)
     {
-        _log.LogInformation("FTD Remote service starting. Worker: {Worker}", _workerExe);
+        _log.LogInformation("Hangar service starting. Worker: {Worker}", _workerExe);
         if (!File.Exists(_workerExe))
             _log.LogError("Worker exe not found next to the service. The capture worker will not start.");
 

@@ -41,7 +41,7 @@ Responsibilities:
   - The legacy `ADMIN_PASSWORD` admin panel (`/admin`) and `/directory` are kept for
     backward compatibility with 0.2.x apps; the account system supersedes them.
 
-### Unified desktop app (`src/Master` → `FtdRemote.exe`, Phase 2)
+### Unified desktop app (`src/Master` → `RemoteControl.exe`, Phase 2)
 One app is both host and viewer. It signs into an account (email/password → Bearer
 token via `Shared/AccountClient`), hosts this PC **always-on** (shows ID + an editable
 fixed password; registers with the account token so the PC is claimed into the org),
@@ -197,18 +197,18 @@ either side doesn't corrupt them; the host maps 0..1 → virtual-desktop absolut
   a viewport edge) + Ctrl+wheel zoom, so a 4K remote stays operable on a smaller viewer.
 - **Phase 4 — product (IN PROGRESS):** host as a **Windows Service** (survives logout,
   works at the lock screen / UAC secure desktop). `src/Service` is a LocalSystem
-  `BackgroundService` (`Supervisor`) that keeps one capture worker — `FtdRemoteClient.exe
+  `BackgroundService` (`Supervisor`) that keeps one capture worker — `HangarAgent.exe
   --worker` — alive in the active console session, respawning it on session change,
   input-desktop switch (Default ↔ Winlogon), or worker exit, via a duplicated SYSTEM
   token retargeted at the session + `CreateProcessAsUser` onto `WinSta0\{desktop}`
   (`SessionLauncher`). The worker is headless: it reads machine config from
-  `%ProgramData%\FTD Remote`, self-provisions a stable `HostToken` + fixed password on
+  `%ProgramData%\Hangar`, self-provisions a stable `HostToken` + fixed password on
   first run, and reconnects forever. The relay maps that token → a **stable ID** across
   restarts (`idmap.json`). Wired into the solution, `build.ps1` (published into the
   client folder), and the client installer as an **opt-in** task that `sc create`s +
   starts the service. The attended client window surfaces the unattended ID + fixed
   password when the service has provisioned them (read from the world-readable
-  `%ProgramData%\FTD Remote\machine.json`; the ID field polls until the worker connects).
+  `%ProgramData%\Hangar\machine.json`; the ID field polls until the worker connects).
   Still TODO: provision the real `ServerUrl` at deploy time (defaults to
   `ws://localhost:8080`); **code signing**; accounts; self-hosted relay deployment.
 - **In-app auto-update:** both apps check `<http>/update/manifest.json` on launch and,
@@ -216,7 +216,7 @@ either side doesn't corrupt them; the host maps 0..1 → virtual-desktop absolut
   Clicking downloads the component's files (SHA-256 verified) into a temp stage, then a
   PowerShell script waits for the app to exit, swaps the files, and relaunches. The
   **client** elevates (Program Files + it stops/starts the SYSTEM service so the worker
-  releases `FtdRemoteClient.exe`); the **master** installs per-user and updates without
+  releases `HangarAgent.exe`); the **master** installs per-user and updates without
   a UAC prompt. Version is single-sourced from the `VERSION` file, stamped into the
   assemblies, installers, and manifest by `build.ps1`. See `Shared/Updater.cs`.
 

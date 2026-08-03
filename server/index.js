@@ -109,7 +109,7 @@ async function legacyRoutes(req, res, next) {
 
   if (url.pathname === '/admin' || url.pathname.startsWith('/admin/') || url.pathname === '/directory') {
     if (!checkAuth(req)) {
-      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="FTD Admin"' }).end('auth required');
+      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Hangar Admin"' }).end('auth required');
       return;
     }
     try { await handleAdmin(req, res, url); }

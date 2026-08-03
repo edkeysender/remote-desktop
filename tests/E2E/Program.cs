@@ -162,7 +162,7 @@ var updDir = Environment.GetEnvironmentVariable("E2E_UPDATE_DIR");
 if (!string.IsNullOrEmpty(updDir))
 {
     Directory.CreateDirectory(updDir);
-    var fakeExe = Path.Combine(updDir, "FtdRemoteMaster.exe");
+    var fakeExe = Path.Combine(updDir, "RemoteControl.exe");
     var exeBytes = new byte[512 * 1024];
     new Random(7).NextBytes(exeBytes);
     File.WriteAllBytes(fakeExe, exeBytes);
@@ -171,8 +171,8 @@ if (!string.IsNullOrEmpty(updDir))
     {
         version = "9.9.9",
         notes = "e2e test build",
-        master = new[] { new { name = "FtdRemoteMaster.exe", sha256 = sha, size = (long)exeBytes.Length } },
-        client = new[] { new { name = "FtdRemoteClient.exe", sha256 = sha, size = (long)exeBytes.Length } },
+        master = new[] { new { name = "RemoteControl.exe", sha256 = sha, size = (long)exeBytes.Length } },
+        client = new[] { new { name = "HangarAgent.exe", sha256 = sha, size = (long)exeBytes.Length } },
     };
     File.WriteAllText(Path.Combine(updDir, "manifest.json"),
         System.Text.Json.JsonSerializer.Serialize(manifest));
@@ -183,7 +183,7 @@ if (!string.IsNullOrEmpty(updDir))
     if (info is not null)
     {
         var stage = await updater.DownloadAsync(SERVER, info);
-        var got = Path.Combine(stage, "FtdRemoteMaster.exe");
+        var got = Path.Combine(stage, "RemoteControl.exe");
         Check(File.Exists(got) && File.ReadAllBytes(got).AsSpan().SequenceEqual(exeBytes),
             "update downloaded + hash-verified");
         try { Directory.Delete(stage, true); } catch { }
@@ -194,7 +194,7 @@ if (!string.IsNullOrEmpty(updDir))
         System.Text.Json.JsonSerializer.Serialize(new
         {
             version = "0.0.1",
-            master = new[] { new { name = "FtdRemoteMaster.exe", sha256 = sha, size = (long)exeBytes.Length } },
+            master = new[] { new { name = "RemoteControl.exe", sha256 = sha, size = (long)exeBytes.Length } },
         }));
     Check(await new Updater("master", false).CheckAsync(SERVER) is null, "no update offered when manifest is older");
 }

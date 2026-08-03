@@ -119,7 +119,7 @@ public static class ConfigApply
         if (comma < 0) return null;
         var bytes = Convert.FromBase64String(dataUrl[(comma + 1)..]);
         var ext = dataUrl.Contains("image/png") ? ".png" : dataUrl.Contains("image/jpeg") ? ".jpg" : ".img";
-        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "FTD Remote", "config");
+        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "Hangar", "config");
         Directory.CreateDirectory(dir);
         var path = Path.Combine(dir, stem + ext);
         File.WriteAllBytes(path, bytes);

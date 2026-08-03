@@ -241,7 +241,7 @@ async function viewDevices(){
       </div></article>`;
   }).join('');
   view().replaceChildren($(`<div><div class="head"><h1>Devices</h1><div class="sp"></div>${manager?'<button class="primary" id="add">+ Add computer</button>':''}</div>
-    ${comps.length?`<div class="grid">${cards}</div>`:'<div class="card empty">No computers yet. On a PC, open FTD Remote → sign in, or enroll it with a token (Enrollment tab).</div>'}</div>`));
+    ${comps.length?`<div class="grid">${cards}</div>`:'<div class="card empty">No computers yet. On a PC, open Hangar → sign in, or enroll it with a token (Enrollment tab).</div>'}</div>`));
   view().querySelectorAll('.gsel').forEach(s=>s.onchange=()=>api('/api/computers/'+encodeURIComponent(s.dataset.t),'PATCH',{groupId:s.value||null}));
   view().querySelectorAll('.cname').forEach(i=>i.onchange=()=>api('/api/computers/'+encodeURIComponent(i.dataset.t),'PATCH',{name:i.value}));
   view().querySelectorAll('[data-conn]').forEach(b=>b.onclick=()=>launchConnect(b.dataset.conn,b.dataset.name));
@@ -360,7 +360,7 @@ async function viewEnroll(){
   const [toks,groups]=[await api('/api/enroll-tokens'),await api('/api/groups')];
   const rows=toks.map(t=>`<tr><td>${esc(t.label||'—')}</td><td>${esc(t.groupName||'—')}</td><td><span class="linkbox">${esc(t.token)}</span></td><td style="text-align:right"><button class="sm" data-cp="${esc(t.token)}">Copy</button> <button class="danger sm" data-rv="${esc(t.token)}">Revoke</button></td></tr>`).join('');
   view().replaceChildren($(`<div><div class="head"><h1>Enrollment</h1></div>
-    <div class="card"><p class="muted" style="margin-bottom:12px">Generate a token, then on the PC open <b>FTD Remote</b> → <b>Enroll this computer with a token</b> and paste it. The device appears here and is controllable through the relay — no per-PC password.</p>
+    <div class="card"><p class="muted" style="margin-bottom:12px">Generate a token, then on the PC open <b>Hangar</b> → <b>Enroll this computer with a token</b> and paste it. The device appears here and is controllable through the relay — no per-PC password.</p>
       <div class="rowline"><input id="el" placeholder="Label (e.g. Sim bay 3)"><select id="eg" style="max-width:180px"><option value="">— no group —</option>${groups.map(g=>`<option value="${g.id}">${esc(g.name)}</option>`).join('')}</select><button class="primary" id="gen">Generate token</button></div>
       <div id="gnew" style="margin-top:8px"></div>
       ${toks.length?`<table style="margin-top:10px"><thead><tr><th>Label</th><th>Group</th><th>Token</th><th></th></tr></thead><tbody>${rows}</tbody></table>`:'<div class="empty">No enrollment tokens yet.</div>'}</div></div>`));
