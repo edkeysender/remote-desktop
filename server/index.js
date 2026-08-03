@@ -145,6 +145,27 @@ async function legacyRoutes(req, res, next) {
 
 const relayStatus = (relayId) => ({ online: hosts.has(relayId), busy: !!hosts.get(relayId)?.viewer });
 
+// Devices in the same org + group as a host, for the desktop app's "Your fleet"
+// (so enrolled devices see each other without a user login or LAN broadcast).
+function groupFleet(orgId, groupId, excludeId) {
+  return store.listComputers(orgId)
+    .filter((c) => (groupId ? c.groupId === groupId : !c.groupId))
+    .map((c) => {
+      const online = !!c.relayId && hosts.has(c.relayId);
+      return { name: c.name, relayId: online ? c.relayId : null, groupId: c.groupId || null, online };
+    })
+    .filter((c) => !(c.online && c.relayId === excludeId));   // never list the receiving host itself
+}
+
+// Send every online host in an org its own group's fleet (called when hosts join/leave).
+function pushFleet(orgId) {
+  if (!orgId) return;
+  for (const [id, entry] of hosts) {
+    if (entry.orgId !== orgId || entry.ws.readyState !== entry.ws.OPEN) continue;
+    send(entry.ws, { t: 'fleet', list: groupFleet(orgId, entry.groupId ?? null, id) });
+  }
+}
+
 // Pick an online host in the same org (other than the target) to send a WOL packet from.
 function onlinePeer(orgId, excludeDeviceToken) {
   for (const [id, entry] of hosts)
@@ -364,6 +385,17 @@ function endViewerSession(viewer) {
 
 // True if the session token belongs to a user allowed to connect to this host's
 // computer (same org, and admin or a shared group). Used for password-less connect.
+// True if the caller is itself an enrolled device in the same org + group as the target,
+// proven by its secret host token. Lets fleet siblings connect password-lessly with no
+// user account signed in.
+function peerAuthorized(fromToken, entry) {
+  if (!fromToken || !entry?.deviceToken) return false;
+  const a = store.findComputerByToken(fromToken);
+  const b = store.findComputerByToken(entry.deviceToken);
+  if (!a || !b || !a.orgId) return false;
+  return a.orgId === b.orgId && (a.groupId || null) === (b.groupId || null);
+}
+
 function accountAuthorized(authToken, entry) {
   if (!authToken || !entry?.deviceToken) return false;
   const uid = verifyToken(authToken);
@@ -429,6 +461,7 @@ wss.on('connection', (ws, req) => {
           comp = store.upsertComputer({ deviceToken: token, orgId: claimOrgId, defaultName: msg.name || 'Computer', relayId: id, groupId: enrollGroup, mac: typeof msg.mac === 'string' ? msg.mac : null });
           org = store.getOrg(claimOrgId);
           hosts.get(id).orgId = claimOrgId;
+          hosts.get(id).groupId = comp?.groupId || null;
           if (!existed) store.logEvent(claimOrgId, 'computer.enroll', { target: msg.name || id, detail: msg.enroll ? 'via token' : 'via sign-in' });
         }
         send(ws, {
@@ -439,6 +472,7 @@ wss.on('connection', (ws, req) => {
           ice: claimOrgId ? store.getIce(claimOrgId) : null,
         });
         console.log(`[server] host registered id=${id}${token ? ' (persistent)' : ''}${org ? ` org=${org.name}` : ''}`);
+        if (claimOrgId) pushFleet(claimOrgId);   // tell this host + its siblings the new fleet
         break;
       }
 
@@ -460,7 +494,8 @@ wss.on('connection', (ws, req) => {
         //  • otherwise the host verifies the per-client password itself (normal path).
         const admin =
           (msg.admin === true && isAdminPassword(msg.adminPassword)) ||
-          accountAuthorized(msg.auth, entry);
+          accountAuthorized(msg.auth, entry) ||
+          peerAuthorized(msg.from, entry);
         send(entry.ws, { t: 'connect-request', rid, password: msg.password ?? '', admin });
         break;
       }
@@ -530,6 +565,7 @@ wss.on('connection', (ws, req) => {
   ws.on('close', () => {
     if (ws.role === 'host' && ws.id) {
       const entry = hosts.get(ws.id);
+      const goneOrg = entry?.orgId;
       if (entry?.viewer) {
         endViewerSession(entry.viewer);
         send(entry.viewer, { t: 'bye', reason: 'host disconnected' });
@@ -538,6 +574,7 @@ wss.on('connection', (ws, req) => {
       ensureClientMeta(ws.id).lastSeen = Date.now();
       saveAdmin();
       console.log(`[server] host id=${ws.id} gone`);
+      if (goneOrg) pushFleet(goneOrg);   // update siblings' fleet (this device went offline)
     } else if (ws.role === 'viewer' && ws.id) {
       const entry = hosts.get(ws.id);
       endViewerSession(ws);

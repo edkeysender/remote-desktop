@@ -46,17 +46,19 @@ public sealed class ViewerSession : IDisposable
     ///   • <paramref name="password"/> — the host's own password (manual connect).
     /// </summary>
     public async Task ConnectAsync(string serverUrl, string id, string password,
-                                   string? adminPassword = null, string? authToken = null)
+                                   string? adminPassword = null, string? authToken = null, string? peerToken = null)
     {
         _conn.JsonReceived += OnJson;
         _conn.Closed += reason => Closed?.Invoke(reason);
         await _conn.ConnectAsync(serverUrl);
+        // `from` = this device's own host token; lets the relay authorize a password-less
+        // connect to a sibling in the same org+group even when no user account is signed in.
         if (!string.IsNullOrEmpty(authToken))
-            await _conn.SendJsonAsync(new { t = "connect", id, auth = authToken });
+            await _conn.SendJsonAsync(new { t = "connect", id, auth = authToken, from = peerToken });
         else if (!string.IsNullOrEmpty(adminPassword))
-            await _conn.SendJsonAsync(new { t = "connect", id, admin = true, adminPassword });
+            await _conn.SendJsonAsync(new { t = "connect", id, admin = true, adminPassword, from = peerToken });
         else
-            await _conn.SendJsonAsync(new { t = "connect", id, password });
+            await _conn.SendJsonAsync(new { t = "connect", id, password, from = peerToken });
     }
 
     private void OnJson(JsonElement root)

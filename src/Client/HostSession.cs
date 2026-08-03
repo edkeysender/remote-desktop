@@ -50,7 +50,11 @@ public sealed class HostSession : IDisposable
     private System.Threading.Timer? _metricsTimer;   // periodic health report over signaling
     private List<RTCIceServer>? _iceServers;          // org network settings from 'registered'
 
+    /// <summary>A sibling device in the same org+group, pushed by the relay for the "Your fleet" list.</summary>
+    public sealed record FleetDevice(string Name, string? RelayId, string? GroupId, bool Online);
+
     public event Action<string>? IdAssigned;
+    public event Action<List<FleetDevice>>? FleetUpdated;   // org/group siblings from the relay
     public event Action<string?>? OrgAssigned;   // org name this host is claimed into (null = none)
     public event Action<string?, string?>? GroupAssigned;   // group id, name (null = ungrouped)
     public event Action<string?, string?, string?>? Branding;   // appName, accent(#hex), logo(data URL)
@@ -135,6 +139,19 @@ public sealed class HostSession : IDisposable
             case "selmon":
                 SelectMonitor(root.GetProperty("index").GetInt32());
                 break;
+
+            case "fleet":
+            {
+                var list = new List<FleetDevice>();
+                foreach (var d in root.GetProperty("list").EnumerateArray())
+                    list.Add(new FleetDevice(
+                        d.TryGetProperty("name", out var nm) ? nm.GetString() ?? "" : "",
+                        d.TryGetProperty("relayId", out var ri) && ri.ValueKind == JsonValueKind.String ? ri.GetString() : null,
+                        d.TryGetProperty("groupId", out var gi) && gi.ValueKind == JsonValueKind.String ? gi.GetString() : null,
+                        d.TryGetProperty("online", out var on) && on.GetBoolean()));
+                FleetUpdated?.Invoke(list);
+                break;
+            }
 
             case "cmd":
             {

@@ -36,6 +36,7 @@ public partial class MainWindow : Window
     private string? _brandLogo;
     private string _groupId = "", _groupName = "";
     private readonly LanDiscovery _lan = new();
+    private List<HostSession.FleetDevice> _relayFleet = new();   // org/group siblings from the relay
 
     public MainWindow()
     {
@@ -124,22 +125,33 @@ public partial class MainWindow : Window
     {
         if (!_ready || Web?.CoreWebView2 == null) return;
 
-        object[] fleet = Array.Empty<object>();
         var groups = new Dictionary<string, List<object>>();
+
+        // "Your fleet" = account computers (if signed in) + relay-pushed org/group siblings
+        // (shown even when only enrolled — no user login needed), deduped by connect id / name.
+        var rows = new List<(string Name, string? RelayId, bool Online, bool Busy)>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void AddRow(string name, string? relayId, bool online, bool busy)
+        {
+            var key = !string.IsNullOrEmpty(relayId) ? relayId! : "name:" + name;
+            if (!seen.Add(key)) return;
+            rows.Add((name, relayId, online, busy));
+        }
         if (_myComp != null)
         {
             var gname = _myComp.Groups.ToDictionary(g => g.Id, g => g.Name);
-            var rows = _myComp.Computers
-                .Select(c => new { c.Name, c.RelayId, c.Online, c.Busy, Group = c.GroupId != null && gname.TryGetValue(c.GroupId, out var gn) ? gn : "Ungrouped" })
-                .ToList();
-            fleet = rows.OrderByDescending(c => c.Online).ThenBy(c => c.Name)
-                        .Select(c => (object)new { name = c.Name, relayId = c.RelayId, online = c.Online, busy = c.Busy }).ToArray();
-            foreach (var c in rows.OrderByDescending(c => c.Online).ThenBy(c => c.Name))
+            foreach (var c in _myComp.Computers.OrderByDescending(c => c.Online).ThenBy(c => c.Name))
             {
-                if (!groups.TryGetValue(c.Group, out var list)) { list = new(); groups[c.Group] = list; }
+                AddRow(c.Name, c.RelayId, c.Online, c.Busy);
+                var g = c.GroupId != null && gname.TryGetValue(c.GroupId, out var gn) ? gn : "Ungrouped";
+                if (!groups.TryGetValue(g, out var list)) { list = new(); groups[g] = list; }
                 list.Add(new { name = c.Name, relayId = c.RelayId, online = c.Online });
             }
         }
+        foreach (var d in _relayFleet) AddRow(d.Name, d.RelayId, d.Online, false);
+
+        object[] fleet = rows.OrderByDescending(c => c.Online).ThenBy(c => c.Name)
+            .Select(c => (object)new { name = c.Name, relayId = c.RelayId, online = c.Online, busy = c.Busy }).ToArray();
 
         var state = new
         {
@@ -244,6 +256,7 @@ public partial class MainWindow : Window
                 session.IdAssigned += id => Dispatcher.Invoke(() => { _id = id; RefreshDiscovery(); PushState(); });
                 session.OrgAssigned += org => Dispatcher.Invoke(() => { _org = org ?? ""; RefreshDiscovery(); PushState(); });
                 session.GroupAssigned += (gid, gname) => Dispatcher.Invoke(() => { _groupId = gid ?? ""; _groupName = gname ?? ""; RefreshDiscovery(); PushState(); });
+                session.FleetUpdated += list => Dispatcher.Invoke(() => { _relayFleet = list; PushState(); });
                 session.Branding += (name, accent, logo) => Dispatcher.Invoke(() =>
                 {
                     _brandName = string.IsNullOrWhiteSpace(name) ? "Hangar" : name!;
@@ -288,7 +301,7 @@ public partial class MainWindow : Window
         id = id.Replace(" ", "");
         if (id.Length == 0) return;
         var server = string.IsNullOrWhiteSpace(serverOverride) ? _config.ServerUrl : serverOverride!;
-        var w = new ViewerWindow(server, id, display, password: password, authToken: authToken) { Owner = this };
+        var w = new ViewerWindow(server, id, display, password: password, authToken: authToken, peerToken: _config.HostToken) { Owner = this };
         w.Show();
     }
 

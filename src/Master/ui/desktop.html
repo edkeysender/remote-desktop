@@ -36,6 +36,8 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .tb-org b{color:var(--text)}
 .tb-spacer{flex:1}
 .tb-login{font-size:.78rem;font-weight:600;color:var(--accent);padding:6px 12px;border:1px solid var(--line);border-radius:var(--r-pill)}
+.tb-login.authed{color:var(--ok);border-color:rgba(31,201,139,.4)}
+.tb-login.authed::before{content:"● ";font-size:.7em;vertical-align:middle}
 .body{display:grid;grid-template-columns:64px 1fr;min-height:0}
 .rail{background:var(--card);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 0}
 .rail-btn{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;color:var(--muted);transition:all .15s;position:relative}
@@ -363,8 +365,10 @@ window.chrome?.webview?.addEventListener('message',ev=>{
   myId=s.id||''; $('my-id').textContent=fmtId(s.id); secret=s.password||''; renderPw();
   $('my-name').textContent=s.hostName||'This PC'; $('my-os').textContent=s.os||'';
   const org=s.org; $('tb-org').hidden=!org; $('tb-org-name').textContent=org||'—';
-  $('tb-login').hidden=!!s.signedIn && !!org ? false : false; // always allow account switch
-  $('tb-login').textContent=s.signedIn?'Account':'Log in';
+  // Reflect state: a user account signed in shows the email; a device merely enrolled
+  // (claimed into an org via token) reads "Logged in"; neither reads "Log in".
+  $('tb-login').textContent = s.signedIn ? (s.email || 'Account') : (org ? 'Logged in' : 'Log in');
+  $('tb-login').classList.toggle('authed', !!(s.signedIn || org));
   $('opt-org').textContent=org?('Enrolled in '+org):(s.signedIn?'Signed in':'Not enrolled — log in or use a token');
   $('set-acct').textContent=s.email?('Signed in as '+s.email):'Not signed in';
   $('set-acct-btn').textContent=s.signedIn?'Switch':'Log in';
