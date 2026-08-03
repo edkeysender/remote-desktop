@@ -21,6 +21,7 @@ public partial class ViewerWindow : Window
     private readonly string _serverUrl, _password;
     private string _id, _display;                 // mutable: the device switcher reconnects in place
     private readonly string? _adminPw, _authToken, _peerToken;
+    private readonly Func<IReadOnlyList<(string Name, string? RelayId, bool Online)>>? _fleetProvider;
     private AccountClient? _account;
 
     private ViewerSession? _session;
@@ -55,11 +56,13 @@ public partial class ViewerWindow : Window
     private readonly HashSet<int> _newWin = new();   // monitors with an unseen new window
 
     public ViewerWindow(string serverUrl, string id, string display,
-                        string? password = null, string? adminPw = null, string? authToken = null, string? peerToken = null)
+                        string? password = null, string? adminPw = null, string? authToken = null, string? peerToken = null,
+                        Func<IReadOnlyList<(string Name, string? RelayId, bool Online)>>? fleetProvider = null)
     {
         InitializeComponent();
         _serverUrl = serverUrl; _id = id; _display = display;
         _password = password ?? ""; _adminPw = adminPw; _authToken = authToken; _peerToken = peerToken;
+        _fleetProvider = fleetProvider;
         Title = $"Hangar — {display}";
         TitleText.Text = display;
         Loaded += async (_, _) => await StartSessionAsync();
@@ -145,13 +148,26 @@ public partial class ViewerWindow : Window
     // ---- device switcher (Phase E) ----
     private async void DeviceBtn_Click(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrEmpty(_authToken)) { SetStatus("Switching devices needs an account sign-in."); return; }
-        _account ??= new AccountClient();
         DevList.Children.Clear();
         DevScope.Text = "Loading devices…";
         DevPopup.IsOpen = true;
-        try { BuildDeviceMenu(await _account.MyComputersAsync(_serverUrl, _authToken!)); }
-        catch (Exception ex) { DevScope.Text = "Could not load devices: " + ex.Message; }
+
+        // Signed-in account → the full directory (all groups). Otherwise fall back to the
+        // local fleet the app already knows (relay siblings + LAN), so an enrolled-only
+        // device can still switch between its group's computers.
+        if (!string.IsNullOrEmpty(_authToken))
+        {
+            _account ??= new AccountClient();
+            try { BuildDeviceMenu(await _account.MyComputersAsync(_serverUrl, _authToken!)); }
+            catch (Exception ex) { DevScope.Text = "Could not load devices: " + ex.Message; }
+        }
+        else if (_fleetProvider != null)
+        {
+            var comps = _fleetProvider()
+                .Select(f => new AccountComputer("", f.Name, null, f.RelayId, f.Online, false)).ToList();
+            BuildDeviceMenu(new MyComputers(Array.Empty<DirectoryGroup>(), comps, false));
+        }
+        else DevScope.Text = "Sign in to switch between devices.";
     }
 
     private void BuildDeviceMenu(MyComputers my)
@@ -429,7 +445,14 @@ public partial class ViewerWindow : Window
     private void ApplyTheme(bool dark)
     {
         _dark = dark;
-        void Set(string key, string hex) => ((SolidColorBrush)Resources[key]).Color = (Color)ColorConverter.ConvertFromString(hex);
+        // Resource brushes declared in XAML are frozen, so mutating .Color throws — replace
+        // the whole entry instead; DynamicResource references re-resolve to the new brush.
+        void Set(string key, string hex)
+        {
+            var b = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex));
+            b.Freeze();
+            Resources[key] = b;
+        }
         if (dark)
         {
             Set("StageBrush", "#05060B"); Set("ChromeBrush", "#0B0C15"); Set("CardBrush", "#1A1C2B");
@@ -928,13 +951,13 @@ public partial class ViewerWindow : Window
         int sent = 0;
         foreach (var f in files)
         {
-            try { await session.Files.SendFileAsync(f); sent++; }
+            try { await session.Files.SendFileAsync(f, FileTransferChannel.CurrentFolderToken); sent++; }
             catch (Exception ex) { SetStatus($"Send failed on {Path.GetFileName(f)}: {ex.Message}", "#F5484D"); return; }
         }
         _lastFilePct = -1;
         SetStatus(files.Length == 1
-            ? $"Sent {Path.GetFileName(files[0])} → remote Downloads ✓"
-            : $"Sent {sent} files → remote Downloads ✓");
+            ? $"Sent {Path.GetFileName(files[0])} → remote open folder ✓"
+            : $"Sent {sent} files → remote open folder ✓");
     }
 
     // ---- keyboard ----

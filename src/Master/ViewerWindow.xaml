@@ -300,7 +300,7 @@
                 <Border x:Name="DropHint" Visibility="Collapsed" IsHitTestVisible="False"
                         Background="#CC05060B" BorderBrush="#5B5BF5" BorderThickness="2"
                         Margin="24" CornerRadius="14">
-                    <TextBlock Text="⬇  Drop files to send them to the remote PC" Foreground="#8B8BFF"
+                    <TextBlock Text="⬇  Drop files into the folder open on the remote PC (else Downloads)" Foreground="#8B8BFF"
                                FontSize="18" FontWeight="SemiBold"
                                HorizontalAlignment="Center" VerticalAlignment="Center"/>
                 </Border>

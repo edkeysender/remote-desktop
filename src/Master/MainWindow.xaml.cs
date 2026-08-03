@@ -308,8 +308,28 @@ public partial class MainWindow : Window
         id = id.Replace(" ", "");
         if (id.Length == 0) return;
         var server = string.IsNullOrWhiteSpace(serverOverride) ? _config.ServerUrl : serverOverride!;
-        var w = new ViewerWindow(server, id, display, password: password, authToken: authToken, peerToken: _config.HostToken) { Owner = this };
+        var w = new ViewerWindow(server, id, display, password: password, authToken: authToken,
+                                 peerToken: _config.HostToken, fleetProvider: CurrentFleetSnapshot) { Owner = this };
         w.Show();
+    }
+
+    // Snapshot of devices this app can reach right now (account computers + relay siblings +
+    // LAN peers), deduped — lets the session window's device switcher work without a sign-in.
+    private IReadOnlyList<(string Name, string? RelayId, bool Online)> CurrentFleetSnapshot()
+    {
+        var list = new List<(string, string?, bool)>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        void Add(string name, string? rid, bool online)
+        {
+            var key = !string.IsNullOrEmpty(rid) ? rid! : "n:" + name;
+            if (seen.Add(key)) list.Add((name, rid, online));
+        }
+        if (_myComp != null) foreach (var c in _myComp.Computers) Add(c.Name, c.RelayId, c.Online);
+        foreach (var d in _relayFleet) Add(d.Name, d.RelayId, d.Online);
+        foreach (var d in _lan.GetDevices()
+                     .Where(d => (string.IsNullOrEmpty(_org) || d.Org == _org) && (string.IsNullOrEmpty(_groupId) || d.GroupId == _groupId)))
+            Add(d.Name, d.Id, true);
+        return list;
     }
 
     // ---- deep link: hangar://connect?id=<relayId>&server=<ws>&name=<name> ----

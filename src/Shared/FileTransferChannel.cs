@@ -60,6 +60,13 @@ public sealed class FileTransferChannel
     /// <summary>Where received files are written. Defaults to the user's Downloads folder.</summary>
     public string SaveDirectory { get; set; } = DefaultSaveDirectory();
 
+    /// <summary>Host-side: resolves the special "@current" push target to a real directory
+    /// (e.g. the folder the user has open in Explorer). Null / missing → falls back to Downloads.</summary>
+    public Func<string?>? ResolveDropDir { get; set; }
+
+    /// <summary>Sentinel dest that asks the receiver to save into its current Explorer folder.</summary>
+    public const string CurrentFolderToken = "@current";
+
     public event Action<string, long>? ReceiveStarted;              // name, total bytes
     public event Action<string, long, long>? ReceiveProgress;       // name, received, total
     public event Action<string, string>? ReceiveCompleted;          // name, saved path
@@ -220,8 +227,10 @@ public sealed class FileTransferChannel
                 }
                 else
                 {
-                    // A push: honor a requested (existing) target dir, else Downloads.
+                    // A push: honor a requested target dir. "@current" resolves to the folder
+                    // the user has open in Explorer (via ResolveDropDir); else Downloads.
                     var dest = r.TryGetProperty("dest", out var dv) && dv.ValueKind == JsonValueKind.String ? dv.GetString() : null;
+                    if (dest == CurrentFolderToken) dest = ResolveDropDir?.Invoke();
                     var dir = !string.IsNullOrEmpty(dest) && Directory.Exists(dest) ? dest! : SaveDirectory;
                     Directory.CreateDirectory(dir);
                     _rxPath = UniquePath(dir, name);

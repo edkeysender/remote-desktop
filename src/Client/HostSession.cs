@@ -213,6 +213,8 @@ public sealed class HostSession : IDisposable
         // never stall input events behind it.
         _fileChannel = await _pc.createDataChannel("file", null);
         Files.Attach(_fileChannel);
+        // Dropped files land in the folder the user has open in Explorer, else Downloads.
+        Files.ResolveDropDir = () => ExplorerFolder.Foreground();
 
         // Low-fps per-monitor thumbnails for the viewer's rail + all-monitors overview.
         _thumbChannel = await _pc.createDataChannel("thumbs", null);
