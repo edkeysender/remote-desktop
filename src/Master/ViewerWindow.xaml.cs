@@ -75,12 +75,13 @@ public partial class ViewerWindow : Window
         _session.PongReceived += ts => Dispatcher.Invoke(() => OnPong(ts));
         _session.Closed    += r  => Dispatcher.Invoke(() => { if (_connected) SetStatus("Closed: " + (r ?? ""), "#8A8DA3"); CloseSoon(); });
 
-        _session.Files.SendProgress     += (n, done, total) => FileProgress("Sending", n, done, total);
-        _session.Files.ReceiveStarted   += (n, _) => Dispatcher.Invoke(() => SetStatus($"Receiving {n}…"));
-        _session.Files.ReceiveProgress  += (n, done, total) => FileProgress("Receiving", n, done, total);
+        _session.Files.SendProgress     += (n, done, total) => Dispatcher.Invoke(() => TxProgress(n, true, done, total));
+        _session.Files.ReceiveStarted   += (n, total)       => Dispatcher.Invoke(() => TxProgress(n, false, 0, total));
+        _session.Files.ReceiveProgress  += (n, done, total) => Dispatcher.Invoke(() => TxProgress(n, false, done, total));
         _session.Files.ReceiveCompleted += (n, path) => Dispatcher.Invoke(() =>
-            { _lastFilePct = -1; SetStatus($"Received {n} → {Path.GetDirectoryName(path)}"); });
-        _session.Files.Error            += msg => Dispatcher.Invoke(() => SetStatus("File transfer failed: " + msg, "#F5484D"));
+            { TxComplete(n, false); SetStatus($"Received {n} → {Path.GetDirectoryName(path)}"); });
+        _session.Files.Error            += msg => Dispatcher.Invoke(() =>
+            { TxError(msg); SetStatus("File transfer failed: " + msg, "#F5484D"); });
 
         try
         {
@@ -535,6 +536,157 @@ public partial class ViewerWindow : Window
         }
     }
 
+    // ---- file transfer tray + docked chip (Phase D) ----
+    private sealed class TransferRow
+    {
+        public bool Up; public string Name = ""; public long Done, Total, Prev; public double Speed;
+        public bool Completed, Failed; public double TrackWidth = 300;
+        public System.Windows.Shapes.Rectangle Bar = null!; public TextBlock Sub = null!; public Border Card = null!;
+    }
+
+    private readonly Dictionary<string, TransferRow> _tx = new();
+    private System.Windows.Threading.DispatcherTimer? _txTimer;
+    private bool _trayClosed;
+
+    private static string TxKey(string name, bool up) => (up ? "U:" : "D:") + name;
+
+    private void EnsureTrayVisible()
+    {
+        if (_trayClosed) return;
+        Tray.Visibility = Visibility.Visible; TrayChip.Visibility = Visibility.Collapsed;
+        if (_txTimer == null)
+        {
+            _txTimer = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
+            _txTimer.Tick += TxTick; _txTimer.Start();
+        }
+    }
+
+    private void TxProgress(string name, bool up, long done, long total)
+    {
+        _trayClosed = false;                 // a new/continuing transfer re-opens the tray
+        EnsureTrayVisible();
+        if (!_tx.TryGetValue(TxKey(name, up), out var row)) { row = CreateRow(name, up); _tx[TxKey(name, up)] = row; }
+        row.Total = Math.Max(total, done); row.Done = done;
+        if (row.Total > 0 && done >= row.Total) { row.Completed = true; row.Speed = 0; }
+        UpdateRow(row);
+        UpdateChip();
+    }
+
+    private void TxComplete(string name, bool up)
+    {
+        if (_tx.TryGetValue(TxKey(name, up), out var row) && !row.Completed) { row.Completed = true; row.Speed = 0; UpdateRow(row); }
+        UpdateChip();
+    }
+
+    private void TxError(string _)
+    {
+        var row = _tx.Values.LastOrDefault(r => !r.Completed && !r.Failed);
+        if (row != null) { row.Failed = true; UpdateRow(row); }
+        UpdateChip();
+    }
+
+    private TransferRow CreateRow(string name, bool up)
+    {
+        var row = new TransferRow { Up = up, Name = name };
+        var title = new TextBlock
+        {
+            Text = $"{(up ? "↑" : "↓")}  {name}", Foreground = new SolidColorBrush(Res("TextBrush")),
+            FontSize = 12.5, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis
+        };
+        var route = new TextBlock
+        {
+            Text = up ? $"This PC → {_display}" : $"{_display} → This PC",
+            Foreground = new SolidColorBrush(Res("MutedBrush")), FontSize = 10.5,
+            FontFamily = new FontFamily("Consolas"), TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 1, 0, 5)
+        };
+        var bar = new System.Windows.Shapes.Rectangle { Height = 6, Width = 0, RadiusX = 3, RadiusY = 3, Fill = (Brush)Resources["GradBrush"] };
+        var track = new Border
+        {
+            Width = row.TrackWidth, Height = 6, CornerRadius = new CornerRadius(3), ClipToBounds = true,
+            Background = new SolidColorBrush(Res("CardBrush")), HorizontalAlignment = HorizontalAlignment.Left,
+            Child = new Grid { HorizontalAlignment = HorizontalAlignment.Left, Children = { bar } }
+        };
+        var sub = new TextBlock { Text = "", Foreground = new SolidColorBrush(Res("MutedBrush")), FontSize = 10.5, Margin = new Thickness(0, 5, 0, 0) };
+        var stack = new StackPanel();
+        stack.Children.Add(title); stack.Children.Add(route); stack.Children.Add(track); stack.Children.Add(sub);
+        row.Card = new Border { Margin = new Thickness(0, 0, 0, 12), Child = stack };
+        row.Bar = bar; row.Sub = sub;
+        TrayList.Children.Add(row.Card);
+        return row;
+    }
+
+    private void UpdateRow(TransferRow row)
+    {
+        double pct = row.Total > 0 ? Math.Min(1.0, (double)row.Done / row.Total) : (row.Completed ? 1 : 0);
+        row.Bar.Width = row.TrackWidth * pct;
+        if (row.Failed)
+        {
+            row.Sub.Text = "✕ failed"; row.Sub.Foreground = new SolidColorBrush(Color.FromRgb(0xF5, 0x48, 0x4D));
+            row.Bar.Fill = new SolidColorBrush(Color.FromRgb(0xF5, 0x48, 0x4D)); return;
+        }
+        if (row.Completed)
+        {
+            row.Sub.Text = $"✓ verified · {Human(row.Total)}"; row.Sub.Foreground = new SolidColorBrush(Color.FromRgb(0x1F, 0xC9, 0x8B));
+            row.Bar.Fill = new SolidColorBrush(Color.FromRgb(0x1F, 0xC9, 0x8B)); return;
+        }
+        string speed = row.Speed > 0 ? $" · {Human((long)row.Speed)}/s" : "";
+        string eta = row.Speed > 0 && row.Total > row.Done ? " · " + Eta((row.Total - row.Done) / row.Speed) : "";
+        row.Sub.Text = $"{Human(row.Done)} / {Human(row.Total)}{speed}{eta}";
+    }
+
+    private void TxTick(object? sender, EventArgs e)
+    {
+        foreach (var r in _tx.Values)
+            if (!r.Completed && !r.Failed) { r.Speed = Math.Max(0, r.Done - r.Prev); r.Prev = r.Done; UpdateRow(r); }
+        UpdateChip();
+    }
+
+    private void UpdateChip()
+    {
+        long done = 0, total = 0; int active = 0;
+        foreach (var r in _tx.Values) { done += r.Done; total += Math.Max(r.Total, r.Done); if (!r.Completed && !r.Failed) active++; }
+        int pct = total > 0 ? (int)(done * 100 / total) : 0;
+        ChipPct.Text = $"{pct}%";
+        ChipCount.Text = active > 0 ? $"{active} active" : "done";
+        ChipPct.Foreground = new SolidColorBrush(active > 0 ? Res("AccentBrush") : Color.FromRgb(0x1F, 0xC9, 0x8B));
+    }
+
+    private bool AnyActive() => _tx.Values.Any(r => !r.Completed && !r.Failed);
+
+    private void TrayMin_Click(object sender, RoutedEventArgs e)
+    {
+        Tray.Visibility = Visibility.Collapsed;
+        TrayChip.Visibility = _tx.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        UpdateChip();
+    }
+
+    private void TrayClose_Click(object sender, RoutedEventArgs e)
+    {
+        if (AnyActive()) { TrayMin_Click(sender, e); return; }   // invariant: active transfers never invisible
+        Tray.Visibility = Visibility.Collapsed; TrayChip.Visibility = Visibility.Collapsed;
+        TrayList.Children.Clear(); _tx.Clear(); _trayClosed = true;
+    }
+
+    private void TrayChip_Click(object sender, MouseButtonEventArgs e)
+    {
+        _trayClosed = false; Tray.Visibility = Visibility.Visible; TrayChip.Visibility = Visibility.Collapsed;
+    }
+
+    private static string Human(long b)
+    {
+        string[] u = { "B", "KB", "MB", "GB", "TB" };
+        double v = b; int i = 0;
+        while (v >= 1024 && i < u.Length - 1) { v /= 1024; i++; }
+        return i == 0 ? $"{b} B" : $"{v:0.#} {u[i]}";
+    }
+
+    private static string Eta(double sec)
+    {
+        if (sec < 1) return "<1s";
+        int s = (int)sec;
+        return s < 60 ? $"{s}s" : $"{s / 60}:{s % 60:00}";
+    }
+
     // ---- frame rendering ----
     private WriteableBitmap? _wb;
     private void DrawFrame(int w, int h, byte[] bgr)
@@ -704,6 +856,7 @@ public partial class ViewerWindow : Window
     {
         _timerTick?.Stop();
         _pingTimer?.Stop();
+        _txTimer?.Stop();
         StopPan();
         if (_session != null) { try { await _session.CloseAsync(); } catch { } _session.Dispose(); _session = null; }
         base.OnClosed(e);
