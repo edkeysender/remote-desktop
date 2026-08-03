@@ -893,7 +893,7 @@ public partial class ViewerWindow : Window
     {
         if (_session is not { } session) return;
         if (_browser is { IsLoaded: true }) { _browser.Activate(); return; }
-        _browser = new RemoteBrowserWindow(session) { Owner = this };
+        _browser = new RemoteBrowserWindow(session, _display, _id) { Owner = this };
         _browser.Closed += (_, _) => _browser = null;
         _browser.Show();
     }
