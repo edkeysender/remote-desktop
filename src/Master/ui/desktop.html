@@ -406,7 +406,7 @@ window.chrome?.webview?.addEventListener('message',ev=>{
   $('sb-ver').textContent=brandName+' '+(s.version||'');
   $('set-ver').textContent=s.updateAvailable?('Update to v'+s.updateAvailable+' available'):('Version '+(s.version||'—')+' · up to date');
   $('set-update').hidden=!s.updateAvailable;
-  if(s.updateAvailable && !updDismissed){ $('updToast').hidden=false; $('updVer').textContent='Version '+s.updateAvailable+' — installs and restarts the app'; }
+  if(s.updateAvailable && !updDismissed){ $('updToast').hidden=false; $('updVer').textContent='v'+s.updateAvailable+' · you’re on v'+(s.version||'?'); }
   else if(!s.updateAvailable){ $('updToast').hidden=true; }
   // An update failure re-enables the button and shows why, instead of sticking on "Updating…".
   if(s.error && /update|swap|checksum/i.test(s.error)){ const b=$('updBtn'); b.disabled=false; b.textContent='Retry'; updDismissed=false; $('updToast').hidden=false; $('updVer').textContent='⚠ '+s.error; }

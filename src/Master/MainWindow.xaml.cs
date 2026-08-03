@@ -477,6 +477,10 @@ public partial class MainWindow : Window
         if (_pendingUpdate != null) { _updateTimer?.Stop(); return; }
         var info = await _updater.CheckAsync(_config.ServerUrl);
         if (info == null) return;
+        // Already tried this exact version and we're still not on it (the served build/manifest
+        // are out of sync, or the swap didn't take) — stop nagging for it. A genuinely newer
+        // version still shows. The marker clears on startup once we actually reach that version.
+        if (info.Version.ToString() == _config.UpdateTriedVersion) { _updateTimer?.Stop(); return; }
         _pendingUpdate = info;
         _updateTimer?.Stop();
         PushState();        // surfaces the "update available" toast; the user clicks to apply
@@ -486,6 +490,9 @@ public partial class MainWindow : Window
     {
         if (_pendingUpdate is not { } info || _updating) return;
         _updating = true;
+        // Remember what we're applying so a version that can't actually be reached stops nagging.
+        _config.UpdateTriedVersion = info.Version.ToString();
+        _config.Save("app");
         try
         {
             _status = $"Downloading v{info.Version}…"; PushState();

@@ -283,6 +283,7 @@ public partial class ViewerWindow : Window
     {
         DevPopup.IsOpen = false;
         if (id == _id) return;
+        if (AnyActive()) { SetStatus("Finish the file transfer before switching devices.", "#FFAA1D"); return; }
 
         _switching = true;                 // suppress the old session's Closed → CloseSoon
         var old = _session; _session = null;
