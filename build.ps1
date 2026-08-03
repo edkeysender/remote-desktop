@@ -18,6 +18,12 @@ param(
     [string]$PushTo = '',
     [string]$PiUpdateDir = '~/remote-desktop/server/update',
     [string]$Notes = '',
+    # Version control. By default every build bumps the patch number and writes it back to
+    # VERSION, so each build is a strictly newer version and installed apps always see the
+    # update. Override with -Version x.y.z, change the part with -Bump major|minor|patch,
+    # or keep the current number with -Bump none.
+    [string]$Version = '',
+    [ValidateSet('major','minor','patch','none')][string]$Bump = 'patch',
     # Per-org white-label: produces a custom-named installer whose app exe carries the
     # given icon. e.g. build.ps1 -BrandName "Acme Remote" -BrandIcon C:\acme.ico
     [string]$BrandName = '',
@@ -33,6 +39,21 @@ $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
 
 $ver = (Get-Content "$root\VERSION" -Raw).Trim()
 if ($ver -notmatch '^\d+\.\d+\.\d+$') { throw "VERSION file must contain x.y.z (got '$ver')." }
+
+# Decide this build's version: explicit -Version wins; otherwise bump the requested part.
+if ($Version) {
+    if ($Version -notmatch '^\d+\.\d+\.\d+$') { throw "-Version must be x.y.z (got '$Version')." }
+    $ver = $Version
+} elseif ($Bump -ne 'none') {
+    $p = $ver.Split('.') | ForEach-Object { [int]$_ }
+    switch ($Bump) {
+        'major' { $ver = "$($p[0]+1).0.0" }
+        'minor' { $ver = "$($p[0]).$($p[1]+1).0" }
+        'patch' { $ver = "$($p[0]).$($p[1]).$($p[2]+1)" }
+    }
+}
+# Persist so the number is monotonic across builds (commit VERSION with each release).
+Set-Content "$root\VERSION" $ver -Encoding utf8
 if (-not $Notes) { $Notes = "FTD Remote $ver" }
 Write-Host "== Building version $ver ==" -ForegroundColor Cyan
 

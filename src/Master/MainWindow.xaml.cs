@@ -26,6 +26,8 @@ public partial class MainWindow : Window
 
     private readonly Updater _updater = new("app", elevate: false);
     private UpdateInfo? _pendingUpdate;
+    private bool _inSession;      // a viewer is actively connected to this host
+    private bool _updating;       // an update is downloading/applying (guard against re-entry)
     private System.Windows.Threading.DispatcherTimer? _updateTimer;
 
     // live state pushed to the web UI
@@ -257,6 +259,11 @@ public partial class MainWindow : Window
                 session.OrgAssigned += org => Dispatcher.Invoke(() => { _org = org ?? ""; RefreshDiscovery(); PushState(); });
                 session.GroupAssigned += (gid, gname) => Dispatcher.Invoke(() => { _groupId = gid ?? ""; _groupName = gname ?? ""; RefreshDiscovery(); PushState(); });
                 session.FleetUpdated += list => Dispatcher.Invoke(() => { _relayFleet = list; PushState(); });
+                session.SessionActive += active => Dispatcher.Invoke(() =>
+                {
+                    _inSession = active;
+                    if (!active) TryAutoUpdate();   // a deferred update can apply now that we're idle
+                });
                 session.Branding += (name, accent, logo) => Dispatcher.Invoke(() =>
                 {
                     _brandName = string.IsNullOrWhiteSpace(name) ? "Hangar" : name!;
@@ -409,11 +416,21 @@ public partial class MainWindow : Window
         _pendingUpdate = info;
         _updateTimer?.Stop();
         PushState();
+        TryAutoUpdate();     // self-apply straight away unless a session is in progress
+    }
+
+    // Apply a pending update on its own, but never yank the app out from under a live
+    // session — defer until the viewer disconnects (SessionActive(false) retries this).
+    private void TryAutoUpdate()
+    {
+        if (_pendingUpdate == null || _updating || _inSession) return;
+        _ = DoUpdateAsync();
     }
 
     private async Task DoUpdateAsync()
     {
-        if (_pendingUpdate is not { } info) return;
+        if (_pendingUpdate is not { } info || _updating) return;
+        _updating = true;
         try
         {
             _status = $"Downloading v{info.Version}…"; PushState();
@@ -424,7 +441,7 @@ public partial class MainWindow : Window
             _updater.LaunchAndExit(stage);
             Application.Current.Shutdown();
         }
-        catch (Exception ex) { _lastError = "Update failed: " + ex.Message; PushState(); }
+        catch (Exception ex) { _updating = false; _lastError = "Update failed: " + ex.Message; PushState(); }
     }
 
     private static string GeneratePassword()
