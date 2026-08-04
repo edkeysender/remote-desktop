@@ -18,9 +18,10 @@ param(
     [string]$PushTo = '',
     [string]$PiUpdateDir = '~/remote-desktop/server/update',
     [string]$Notes = '',
-    # Version control. By default a build KEEPS the current version (VERSION file), so
-    # rebuilding to produce installers doesn't churn the version and nag installed apps.
-    # To RELEASE an update, bump explicitly: -Bump patch|minor|major, or -Version x.y.z.
+    # Version control. A local build keeps the current version (no update-nag churn); a
+    # published build (-PushTo) bumps the patch by default so installed apps see the update.
+    # Override anytime: -Version x.y.z, -Bump major|minor|patch, or -Bump none to publish
+    # without bumping.
     [string]$Version = '',
     [ValidateSet('major','minor','patch','none')][string]$Bump = 'none',
     # Per-org white-label: produces a custom-named installer whose app exe carries the
@@ -38,6 +39,11 @@ $env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
 
 $ver = (Get-Content "$root\VERSION" -Raw).Trim()
 if ($ver -notmatch '^\d+\.\d+\.\d+$') { throw "VERSION file must contain x.y.z (got '$ver')." }
+
+# Publishing a build (-PushTo) is a release, so bump the patch by default — installed apps
+# then see the update. A plain local build keeps the version (no update-nag churn). Explicit
+# -Version / -Bump always win; pass -Bump none to publish without bumping.
+if ($PushTo -and -not $Version -and -not $PSBoundParameters.ContainsKey('Bump')) { $Bump = 'patch' }
 
 # Decide this build's version: explicit -Version wins; otherwise bump the requested part.
 if ($Version) {
