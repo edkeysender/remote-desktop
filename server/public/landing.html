@@ -2,9 +2,202 @@
 <html lang="en" data-page="landing">
 <head>
 <meta charset="utf-8">
-<title>Remotler</title>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Remotler — remote control for your whole fleet</title>
+<meta name="description" content="Direct peer-to-peer remote desktop for Windows. Encrypted end to end, self-hosted on your own server.">
+<link rel="icon" href="/logo.png">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/tokens.css">
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+html{font-size:15px;scroll-behavior:smooth}
+body{font-family:'Inter',system-ui,sans-serif;background:var(--paper);color:var(--text);-webkit-font-smoothing:antialiased;line-height:1.6}
+h1,h2,h3{font-family:'Schibsted Grotesk',system-ui,sans-serif;letter-spacing:-.02em;line-height:1.15}
+a{color:var(--accent);text-decoration:none}
+:focus-visible{outline:2px solid var(--accent);outline-offset:3px;border-radius:6px}
+.wrap{max-width:1080px;margin:0 auto;padding:0 24px}
+
+/* nav */
+.nav{position:sticky;top:0;z-index:10;background:rgba(245,246,249,.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
+.nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px;gap:16px}
+.logo{display:flex;align-items:center;gap:10px;font-family:'Schibsted Grotesk',sans-serif;font-weight:800;font-size:1.1rem;color:var(--ink)}
+.logo img{height:26px;width:auto;display:block}
+.nav-cta{display:flex;align-items:center;gap:10px}
+
+/* buttons */
+.btn{display:inline-block;border-radius:var(--r-pill);padding:10px 20px;font-weight:600;font-size:.9rem;border:1px solid var(--line);background:#fff;color:var(--text);transition:transform .15s,box-shadow .15s}
+.btn:hover{transform:translateY(-1px);box-shadow:var(--shadow)}
+.btn.primary{background:var(--ink);border-color:var(--ink);color:#fff}
+.btn.lg{padding:14px 28px;font-size:1rem}
+
+/* hero */
+.hero{padding:96px 0 80px;text-align:center;position:relative;overflow:hidden}
+.hero::before{content:"";position:absolute;inset:-40% 20% auto;height:520px;background:var(--grad);filter:blur(120px);opacity:.16;pointer-events:none}
+.hero h1{font-size:clamp(2.2rem,5.5vw,3.6rem);font-weight:800;position:relative}
+.hero p{margin:20px auto 0;max-width:620px;font-size:1.12rem;color:var(--muted);position:relative}
+.hero .actions{margin-top:34px;display:flex;gap:12px;justify-content:center;flex-wrap:wrap;position:relative}
+.pill{display:inline-block;margin-bottom:20px;padding:6px 14px;border-radius:var(--r-pill);background:var(--accent-soft);color:var(--accent);font-size:.78rem;font-weight:600;letter-spacing:.02em;position:relative}
+
+/* sections */
+section{padding:72px 0}
+.eyebrow{font-size:.74rem;font-weight:700;letter-spacing:.12em;text-transform:uppercase;color:var(--muted);margin-bottom:12px}
+.sec-title{font-size:clamp(1.6rem,3vw,2.1rem);font-weight:700;margin-bottom:12px}
+.sec-lead{color:var(--muted);max-width:620px;margin-bottom:40px}
+
+/* steps */
+.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:24px;counter-reset:step}
+.step{background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);padding:28px;box-shadow:var(--shadow)}
+.step::before{counter-increment:step;content:counter(step);display:grid;place-items:center;width:34px;height:34px;border-radius:var(--r-pill);background:var(--ink);color:#fff;font-family:'JetBrains Mono',monospace;font-weight:600;font-size:.9rem;margin-bottom:16px}
+.step h3{font-size:1.05rem;margin-bottom:8px}
+.step p{color:var(--muted);font-size:.94rem}
+.step code{font-family:'JetBrains Mono',monospace;font-size:.86rem;background:var(--accent-soft);color:var(--accent);padding:2px 6px;border-radius:6px}
+
+/* features */
+.features{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+.feature{background:var(--card);border:1px solid var(--line);border-radius:var(--r-md);padding:24px}
+.feature h3{font-size:1rem;margin-bottom:8px}
+.feature p{color:var(--muted);font-size:.92rem}
+
+/* download */
+.download{background:var(--ink);border-radius:var(--r-lg);padding:48px;color:#fff;text-align:center}
+.download h2{font-size:clamp(1.5rem,3vw,2rem);margin-bottom:10px}
+.download > p{color:#A9ACC4;max-width:560px;margin:0 auto 32px}
+.dl-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:16px;max-width:720px;margin:0 auto;text-align:left}
+.dl{display:block;background:var(--ink-soft);border:1px solid #2C2F44;border-radius:var(--r-md);padding:22px;color:#fff;transition:transform .15s,border-color .15s}
+.dl:hover{transform:translateY(-2px);border-color:var(--accent)}
+.dl strong{display:block;font-family:'Schibsted Grotesk',sans-serif;font-size:1rem;margin-bottom:6px}
+.dl span{display:block;color:#A9ACC4;font-size:.88rem}
+.dl em{display:block;margin-top:12px;font-style:normal;font-family:'JetBrains Mono',monospace;font-size:.78rem;color:var(--accent)}
+
+/* footer */
+footer{border-top:1px solid var(--line);padding:32px 0;color:var(--muted);font-size:.88rem}
+footer .wrap{display:flex;justify-content:space-between;align-items:center;gap:16px;flex-wrap:wrap}
+footer nav{display:flex;gap:20px}
+
+@media(max-width:860px){
+  .steps,.features,.dl-grid{grid-template-columns:1fr}
+  .hero{padding:64px 0 56px}
+  section{padding:52px 0}
+  .download{padding:32px 20px}
+}
+</style>
 </head>
 <body>
-<a href="/login">Sign in</a>
+
+<header class="nav">
+  <div class="wrap">
+    <a class="logo" href="/"><img src="/logo.png" alt="">Remotler</a>
+    <div class="nav-cta">
+      <a class="btn" href="/login" data-auth-cta>Sign in</a>
+      <a class="btn primary" href="/login" data-auth-cta>Get started</a>
+      <a class="btn primary" href="/app" data-dash-cta hidden>Open dashboard</a>
+    </div>
+  </div>
+</header>
+
+<main>
+  <section class="hero">
+    <div class="wrap">
+      <span class="pill">Self-hosted remote desktop</span>
+      <h1>Remote control for your whole fleet</h1>
+      <p>Screen and input travel straight between the two machines over WebRTC — encrypted end to end, on a relay you run yourself.</p>
+      <div class="actions">
+        <a class="btn primary lg" href="/login" data-auth-cta>Get started</a>
+        <a class="btn lg" href="#download">Download for Windows</a>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <p class="eyebrow">How it works</p>
+      <h2 class="sec-title">Three steps to a remote session</h2>
+      <p class="sec-lead">No port forwarding, no VPN, no per-seat licence.</p>
+      <div class="steps">
+        <div class="step">
+          <h3>Install the agent</h3>
+          <p>Run the agent installer on the PC you want to reach. It shows a nine-digit ID and a password.</p>
+        </div>
+        <div class="step">
+          <h3>Share the ID</h3>
+          <p>Hand the ID and password to whoever is connecting, or enrol the machine into your organisation so it appears in the dashboard.</p>
+        </div>
+        <div class="step">
+          <h3>Connect and control</h3>
+          <p>Open Remotler, enter the ID and password. The remote screen appears and your mouse and keyboard drive it. <code>Ctrl+Alt+End</code> ends the session.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="wrap">
+      <p class="eyebrow">Why Remotler</p>
+      <h2 class="sec-title">Built so the server stays out of the way</h2>
+      <p class="sec-lead">The relay brokers the introduction and then steps aside.</p>
+      <div class="features">
+        <div class="feature">
+          <h3>Direct peer-to-peer</h3>
+          <p>Video and input flow straight between the two machines over WebRTC. The server only exchanges the initial handshake.</p>
+        </div>
+        <div class="feature">
+          <h3>Encrypted end to end</h3>
+          <p>DTLS-SRTP secures the media and data channels. The relay never sees pixels or keystrokes.</p>
+        </div>
+        <div class="feature">
+          <h3>Works through NAT</h3>
+          <p>STUN finds a direct path where one exists, with a TURN relay as fallback for networks that refuse to hole-punch.</p>
+        </div>
+        <div class="feature">
+          <h3>Fleet management</h3>
+          <p>Groups, users, enrolment tokens, session history and an activity log — all in one dashboard.</p>
+        </div>
+        <div class="feature">
+          <h3>Self-hosted</h3>
+          <p>Runs on your own server. Your devices, your data, your relay, your rules.</p>
+        </div>
+        <div class="feature">
+          <h3>Native Windows apps</h3>
+          <p>Single-file installers that bundle the .NET runtime. Nothing to install first.</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section id="download">
+    <div class="wrap">
+      <div class="download">
+        <h2>Download for Windows</h2>
+        <p>Install the agent on machines you want to reach, and Remotler on the machine you drive from.</p>
+        <div class="dl-grid">
+          <a class="dl" href="https://github.com/edkeysender/remote-desktop/releases/download/v0.3.1/RemotlerAgent-Setup-0.3.1.exe">
+            <strong>Remotler Agent</strong>
+            <span>For the PC being controlled. Installs as a service for unattended access; requires admin.</span>
+            <em>v0.3.1 · 98 MB</em>
+          </a>
+          <a class="dl" href="https://github.com/edkeysender/remote-desktop/releases/download/v0.3.1/Remotler-Setup-0.3.1.exe">
+            <strong>Remotler</strong>
+            <span>For your own PC. Per-user install, no admin rights needed.</span>
+            <em>v0.3.1 · 71 MB</em>
+          </a>
+        </div>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <span>© Remotler</span>
+    <nav>
+      <a href="/login" data-auth-cta>Sign in</a>
+      <a href="/login" data-auth-cta>Create account</a>
+      <a href="/app" data-dash-cta hidden>Dashboard</a>
+      <a href="https://github.com/edkeysender/remote-desktop">GitHub</a>
+    </nav>
+  </div>
+</footer>
+
 </body>
 </html>

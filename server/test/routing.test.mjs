@@ -72,3 +72,32 @@ test('/invite/:token still serves the SPA shell', async () => {
   assert.equal(status, 200);
   assert.match(html, /<div id="app">/);
 });
+
+test('landing page covers the required sections', async () => {
+  const { html } = await get('/');
+  assert.match(html, /How it works/i);
+  assert.match(html, /peer-to-peer/i);
+  assert.match(html, /self-hosted/i);
+});
+
+test('landing page links to both installers at the pinned version', async () => {
+  const { html } = await get('/');
+  const bases = 'https://github.com/edkeysender/remote-desktop/releases/download/v0.3.1';
+  assert.ok(html.includes(`${bases}/RemotlerAgent-Setup-0.3.1.exe`));
+  assert.ok(html.includes(`${bases}/Remotler-Setup-0.3.1.exe`));
+});
+
+test('landing page offers both sign-in and register entry points', async () => {
+  const { html } = await get('/');
+  assert.match(html, /href="\/login"/);
+  assert.match(html, /data-auth-cta/);
+  assert.match(html, /data-dash-cta/);
+});
+
+test('landing page loads the shared design tokens', async () => {
+  const { html } = await get('/');
+  assert.match(html, /href="\/tokens\.css"/);
+  const res = await fetch(base + '/tokens.css');
+  assert.equal(res.status, 200);
+  assert.match(await res.text(), /--accent:\s*#5B5BF5/);
+});

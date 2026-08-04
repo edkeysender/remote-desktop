@@ -1,0 +1,11 @@
+/* Shared design tokens for the landing page and the control-plane app.
+   index.html still carries its own inline copy; Phase 2 replaces that with a link
+   to this file so the two cannot drift apart. */
+:root{
+  --ink:#0B0C15; --ink-soft:#1A1C2B; --paper:#F5F6F9; --card:#FFFFFF; --line:#E8E9F0;
+  --text:#0B0C15; --muted:#6E7185; --accent:#5B5BF5; --accent-soft:#EEEEFE;
+  --grad:linear-gradient(135deg,#5B5BF5 0%,#9D5CFF 55%,#3EC8FF 120%);
+  --ok:#1FC98B; --warn:#FFAA1D; --danger:#F5484D;
+  --r-lg:22px; --r-md:14px; --r-pill:999px;
+  --shadow:0 1px 2px rgba(11,12,21,.04),0 8px 24px rgba(11,12,21,.06);
+}
