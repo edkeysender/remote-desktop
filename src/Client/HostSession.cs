@@ -352,7 +352,9 @@ public sealed class HostSession : IDisposable
 
     private void SelectMonitor(int index)
     {
-        if (index == _currentMon) return;
+        // Re-enumerate so a rearranged/added/removed display (or resolution change) is picked
+        // up — important for Show-All (index -1 = the whole, possibly-changed virtual desktop).
+        _monitors = ScreenCapture.EnumerateMonitors();
         _currentMon = index;
         var region = RegionFor(index);
         // Hold the encoder lock so the pump can't encode against a half-changed region
@@ -365,6 +367,7 @@ public sealed class HostSession : IDisposable
             _encoder = new VpxVideoEncoder();
         }
         ApplyInputRegion();
+        SendMonitorList();   // push refreshed bounds + virtual-desktop geometry to the viewer
     }
 
     private void StartPump()

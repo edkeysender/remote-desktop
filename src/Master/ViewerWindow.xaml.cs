@@ -425,15 +425,25 @@ public partial class ViewerWindow : Window
         UpdateReadout();
     }
 
+    // Show-All fit: fill the stage on the dimension that matches the combined layout, so the
+    // OTHER axis overflows and scrolls. Horizontal row → fit height (scroll X); vertical
+    // stack → fit width (scroll Y). Keeps the arrangement 1:1, never squished.
+    private double ShowAllFitScale()
+    {
+        if (_srcW <= 0 || _srcH <= 0 || Scroller.ViewportWidth <= 0 || Scroller.ViewportHeight <= 0) return 1;
+        double combined = (double)_srcW / _srcH, stage = Scroller.ViewportWidth / Scroller.ViewportHeight;
+        return combined > stage ? Scroller.ViewportHeight / _srcH : Scroller.ViewportWidth / _srcW;
+    }
+
     // Effective render scale of the stage image (px shown per source px). 0 = uniform-fit.
     private double EffScale()
     {
         if (_zoom > 0) return _zoom;
-        if (ShowAll && _srcH > 0 && Scroller.ViewportHeight > 0) return Scroller.ViewportHeight / _srcH;   // fit-to-height strip
+        if (ShowAll) return ShowAllFitScale();
         return 0;   // single-monitor uniform fit
     }
 
-    // True when the surface is larger than the viewport (edge-pan + strip minimap apply).
+    // True when the surface is larger than the viewport (edge-pan + minimap apply).
     private bool Scrollable => EffScale() > 0;
 
     private void ApplyZoom()
@@ -441,10 +451,10 @@ public partial class ViewerWindow : Window
         if (Scroller == null) return;
         if (ShowAll && _zoom <= 0)
         {
-            // Combined strip: fill the stage height, scroll horizontally across channels.
-            double s = _srcH > 0 && Scroller.ViewportHeight > 0 ? Scroller.ViewportHeight / _srcH : 1;
+            // Fill one axis to match the layout; the overflow axis scrolls.
+            double s = ShowAllFitScale();
             Scroller.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
-            Scroller.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
+            Scroller.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
             RemoteImage.Stretch = Stretch.None;
             RemoteImage.LayoutTransform = new ScaleTransform(s, s);
         }
@@ -551,30 +561,33 @@ public partial class ViewerWindow : Window
         if (StripMap == null) return;
         if (!ShowAll || !_connected || _srcW <= 0 || _srcH <= 0) { StripMap.Visibility = Visibility.Collapsed; return; }
         StripMap.Visibility = Visibility.Visible;
-        double h = StripMap.Height;
-        double w = Math.Min(900, h * _srcW / _srcH);
-        StripMap.Width = w; StripCanvas.Width = w; StripCanvas.Height = h;
+        // Scale the whole combined surface into a bounding box, preserving aspect (works for a
+        // horizontal row AND a vertical stack).
+        const double maxW = 900, maxH = 130;
+        double scale = Math.Min(maxW / _srcW, maxH / _srcH);
+        double w = _srcW * scale, h = _srcH * scale;
+        StripMap.Width = w; StripMap.Height = h; StripCanvas.Width = w; StripCanvas.Height = h;
         if (!ReferenceEquals(StripImg.Source, _wb)) StripImg.Source = _wb;
         double eff = EffScale(); if (eff <= 0) eff = 1;
-        double sx = w / _srcW;
         double visW = Math.Min(_srcW, Scroller.ViewportWidth / eff);
-        double offX = Scroller.HorizontalOffset / eff;
-        StripRect.Width = Math.Max(8, visW * sx);
-        StripRect.Height = h;
-        Canvas.SetLeft(StripRect, Math.Clamp(offX * sx, 0, Math.Max(0, w - StripRect.Width)));
-        Canvas.SetTop(StripRect, 0);
+        double visH = Math.Min(_srcH, Scroller.ViewportHeight / eff);
+        double rw = Math.Max(6, visW * scale), rh = Math.Max(6, visH * scale);
+        StripRect.Width = rw; StripRect.Height = rh;
+        Canvas.SetLeft(StripRect, Math.Clamp(Scroller.HorizontalOffset / eff * scale, 0, Math.Max(0, w - rw)));
+        Canvas.SetTop(StripRect, Math.Clamp(Scroller.VerticalOffset / eff * scale, 0, Math.Max(0, h - rh)));
     }
 
     private void Strip_Down(object sender, MouseButtonEventArgs e) { _stripDrag = true; StripMap.CaptureMouse(); StripTo(e.GetPosition(StripMap)); e.Handled = true; }
     private void Strip_Move(object sender, MouseEventArgs e) { if (_stripDrag) { StripTo(e.GetPosition(StripMap)); e.Handled = true; } }
     private void Strip_Up(object sender, MouseButtonEventArgs e) { _stripDrag = false; StripMap.ReleaseMouseCapture(); e.Handled = true; }
 
-    private void StripTo(Point p)
+    private void StripTo(Point p)   // click/drag the minimap → center the view there (both axes)
     {
-        if (!ShowAll || StripMap.Width <= 0) return;
+        if (!ShowAll || StripMap.Width <= 0 || StripMap.Height <= 0) return;
         double eff = EffScale(); if (eff <= 0) eff = 1;
-        double srcX = p.X / StripMap.Width * _srcW;                 // click point in combined-source px
-        Scroller.ScrollToHorizontalOffset(srcX * eff - Scroller.ViewportWidth / 2);   // center the view there
+        double srcX = p.X / StripMap.Width * _srcW, srcY = p.Y / StripMap.Height * _srcH;
+        Scroller.ScrollToHorizontalOffset(srcX * eff - Scroller.ViewportWidth / 2);
+        Scroller.ScrollToVerticalOffset(srcY * eff - Scroller.ViewportHeight / 2);
     }
 
     private void UpdateReadout()
@@ -700,7 +713,7 @@ public partial class ViewerWindow : Window
                 BorderThickness = new Thickness(allActive ? 2 : 1),
                 Child = label, ToolTip = "Show all monitors as one surface"
             };
-            tile.MouseLeftButtonUp += (_, _) => SwitchTo(-1);
+            tile.MouseLeftButtonUp += (_, _) => ShowAllRefresh();
             RailList.Children.Add(tile);
         }
         foreach (var m in _monitors)
@@ -770,6 +783,17 @@ public partial class ViewerWindow : Window
         if (index == _currentMon) { RebuildRail(); return; }
         _currentMon = index;
         _session?.SelectMonitor(index);
+        RebuildMonitorButtons(); RebuildRail(); SetZoom(0);
+    }
+
+    // Enter/refresh Show-All. Always re-requests the combined capture so a rearranged display
+    // layout is reflected even when already in Show-All.
+    private void ShowAllRefresh()
+    {
+        if (!_connected) return;
+        CloseOverview();
+        _currentMon = -1; _newWin.Clear();
+        _session?.SelectMonitor(-1);
         RebuildMonitorButtons(); RebuildRail(); SetZoom(0);
     }
 
