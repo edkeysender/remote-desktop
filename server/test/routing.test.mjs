@@ -119,3 +119,33 @@ test('landing page CSS still forces [hidden] elements to display:none', async ()
   const { html } = await get('/');
   assert.match(html, /\[hidden\]\s*\{\s*display:\s*none\s*!important\s*\}/);
 });
+
+// ---- Phase 2: SPA integration with the landing page ----
+
+test('the SPA loads shared design tokens instead of inlining them', async () => {
+  const { html } = await get('/login');
+  assert.match(html, /href="\/tokens\.css"/);
+  assert.doesNotMatch(html, /:root\s*\{/);
+});
+
+test('post-auth redirects land on /app, not the marketing page', async () => {
+  // Source-level guard: pushState runs in the browser, so this checks the
+  // shipped source rather than the behaviour. All three auth paths (login,
+  // register, accept-invite) must redirect to /app or a refresh strands the
+  // user on the landing page.
+  const { html } = await get('/login');
+  assert.doesNotMatch(html, /pushState\(\{\},'','\/'\)/);
+  assert.equal((html.match(/pushState\(\{\},'','\/app'\)/g) || []).length, 3);
+});
+
+test('the SPA opens the Create account tab on /register', async () => {
+  const { html } = await get('/register');
+  assert.match(html, /location\.pathname==='\/register'\?create:signin/);
+});
+
+test('landing register CTAs point at /register, sign-in at /login', async () => {
+  const { html } = await get('/');
+  assert.match(html, /href="\/register" data-auth-cta>Get started/);
+  assert.match(html, /href="\/register" data-auth-cta>Create account/);
+  assert.match(html, /href="\/login" data-auth-cta>Sign in/);
+});

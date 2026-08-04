@@ -6,15 +6,10 @@
 <title>Remotler</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600&display=swap" rel="stylesheet">
+<!-- Design tokens are shared with the landing page. applyBrand() still overrides
+     --accent and --grad per-org via inline style, which outranks this sheet. -->
+<link rel="stylesheet" href="/tokens.css">
 <style>
-:root{
-  --ink:#0B0C15; --ink-soft:#1A1C2B; --paper:#F5F6F9; --card:#FFFFFF; --line:#E8E9F0;
-  --text:#0B0C15; --muted:#6E7185; --accent:#5B5BF5; --accent-soft:#EEEEFE;
-  --grad:linear-gradient(135deg,#5B5BF5 0%,#9D5CFF 55%,#3EC8FF 120%);
-  --ok:#1FC98B; --warn:#FFAA1D; --danger:#F5484D;
-  --r-lg:22px; --r-md:14px; --r-pill:999px;
-  --shadow:0 1px 2px rgba(11,12,21,.04),0 8px 24px rgba(11,12,21,.06);
-}
 *{margin:0;padding:0;box-sizing:border-box}
 html{font-size:15px}
 body{font-family:'Inter',system-ui,sans-serif;background:var(--paper);color:var(--text);-webkit-font-smoothing:antialiased}
@@ -165,20 +160,22 @@ function renderAuth(){
   const signin=()=>{el.querySelector('#ti').classList.add('active');el.querySelector('#tc').classList.remove('active');
     f.replaceChildren($(`<div><label>Email</label><input id="email" type="email"><label>Password</label><input id="pw" type="password">
       <button class="primary" id="go" style="width:100%;margin-top:14px">Sign in</button><div class="err" id="e"></div></div>`));
-    f.querySelector('#go').onclick=async()=>{try{me=await api('/api/login','POST',{email:val('email'),password:val('pw')});history.pushState({},'','/');renderShell();}catch(x){f.querySelector('#e').textContent=x.message;}};};
+    f.querySelector('#go').onclick=async()=>{try{me=await api('/api/login','POST',{email:val('email'),password:val('pw')});history.pushState({},'','/app');renderShell();}catch(x){f.querySelector('#e').textContent=x.message;}};};
   const create=()=>{el.querySelector('#tc').classList.add('active');el.querySelector('#ti').classList.remove('active');
     f.replaceChildren($(`<div><label>Organization name</label><input id="org"><label>Your name</label><input id="name"><label>Email</label><input id="email" type="email"><label>Password (min 8)</label><input id="pw" type="password">
       <button class="primary" id="go" style="width:100%;margin-top:14px">Create account</button><div class="err" id="e"></div></div>`));
-    f.querySelector('#go').onclick=async()=>{try{me=await api('/api/register','POST',{orgName:val('org'),name:val('name'),email:val('email'),password:val('pw')});history.pushState({},'','/');renderShell();}catch(x){f.querySelector('#e').textContent=x.message;}};};
-  el.querySelector('#ti').onclick=signin; el.querySelector('#tc').onclick=create; signin();
+    f.querySelector('#go').onclick=async()=>{try{me=await api('/api/register','POST',{orgName:val('org'),name:val('name'),email:val('email'),password:val('pw')});history.pushState({},'','/app');renderShell();}catch(x){f.querySelector('#e').textContent=x.message;}};};
+  el.querySelector('#ti').onclick=signin; el.querySelector('#tc').onclick=create;
+  // /register is the landing page's "Get started" target — open straight on that tab.
+  (location.pathname==='/register'?create:signin)();
 }
 async function renderAccept(token){
-  let info; try{info=await api('/api/invite/'+token);}catch(x){document.getElementById('app').replaceChildren($(`<div class="center">${brand}<div class="card"><p class="err">${esc(x.message)}</p><a href="/">Go to sign in</a></div></div>`));return;}
+  let info; try{info=await api('/api/invite/'+token);}catch(x){document.getElementById('app').replaceChildren($(`<div class="center">${brand}<div class="card"><p class="err">${esc(x.message)}</p><a href="/login">Go to sign in</a></div></div>`));return;}
   const el=$(`<div class="center">${brand}<p class="muted" style="margin:8px 0 16px">Join <b>${esc(info.orgName)}</b> as <b>${esc(info.email)}</b>.</p>
     <div class="card"><label>Your name</label><input id="name"><label>Choose a password (min 8)</label><input id="pw" type="password">
       <button class="primary" id="go" style="width:100%;margin-top:14px">Join</button><div class="err" id="e"></div></div></div>`);
   document.getElementById('app').replaceChildren(el);
-  el.querySelector('#go').onclick=async()=>{try{me=await api('/api/accept-invite','POST',{token,name:val('name'),password:val('pw')});history.pushState({},'','/');renderShell();}catch(x){el.querySelector('#e').textContent=x.message;}};
+  el.querySelector('#go').onclick=async()=>{try{me=await api('/api/accept-invite','POST',{token,name:val('name'),password:val('pw')});history.pushState({},'','/app');renderShell();}catch(x){el.querySelector('#e').textContent=x.message;}};
 }
 
 // ---------- shell ----------
