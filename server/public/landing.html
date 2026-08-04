@@ -64,6 +64,18 @@ section{padding:72px 0}
 .feature h3{font-size:1rem;margin-bottom:8px}
 .feature p{color:var(--muted);font-size:.92rem}
 
+/* pricing */
+.sec-center{text-align:center}
+.sec-center .sec-lead{margin-left:auto;margin-right:auto}
+.plan{max-width:420px;margin:0 auto;background:var(--card);border:1px solid var(--line);border-radius:var(--r-lg);padding:36px 32px;box-shadow:var(--shadow);text-align:center}
+.plan-badge{display:inline-block;padding:5px 12px;border-radius:var(--r-pill);background:var(--accent-soft);color:var(--accent);font-size:.72rem;font-weight:700;letter-spacing:.08em;text-transform:uppercase}
+.plan-price{font-family:'Schibsted Grotesk',sans-serif;font-size:3rem;font-weight:800;letter-spacing:-.03em;line-height:1;margin:18px 0 4px}
+.plan-note{color:var(--muted);font-size:.92rem;margin-bottom:26px}
+.plan-list{list-style:none;text-align:left;margin:0 0 28px;display:grid;gap:11px}
+.plan-list li{position:relative;padding-left:27px;color:var(--muted);font-size:.94rem}
+.plan-list li::before{content:"";position:absolute;left:2px;top:.42em;width:13px;height:7px;border-left:2px solid var(--ok);border-bottom:2px solid var(--ok);transform:rotate(-45deg)}
+.plan .btn{width:100%}
+
 /* download */
 .download{background:var(--ink);border-radius:var(--r-lg);padding:48px;color:#fff;text-align:center}
 .download h2{font-size:clamp(1.5rem,3vw,2rem);margin-bottom:10px}
@@ -92,7 +104,7 @@ footer nav{display:flex;gap:20px}
 
 <header class="nav">
   <div class="wrap">
-    <a class="logo" href="/"><img src="/logo.png" alt="">Remotler</a>
+    <a class="logo" href="/"><img src="/logo.png" alt="Remotler"></a>
     <div class="nav-cta">
       <a class="btn" href="/login" data-auth-cta>Sign in</a>
       <a class="btn primary" href="/login" data-auth-cta>Get started</a>
@@ -170,6 +182,27 @@ footer nav{display:flex;gap:20px}
     </div>
   </section>
 
+  <section id="pricing">
+    <div class="wrap sec-center">
+      <p class="eyebrow">Pricing</p>
+      <h2 class="sec-title">Free while we're in beta</h2>
+      <p class="sec-lead">One plan, everything included. We'll give plenty of notice before that changes.</p>
+      <div class="plan">
+        <span class="plan-badge">Beta</span>
+        <div class="plan-price">Free</div>
+        <p class="plan-note">No card required</p>
+        <ul class="plan-list">
+          <li>No device or user limits during the beta</li>
+          <li>Direct peer-to-peer sessions, with relay fallback</li>
+          <li>Groups, roles and enrolment tokens</li>
+          <li>Session history and activity log</li>
+        </ul>
+        <a class="btn primary lg" href="/login" data-auth-cta>Get started</a>
+        <a class="btn primary lg" href="/app" data-dash-cta hidden>Open dashboard</a>
+      </div>
+    </div>
+  </section>
+
   <section id="download">
     <div class="wrap">
       <div class="download">
@@ -199,7 +232,7 @@ footer nav{display:flex;gap:20px}
       <a href="/login" data-auth-cta>Sign in</a>
       <a href="/login" data-auth-cta>Create account</a>
       <a href="/app" data-dash-cta hidden>Dashboard</a>
-      <a href="https://github.com/edkeysender/remote-desktop">GitHub</a>
+      <a href="#pricing">Pricing</a>
     </nav>
   </div>
 </footer>
