@@ -26,12 +26,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Resource Include="..\..\assets\logo-ftd.png">
-      <Link>logo-ftd.png</Link>
-    </Resource>
-  </ItemGroup>
-
-  <ItemGroup>
     <ProjectReference Include="..\Shared\Shared.csproj" />
   </ItemGroup>
 

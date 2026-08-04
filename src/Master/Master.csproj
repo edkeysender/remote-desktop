@@ -43,9 +43,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Resource Include="..\..\assets\logo-ftd.png">
-      <Link>logo-ftd.png</Link>
-    </Resource>
     <!-- The Remotler desktop UI (Appendix C), rendered pixel-exact in WebView2. -->
     <EmbeddedResource Include="ui\desktop.html" />
   </ItemGroup>
