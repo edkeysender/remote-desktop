@@ -30,3 +30,6 @@ update/
 Thumbs.db
 desktop.ini
 spike/
+
+# Claude Code local state + worktrees
+.claude/

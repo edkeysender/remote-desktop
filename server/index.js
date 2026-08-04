@@ -10,11 +10,13 @@ import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
 import express from 'express';
 import { randomBytes, timingSafeEqual } from 'crypto';
-import { readFileSync, writeFileSync, existsSync, createReadStream, statSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, createReadStream, statSync, renameSync, chmodSync } from 'fs';
 import { resolve, join, basename, extname, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { buildWebApp } from './lib/web.js';
-import { verifyToken } from './lib/auth.js';
+import * as releases from './lib/releases.js';
+import * as rateLimit from './lib/ratelimit.js';
+import { verifyToken, parseCookies, SESSION_COOKIE } from './lib/auth.js';
 import * as store from './lib/store.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -22,7 +24,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
 const ID_MAP_FILE = process.env.ID_MAP_FILE || 'idmap.json';
 // Directory of app-update artifacts (manifest.json + the published .exe files).
-// The Windows apps poll <http>/update/manifest.json and download from here.
+// The Windows apps poll <http>/update/manifest.json and download from here. Optional:
+// when a file isn't staged locally we resolve it from the latest GitHub Release instead.
 const UPDATE_DIR = resolve(process.env.UPDATE_DIR || './update');
 // Admin panel: persisted groups + client metadata, and the panel password.
 const ADMIN_FILE = process.env.ADMIN_FILE || 'admin.json';
@@ -43,9 +46,18 @@ function loadIdMap() {
         tokenToId.set(tok, id);
   } catch (e) { console.error('[server] could not load id map:', e.message); }
 }
+// Device tokens are the credential behind password-less sibling connects, so this file
+// must not be world-readable. Same for admin.json below.
+function writePrivate(path, text, what) {
+  try {
+    const tmp = path + '.tmp';
+    writeFileSync(tmp, text, { mode: 0o600 });
+    renameSync(tmp, path);
+    chmodSync(path, 0o600);
+  } catch (e) { console.error(`[server] could not save ${what}:`, e.message); }
+}
 function saveIdMap() {
-  try { writeFileSync(ID_MAP_FILE, JSON.stringify(Object.fromEntries(tokenToId), null, 2)); }
-  catch (e) { console.error('[server] could not save id map:', e.message); }
+  writePrivate(ID_MAP_FILE, JSON.stringify(Object.fromEntries(tokenToId), null, 2), 'id map');
 }
 loadIdMap();
 
@@ -80,8 +92,7 @@ function loadAdmin() {
   } catch (e) { console.error('[server] could not load admin store:', e.message); }
 }
 function saveAdmin() {
-  try { writeFileSync(ADMIN_FILE, JSON.stringify(admin, null, 2)); }
-  catch (e) { console.error('[server] could not save admin store:', e.message); }
+  writePrivate(ADMIN_FILE, JSON.stringify(admin, null, 2), 'admin store');
 }
 loadAdmin();
 store.closeOpenSessions();   // a fresh boot means nothing is still live
@@ -130,14 +141,34 @@ async function legacyRoutes(req, res, next) {
 
   if (url.pathname === '/health') { res.writeHead(200).end('ok'); return; }
 
-  if (req.method === 'GET' && url.pathname === '/update/manifest.json')
-    return serveFile(res, join(UPDATE_DIR, 'manifest.json'), 'application/json');
+  // Update artifacts: a local UPDATE_DIR wins (self-hosted / air-gapped), otherwise fall
+  // back to the latest GitHub Release — see lib/releases.js.
+  if (req.method === 'GET' && url.pathname === '/update/manifest.json') {
+    const local = join(UPDATE_DIR, 'manifest.json');
+    if (existsSync(local)) return serveFile(res, local, 'application/json');
+    const body = await releases.manifestJson();
+    if (!body) { res.writeHead(404).end('not found'); return; }
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(body),
+      'Cache-Control': 'no-cache',
+    }).end(body);
+    return;
+  }
   if (req.method === 'GET' && url.pathname.startsWith('/update/')) {
     // basename() strips any path components, so "../" can't escape UPDATE_DIR.
     const name = basename(decodeURIComponent(url.pathname.slice('/update/'.length)));
     if (!name || !ALLOWED_EXT.has(extname(name).toLowerCase())) { res.writeHead(404).end(); return; }
-    const type = extname(name) === '.json' ? 'application/json' : 'application/octet-stream';
-    return serveFile(res, join(UPDATE_DIR, name), type);
+    const local = join(UPDATE_DIR, name);
+    if (existsSync(local)) {
+      const type = extname(name) === '.json' ? 'application/json' : 'application/octet-stream';
+      return serveFile(res, local, type);
+    }
+    // The updater's HttpClient and every browser follow this; nothing streams through us.
+    const href = await releases.assetUrl(name);
+    if (!href) { res.writeHead(404).end('not found'); return; }
+    res.writeHead(302, { Location: href, 'Cache-Control': 'no-cache' }).end();
+    return;
   }
 
   next();   // hand off to the account-based control-plane web app
@@ -175,6 +206,7 @@ function onlinePeer(orgId, excludeDeviceToken) {
 }
 
 const app = express();
+app.disable('x-powered-by');   // don't advertise the stack
 app.use(legacyRoutes);
 app.use(buildWebApp({ relayStatus, sendCommand, onlinePeer }));
 const http = createServer(app);
@@ -198,12 +230,6 @@ function clientIp(req) {
   return ip.startsWith('::ffff:') ? ip.slice(7) : ip;   // unwrap IPv4-mapped IPv6
 }
 
-function isAdminPassword(pw) {
-  if (typeof pw !== 'string') return false;
-  const a = Buffer.from(pw), b = Buffer.from(ADMIN_PASSWORD);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
 function checkBasic(req, expected) {
   const m = /^Basic (.+)$/.exec(req.headers['authorization'] || '');
   if (!m) return false;
@@ -218,11 +244,22 @@ function sendJson(res, obj, code = 200) {
   res.end(JSON.stringify(obj));
 }
 
+const MAX_BODY_BYTES = 1e6;
 function readBody(req) {
   return new Promise((resolvePromise) => {
-    let data = '';
-    req.on('data', (c) => { data += c; if (data.length > 1e6) req.destroy(); });
-    req.on('end', () => { try { resolvePromise(JSON.parse(data || '{}')); } catch { resolvePromise({}); } });
+    // Count bytes, not string length — concatenating chunks into a string measures UTF-16
+    // code units, which lets a multi-byte payload run to roughly twice the intended cap.
+    const chunks = [];
+    let size = 0;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > MAX_BODY_BYTES) { req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on('end', () => {
+      try { resolvePromise(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')); }
+      catch { resolvePromise({}); }
+    });
     req.on('error', () => resolvePromise({}));
   });
 }
@@ -345,10 +382,43 @@ async function handlePlatform(req, res, url) {
   res.writeHead(404).end();
 }
 
-const wss = new WebSocketServer({ server: http });
+// Cross-Site WebSocket Hijacking guard. The relay accepts the panel's session cookie on
+// the upgrade, and cookies are attached by the browser, not by page script — so without
+// this a hostile page could open an authenticated relay socket and start a session.
+// SameSite=Lax already stops that in current browsers; this is a second, independent
+// control so the cookie path doesn't rest on one mechanism.
+//
+// Only browsers send Origin. Native clients (the desktop app, the MCP server) don't, and
+// a hostile page cannot suppress it, so a missing Origin is allowed — those callers
+// authenticate with an explicit token instead.
+//
+// Set ALLOWED_ORIGINS (comma-separated) when the panel is served from another hostname;
+// same-origin is always accepted.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
+  .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+
+function originAllowed(req) {
+  const origin = req.headers['origin'];
+  if (!origin) return true;                       // native client
+  let host;
+  try { host = new URL(origin).host.toLowerCase(); } catch { return false; }
+  if (ALLOWED_ORIGINS.includes(origin.toLowerCase()) || ALLOWED_ORIGINS.includes(host)) return true;
+  const reqHost = String(req.headers['host'] || '').toLowerCase();
+  return !!reqHost && host === reqHost;           // the page came from the host it's calling
+}
+
+const wss = new WebSocketServer({
+  server: http,
+  verifyClient: ({ req }, done) => {
+    if (originAllowed(req)) return done(true);
+    console.warn(`[server] rejected ws upgrade, origin not allowed: ${req.headers['origin']}`);
+    done(false, 403, 'origin not allowed');
+  },
+});
 http.listen(PORT, () => {
   console.log(`[server] signaling/relay listening on ws://0.0.0.0:${PORT}`);
-  console.log(`[server] update artifacts served from ${UPDATE_DIR}`);
+  console.log(`[server] update artifacts served from ${UPDATE_DIR}`
+    + `, falling back to GitHub Releases (${process.env.GITHUB_REPO || 'edkeysender/remote-desktop'})`);
   console.log(`[server] web app (accounts) at http://0.0.0.0:${PORT}/`);
   console.log(`[server] platform console at http://0.0.0.0:${PORT}/platform`);
   console.log(`[server] legacy admin panel at http://0.0.0.0:${PORT}/admin`);
@@ -359,8 +429,21 @@ http.listen(PORT, () => {
 });
 
 // Safety net: an unexpected error on one connection must never crash the relay and
-// drop everyone's sessions. Log and keep serving.
-process.on('uncaughtException', (e) => console.error('[server] uncaught:', e?.stack || e));
+// drop everyone's sessions. Log and keep serving — but a process that is throwing
+// continuously is in an unknown state, not a healthy one, so give up and let systemd
+// restart us cleanly rather than serving indefinitely from a corrupt heap.
+const CRASH_WINDOW_MS = 60_000, CRASH_LIMIT = 20;
+let crashes = [];
+process.on('uncaughtException', (e) => {
+  console.error('[server] uncaught:', e?.stack || e);
+  const cutoff = Date.now() - CRASH_WINDOW_MS;
+  crashes = crashes.filter((t) => t > cutoff);
+  crashes.push(Date.now());
+  if (crashes.length >= CRASH_LIMIT) {
+    console.error(`[server] ${crashes.length} uncaught errors in ${CRASH_WINDOW_MS / 1000}s — exiting for a clean restart`);
+    process.exit(1);
+  }
+});
 
 function newId() {
   // 9-digit numeric ID, avoids leading zero so it's always 9 chars.
@@ -407,6 +490,14 @@ wss.on('connection', (ws, req) => {
   ws.role = null;      // 'host' | 'viewer'
   ws.id = null;        // host id (both peers store the paired host id)
   ws._ip = clientIp(req);
+  // The browser viewer connects same-origin, so the panel's session cookie rides on
+  // the upgrade request. Keep it as a fallback credential: a signed-in user opens a
+  // session without their HttpOnly token ever being exposed to page JavaScript.
+  //
+  // Only honoured for connections that carried an Origin — i.e. real browsers, already
+  // checked same-origin above. Cookie auth exists for the panel alone; native clients
+  // must present an explicit token, so a stray cookie on one can never stand in for one.
+  ws._cookieAuth = req.headers['origin'] ? (parseCookies(req)[SESSION_COOKIE] || null) : null;
 
   ws.on('message', (data, isBinary) => {
     // Binary = a media frame from the host. Fast-path relay to its viewer.
@@ -477,6 +568,11 @@ wss.on('connection', (ws, req) => {
       }
 
       case 'connect': {                      // viewer -> "let me into <id>"
+        // IDs are 9 digits and the reply distinguishes "no such ID online" from a real
+        // host, which is an enumeration oracle over the whole space. Budget the attempts
+        // per IP so sweeping it — and grinding per-host passwords — is impractical.
+        const rl = rateLimit.hit(`ws-connect:${ws._ip}`, 60_000, 30);
+        if (!rl.ok) { send(ws, { t: 'rejected', reason: 'too many attempts, slow down' }); break; }
         const entry = hosts.get(String(msg.id));
         if (!entry) { send(ws, { t: 'rejected', reason: 'no such ID online' }); break; }
         if (entry.viewer) { send(ws, { t: 'rejected', reason: 'host is busy' }); break; }
@@ -485,16 +581,21 @@ wss.on('connection', (ws, req) => {
         pending.set(rid, ws);
         ws._rid = rid;
         ws._hostId = String(msg.id);
-        // Remember who is viewing (for session history) when account-authenticated.
-        const vuser = msg.auth ? store.getUser(verifyToken(msg.auth) || '') : null;
+        // Remember who is viewing (for session history) when account-authenticated —
+        // via an explicit token (desktop app) or the same-origin cookie (browser viewer).
+        const auth = msg.auth || ws._cookieAuth;
+        const vuser = auth ? store.getUser(verifyToken(auth) || '') : null;
         ws._viewerEmail = vuser?.email ?? null;
-        // Three ways to be authorized (host then accepts without the per-client password):
-        //  • legacy admin password proven to the relay (0.2.x directory picker), or
+        // Two ways to be authorized (host then accepts without the per-client password):
         //  • an account session whose user may access this computer (org + group), or
-        //  • otherwise the host verifies the per-client password itself (normal path).
+        //  • an enrolled sibling device proving its own token,
+        // otherwise the host verifies the per-client password itself (normal path).
+        //
+        // The 0.2.x `admin`+`adminPassword` path is deliberately gone: one shared secret
+        // granted password-less control of every host on the relay, across all orgs, and
+        // left no session record. Accounts do the same job scoped and audited.
         const admin =
-          (msg.admin === true && isAdminPassword(msg.adminPassword)) ||
-          accountAuthorized(msg.auth, entry) ||
+          accountAuthorized(auth, entry) ||
           peerAuthorized(msg.from, entry);
         send(entry.ws, { t: 'connect-request', rid, password: msg.password ?? '', admin });
         break;

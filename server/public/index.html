@@ -33,8 +33,9 @@ button.ghost{background:#fff}
 button.danger{background:#fff;border-color:#F3C2C4;color:var(--danger)}
 button.sm{padding:6px 12px;font-size:.8rem}
 .brand{display:flex;align-items:center;gap:10px}
+.sidebar .brand{margin:4px 0 14px;padding:0 2px}
 .brand-mark{width:34px;height:34px;border-radius:11px;background:var(--grad);display:grid;place-items:center;flex:none}
-.brand-logo{max-width:190px;height:auto;max-height:52px;display:block}
+.brand-logo{width:100%;max-width:216px;height:auto;display:block}
 .brand-name{font-family:'Schibsted Grotesk';font-weight:800;font-size:1.25rem}
 .pill{display:inline-flex;align-items:center;gap:6px;font-size:.7rem;font-weight:600;padding:3px 10px;border-radius:var(--r-pill)}
 .pill.accent{background:var(--accent-soft);color:var(--accent)}
@@ -121,7 +122,9 @@ th{color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.
 <div id="app"></div>
 <script>
 const $=(h)=>{const t=document.createElement('template');t.innerHTML=h.trim();return t.content.firstChild;};
-const esc=(s)=>(s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+// Escapes ' as well as "&<> — attributes here are double-quoted, but one single-quoted
+// attribute added later would otherwise turn this into an injection point.
+const esc=(s)=>(s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtId=(id)=>id&&/^\d{9}$/.test(id)?`${id.slice(0,3)} ${id.slice(3,6)} ${id.slice(6)}`:(id||'—');
 let me=null, tab='devices';
 
@@ -138,6 +141,8 @@ const brand=`<div class="brand"><img src="/logo.png" alt="Remotler" class="brand
 // Launch the desktop app and connect to a device via the remotler:// URL scheme.
 function launchConnect(id,name){ const ws=(location.protocol==='https:'?'wss://':'ws://')+location.host;
   location.href='remotler://connect?id='+encodeURIComponent(id)+'&server='+encodeURIComponent(ws)+'&name='+encodeURIComponent(name||id); }
+// Open a session right in the browser (WebRTC viewer) in a new tab — no desktop app needed.
+function openWebSession(id,name){ window.open('/session?id='+encodeURIComponent(id)+'&name='+encodeURIComponent(name||''),'_blank','noopener'); }
 function inviteToken(){const m=location.pathname.match(/^\/invite\/([^/]+)/);return m?m[1]:null;}
 function applyBrand(b){
   if(!b)return; const a=/^#[0-9a-fA-F]{6}$/.test(b.accent||'')?b.accent:'#5B5BF5';
@@ -234,6 +239,7 @@ async function viewDevices(){
     else if(!on && manager && c.wakeable) action=`<button class="grad" data-wake="${esc(c.deviceToken)}">⏻ Wake</button>`;
     else if(canConnect) action=`<button class="grad" disabled>Offline</button>`;
     else action=`<button class="ghost" disabled>${on?'':'Offline'}</button>`;
+    if(manager && on && !c.busy) action+=`<button class="ghost" data-web="${esc(c.relayId)}" data-name="${esc(c.name)}" title="Open session in browser (new tab)">🌐</button>`;
     action+=manage;
     const m=c.metrics; const meter=(lbl,v)=>`<div class="meter"><span>${lbl}</span><div class="mbar"><i style="width:${v}%;${v>=90?'background:var(--danger)':(v>=75?'background:var(--warn)':'')}"></i></div><b>${v}%</b></div>`;
     const metrics=(on&&m)?`<div class="metrics">${meter('CPU',m.cpu)}${meter('RAM',m.mem)}${meter('Disk',m.disk)}</div>`:'';
@@ -253,6 +259,7 @@ async function viewDevices(){
   view().querySelectorAll('.gsel').forEach(s=>s.onchange=()=>api('/api/computers/'+encodeURIComponent(s.dataset.t),'PATCH',{groupId:s.value||null}));
   view().querySelectorAll('.cname').forEach(i=>i.onchange=()=>api('/api/computers/'+encodeURIComponent(i.dataset.t),'PATCH',{name:i.value}));
   view().querySelectorAll('[data-conn]').forEach(b=>b.onclick=()=>launchConnect(b.dataset.conn,b.dataset.name));
+  view().querySelectorAll('[data-web]').forEach(b=>b.onclick=()=>openWebSession(b.dataset.web,b.dataset.name));
   view().querySelectorAll('[data-manage]').forEach(b=>b.onclick=()=>openHost(b.dataset.manage));
   view().querySelectorAll('[data-wake]').forEach(b=>b.onclick=async()=>{const o=b.textContent;b.textContent='Waking…';try{await api('/api/computers/'+encodeURIComponent(b.dataset.wake)+'/wake','POST',{});b.textContent='Wake sent ✓';}catch(e){b.textContent=o;alert(e.message);}});
   const add=view().querySelector('#add'); if(add) add.onclick=()=>{tab='enroll';renderShell();};
@@ -272,7 +279,7 @@ async function viewDownload(){
       <p class="muted" style="margin-bottom:16px">Install Remotler on a Windows PC to control it, or to reach the rest of your fleet.${ver?` Latest version <b>${esc(ver)}</b>.`:''}</p>
       ${appExe?`<a class="primary" href="${appExe}" download style="display:inline-block;text-decoration:none">⬇ Download Remotler for Windows</a>
         <p class="muted" style="margin:10px 0 0;font-size:.82rem">Installs per-user (no admin) with a Start Menu shortcut. After installing, sign in or paste an enrollment token to claim the PC into your organization.</p>`
-        :`<div class="empty">No installer has been published yet. On the build machine run <span class="mono">build.ps1 -PushTo &lt;pi&gt;</span> to publish one.</div>`}
+        :`<div class="empty">No installer has been published yet. Tag a release (<span class="mono">git tag v0.0.0 &amp;&amp; git push origin v0.0.0</span>) to build and publish one.</div>`}
       ${agentExe?`<div style="margin-top:22px;border-top:1px solid var(--line);padding-top:16px">
         <a class="ghost" href="${agentExe}" download style="display:inline-block;text-decoration:none">⬇ Download unattended agent</a>
         <p class="muted" style="margin:10px 0 0;font-size:.82rem">Background service for always-on unattended access (requires admin to install).</p></div>`:''}
@@ -451,10 +458,11 @@ async function viewBranding(){
 }
 
 // ---------- MCP / API tokens ----------
-async function viewMcp(){
+async function viewMcp(justCreated){
   const toks=await api('/api/api-tokens');
   const origin=location.origin;
-  const rows=toks.map(t=>`<tr><td>${esc(t.label||'—')}</td><td><span class="linkbox">${esc(t.token)}</span></td><td class="tick" style="white-space:nowrap">${new Date(t.createdAt).toLocaleDateString()}</td><td style="text-align:right"><button class="sm" data-cp="${esc(t.token)}">Copy</button> <button class="danger sm" data-rv="${esc(t.token)}">Revoke</button></td></tr>`).join('');
+  // Only a prefix is stored server-side — the full token exists once, at creation.
+  const rows=toks.map(t=>`<tr><td>${esc(t.label||'—')}</td><td><span class="linkbox">${esc(t.prefix||'hk_')}…</span></td><td class="tick" style="white-space:nowrap">${new Date(t.createdAt).toLocaleDateString()}</td><td class="tick" style="white-space:nowrap">${t.expiresAt?new Date(t.expiresAt).toLocaleDateString():'—'}</td><td style="text-align:right"><button class="danger sm" data-rv="${esc(t.id)}">Revoke</button></td></tr>`).join('');
   const cfg=`{
   "mcpServers": {
     "remotler": {
@@ -469,13 +477,16 @@ async function viewMcp(){
     <div class="card">
       <div class="rowline" style="border:none"><input id="tl" placeholder="Token label (e.g. Claude Desktop)" style="max-width:280px"><button class="primary" id="gen">Create token</button></div>
       <div id="new" class="ok" style="margin-top:8px"></div>
-      ${toks.length?`<table style="margin-top:10px"><thead><tr><th>Label</th><th>Token</th><th>Created</th><th></th></tr></thead><tbody>${rows}</tbody></table>`:'<div class="empty">No tokens yet.</div>'}
+      ${toks.length?`<table style="margin-top:10px"><thead><tr><th>Label</th><th>Token</th><th>Created</th><th>Expires</th><th></th></tr></thead><tbody>${rows}</tbody></table>`:'<div class="empty">No tokens yet.</div>'}
     </div>
     <h2 style="font-size:.9rem;margin-top:22px">Client config</h2>
     <div class="card"><pre class="linkbox" style="white-space:pre-wrap;margin:0">${esc(cfg)}</pre></div></div>`));
-  view().querySelector('#gen').onclick=async()=>{const t=await api('/api/api-tokens','POST',{label:val('tl')});view().querySelector('#new').innerHTML='New token: <span class="linkbox">'+esc(t.token)+'</span> — copy it now.';viewMcp();};
+  // Show the plaintext exactly once. It is not recoverable afterwards — the server keeps
+  // only a hash — so render it before refreshing the list, and don't clobber it.
+  if(justCreated) view().querySelector('#new').innerHTML='New token: <span class="linkbox">'+esc(justCreated)+'</span> — copy it now, it will not be shown again. <button class="sm" data-cp="'+esc(justCreated)+'">Copy</button>';
+  view().querySelector('#gen').onclick=async()=>{const t=await api('/api/api-tokens','POST',{label:val('tl')});viewMcp(t.token);};
   view().querySelectorAll('[data-cp]').forEach(b=>b.onclick=()=>copyText(b.dataset.cp,b));
-  view().querySelectorAll('[data-rv]').forEach(b=>b.onclick=async()=>{if(confirm('Revoke this token?')){await api('/api/api-tokens/'+encodeURIComponent(b.dataset.rv),'DELETE');viewMcp();}});
+  view().querySelectorAll('[data-rv]').forEach(b=>b.onclick=async()=>{if(confirm('Revoke this token? Anything using it stops working immediately.')){await api('/api/api-tokens/'+encodeURIComponent(b.dataset.rv),'DELETE');viewMcp();}});
 }
 
 // ---------- device configurations ----------
@@ -585,7 +596,7 @@ function hostOverviewTab(dt,c,groups,configs,manager,body){
       <span class="k">Name</span><span>${manager?`<input id="hname" value="${esc(c.name)}" style="max-width:260px">`:esc(c.name)}</span>
       <span class="k">Group</span><span>${gsel}</span>
       <span class="k">Last seen</span><span>${c.online?'now':fmtAgo(c.lastSeen)}</span>
-      ${c.online?`<span class="k">Connect</span><span><button class="grad sm" style="padding:6px 12px" id="hconn">Connect</button> <span class="muted">opens the desktop app</span></span>`:''}
+      ${c.online?`<span class="k">Connect</span><span><button class="grad sm" style="padding:6px 12px" id="hconn">Connect</button> <span class="muted">opens the desktop app</span>${manager?` <button class="ghost sm" id="hweb" style="margin-left:8px">🌐 Open in browser</button>`:''}</span>`:''}
       ${!c.online&&manager&&c.wakeable?`<span class="k">Power</span><span><button class="ghost sm" id="hwake">⏻ Wake on LAN</button></span>`:''}
     </div>
     <div class="sec2">Health</div><div id="hmetrics">${metrics}</div>
@@ -601,6 +612,7 @@ function hostOverviewTab(dt,c,groups,configs,manager,body){
         res.innerHTML=(r.results||[]).map(x=>`<div class="rowline"><span style="width:10px;height:10px;border-radius:50%;background:${sc(x.status)};display:inline-block"></span><span style="flex:1">${esc(x.label)}</span><span class="muted">${esc(x.status)} · ${esc(x.detail)}</span></div>`).join('')||'<span class="muted">No checks in this configuration.</span>';
       }catch(e){ res.innerHTML='<span class="err">'+esc(e.message)+'</span>'; } finally{ ap.disabled=false; } }; }
   const cn=document.getElementById('hconn'); if(cn)cn.onclick=()=>launchConnect(c.relayId,c.name);
+  const wb=document.getElementById('hweb'); if(wb)wb.onclick=()=>openWebSession(c.relayId,c.name);
   const wk=document.getElementById('hwake'); if(wk)wk.onclick=async()=>{wk.textContent='Waking…';try{await api('/api/computers/'+encodeURIComponent(dt)+'/wake','POST',{});wk.textContent='Wake sent ✓';}catch(e){wk.textContent='⏻ Wake on LAN';alert(e.message);}};
   // live metrics refresh only while the Overview tab is showing
   if(c.online) hostTimer=setInterval(async()=>{ if(hostTab!=='overview'){return;} try{ const dd=await api('/api/computers/'+encodeURIComponent(dt)); const mm=dd.computer.metrics; const el=document.getElementById('hmetrics'); if(el) el.innerHTML=(dd.computer.online&&mm)?meterRow('CPU',mm.cpu)+meterRow('RAM',mm.mem)+meterRow('Disk',mm.disk):'<div class="muted">No live metrics (device offline).</div>'; }catch{} },3000);
