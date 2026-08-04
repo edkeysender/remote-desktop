@@ -76,3 +76,51 @@ Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName} now"; Flags: nowait
 
 [UninstallRun]
 Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Remotler Direct LAN"""; Flags: runhidden; RunOnceId: "DelRemotlerFw"
+
+[Code]
+{ ---- Microsoft Edge WebView2 Runtime -----------------------------------------
+  Remotler renders its whole UI in WebView2. Windows 11 ships the Evergreen
+  runtime; some Windows 10 machines do not have it. Detect it via the EdgeUpdate
+  registry keys and, if absent, download + run the official Evergreen bootstrapper
+  before the app is installed. }
+
+const
+  WV2_CLIENT = '{F3017226-FE2A-4295-8BDF-00C3A9A7E4C5}';
+  WV2_URL    = 'https://go.microsoft.com/fwlink/p/?LinkId=2124703';
+
+function WebView2Missing: Boolean;
+var
+  v: String;
+begin
+  Result := True;
+  { Per-machine (64-bit OS stores under WOW6432Node) }
+  if RegQueryStringValue(HKLM, 'SOFTWARE\WOW6432Node\Microsoft\EdgeUpdate\Clients\' + WV2_CLIENT, 'pv', v)
+     and (v <> '') and (v <> '0.0.0.0') then Result := False;
+  if RegQueryStringValue(HKLM, 'SOFTWARE\Microsoft\EdgeUpdate\Clients\' + WV2_CLIENT, 'pv', v)
+     and (v <> '') and (v <> '0.0.0.0') then Result := False;
+  { Per-user install }
+  if RegQueryStringValue(HKCU, 'SOFTWARE\Microsoft\EdgeUpdate\Clients\' + WV2_CLIENT, 'pv', v)
+     and (v <> '') and (v <> '0.0.0.0') then Result := False;
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  code: Integer;
+begin
+  Result := '';
+  if not WebView2Missing then Exit;
+
+  try
+    DownloadTemporaryFile(WV2_URL, 'MicrosoftEdgeWebview2Setup.exe', '', nil);
+  except
+    Result := 'Remotler needs the Microsoft Edge WebView2 Runtime, which is not installed ' +
+              'on this PC and could not be downloaded automatically.' + #13#10#13#10 +
+              'Please install it from:' + #13#10 + WV2_URL + #13#10#13#10 +
+              'then run this installer again.';
+    Exit;
+  end;
+
+  if not Exec(ExpandConstant('{tmp}\MicrosoftEdgeWebview2Setup.exe'), '/silent /install',
+              '', SW_SHOW, ewWaitUntilTerminated, code) then
+    Result := 'Failed to run the WebView2 Runtime installer (error ' + IntToStr(code) + ').';
+end;

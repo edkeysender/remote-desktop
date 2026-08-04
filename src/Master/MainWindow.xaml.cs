@@ -158,13 +158,40 @@ public partial class MainWindow : Window
         Application.Current.Shutdown();
     }
 
+    // True if the Evergreen WebView2 Runtime is registered on this machine.
+    private static bool WebView2Installed()
+    {
+        try
+        {
+            var v = Microsoft.Web.WebView2.Core.CoreWebView2Environment
+                .GetAvailableBrowserVersionString();
+            return !string.IsNullOrEmpty(v);
+        }
+        catch { return false; }
+    }
+
     private async Task InitAsync()
     {
-        try { await Web.EnsureCoreWebView2Async(); }
+        try
+        {
+            // WebView2 defaults its user-data folder to next-to-the-exe. When the app is installed
+            // under Program Files that folder is not writable for a normal user, so EnsureCoreWebView2Async
+            // throws "access is denied". Point it at a per-user writable location instead.
+            var udf = System.IO.Path.Combine(
+                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Remotler", "WebView2");
+            System.IO.Directory.CreateDirectory(udf);
+            var env = await Microsoft.Web.WebView2.Core.CoreWebView2Environment.CreateAsync(null, udf);
+            await Web.EnsureCoreWebView2Async(env);
+        }
         catch (Exception ex)
         {
-            MessageBox.Show(this, "Microsoft Edge WebView2 Runtime is required.\n\n" + ex.Message,
-                "Remotler", MessageBoxButton.OK, MessageBoxImage.Error);
+            bool missing = !WebView2Installed();
+            var msg = missing
+                ? "Microsoft Edge WebView2 Runtime is required and could not be found.\n\n" +
+                  "Install it from https://go.microsoft.com/fwlink/p/?LinkId=2124703 and relaunch Remotler."
+                : "WebView2 failed to start.\n\n" + ex.Message;
+            MessageBox.Show(this, msg, "Remotler", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
         Web.CoreWebView2.WebMessageReceived += (_, e) =>
