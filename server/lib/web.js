@@ -366,9 +366,12 @@ export function buildWebApp({ relayStatus, sendCommand, onlinePeer }) {
 
   // ------------------------------- static SPA -------------------------------
 
-  app.use(express.static(PUBLIC_DIR));
+  // index:false — GET / must reach the landing route below, not be intercepted here.
+  app.use(express.static(PUBLIC_DIR, { index: false }));
+  // The public marketing page. Everything below it is the signed-in application.
+  app.get('/', (_req, res) => res.sendFile(join(PUBLIC_DIR, 'landing.html')));
   // Client-side routes fall back to the SPA shell.
-  app.get(['/', '/login', '/invite/:token', '/app', '/app/*'], (_req, res) =>
+  app.get(['/login', '/register', '/invite/:token', '/app', '/app/*'], (_req, res) =>
     res.sendFile(join(PUBLIC_DIR, 'index.html')));
 
   return app;
