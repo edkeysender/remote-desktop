@@ -2,6 +2,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Threading;
 using RemoteDesktop.Shared;
 
@@ -24,9 +25,10 @@ public partial class RemoteBrowserWindow : Window
     private bool _busy, _gotRemote, _selGuard;
     private DispatcherTimer? _openTimer;
 
-    public RemoteBrowserWindow(ViewerSession session, string remoteName, string remoteId)
+    public RemoteBrowserWindow(ViewerSession session, string remoteName, string remoteId, bool dark = true)
     {
         InitializeComponent();
+        ApplyTheme(dark);
         _session = session;
         Subtitle.Text = $"This computer  ⇄  {remoteName}  ·  encrypted P2P channel";
         RemoteName.Text = remoteName;
@@ -47,6 +49,21 @@ public partial class RemoteBrowserWindow : Window
             _session.Files.ReceiveProgress -= OnReceiveProgress;
             _session.Files.SendProgress -= OnSendProgress;
         };
+    }
+
+    private void ApplyTheme(bool dark)
+    {
+        void Set(string k, string hex) { var b = new SolidColorBrush((Color)ColorConverter.ConvertFromString(hex)); b.Freeze(); Resources[k] = b; }
+        if (dark)
+        {
+            Set("Bg", "#0B0C15"); Set("Card", "#12141F"); Set("Line", "#232538"); Set("Text", "#F3F4F9");
+            Set("Muted", "#8A8DA3"); Set("PathBg", "#0B0C15"); Set("ItemHover", "#1A1C2B"); Set("ItemSel", "#26284A"); Set("BtnBg", "#1A1C2B");
+        }
+        else
+        {
+            Set("Bg", "#F5F6F9"); Set("Card", "#FFFFFF"); Set("Line", "#E8E9F0"); Set("Text", "#0B0C15");
+            Set("Muted", "#6E7185"); Set("PathBg", "#EEF0F4"); Set("ItemHover", "#F0F1F6"); Set("ItemSel", "#E3E4FB"); Set("BtnBg", "#F0F1F6");
+        }
     }
 
     private void CloseBtn_Click(object sender, RoutedEventArgs e) => Close();

@@ -43,6 +43,7 @@ public sealed class FileTransferChannel
 
     // --- send state ---
     private int _sending;                            // 0/1 gate: one outbound transfer at a time
+    private volatile bool _txCancel;                 // abort the current outbound transfer
     private long _txAcked;
     private TaskCompletionSource<bool>? _txDone;     // completed by receiver's "done"/"err"
     private string? _txError;
@@ -85,13 +86,28 @@ public sealed class FileTransferChannel
         chan.onclose += AbortReceive;
     }
 
-    /// <summary>Session ended: drop the channel, discard any partial download.</summary>
+    /// <summary>Session ended: drop the channel, abort + discard any in-flight transfer.</summary>
     public void Detach()
     {
+        _txCancel = true;                 // stop any outbound send loop
         _chan = null;
-        AbortReceive();
+        AbortReceive();                   // discard any partial download
         _txDone?.TrySetResult(false);
         _pullTcs?.TrySetException(new IOException("Session ended."));
+    }
+
+    /// <summary>Fires when a transfer is aborted (locally or by the peer).</summary>
+    public event Action<string>? Cancelled;
+
+    /// <summary>Abort the current transfer (either direction) and tell the peer to stop too.</summary>
+    public void Cancel()
+    {
+        _txCancel = true;
+        try { _chan?.send("""{"t":"cancel"}"""); } catch { }
+        AbortReceive();
+        _txDone?.TrySetResult(false);
+        _pullTcs?.TrySetException(new OperationCanceledException("Transfer cancelled."));
+        Cancelled?.Invoke("Transfer cancelled");
     }
 
     // ------------------------------- sending -------------------------------
@@ -112,6 +128,7 @@ public sealed class FileTransferChannel
             long size = info.Length, sent = 0;
             Interlocked.Exchange(ref _txAcked, 0);
             _txError = null;
+            _txCancel = false;
             _txDone = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
 
             chan.send(JsonSerializer.Serialize(new { t = "begin", name, size, dest = destDir }));
@@ -121,9 +138,11 @@ public sealed class FileTransferChannel
             int n;
             while ((n = await fs.ReadAsync(buf.AsMemory(), ct)) > 0)
             {
+                if (_txCancel) throw new OperationCanceledException("Transfer cancelled.");
                 // Flow control: stall while more than Window bytes are unacked.
                 while (sent + n - Interlocked.Read(ref _txAcked) > Window)
                 {
+                    if (_txCancel) throw new OperationCanceledException("Transfer cancelled.");
                     if (_chan is not { IsOpened: true }) throw new IOException("File channel closed mid-transfer.");
                     if (_txError != null) throw new IOException(_txError);
                     await Task.Delay(10, ct);
@@ -256,6 +275,12 @@ public sealed class FileTransferChannel
             }
             case "ack":
                 Interlocked.Exchange(ref _txAcked, r.GetProperty("n").GetInt64());
+                break;
+            case "cancel":               // peer aborted — stop sending and/or discard the partial
+                _txCancel = true;
+                AbortReceive();
+                _txDone?.TrySetResult(false);
+                Cancelled?.Invoke("Transfer cancelled by the other side");
                 break;
             case "done":
                 _txDone?.TrySetResult(true);

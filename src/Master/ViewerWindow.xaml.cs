@@ -166,6 +166,8 @@ public partial class ViewerWindow : Window
             { TxComplete(n, false); SetRowLocalPath(n, false, path); SetStatus($"Received {n} → {Path.GetDirectoryName(path)}"); });
         _session.Files.Error            += msg => Dispatcher.Invoke(() =>
             { TxError(msg); SetStatus("File transfer failed: " + msg, "#F5484D"); });
+        _session.Files.Cancelled        += msg => Dispatcher.Invoke(() =>
+            { TxError(msg); SetStatus(msg, "#FFAA1D"); });
 
         try
         {
@@ -860,6 +862,7 @@ public partial class ViewerWindow : Window
         public string? LocalPath;   // where the file is on THIS PC (upload source / download target)
         public System.Windows.Shapes.Rectangle Bar = null!; public TextBlock Sub = null!; public Border Card = null!;
         public Button? Folder;
+        public Button? Abort;
     }
 
     private readonly Dictionary<string, TransferRow> _tx = new();
@@ -923,11 +926,20 @@ public partial class ViewerWindow : Window
         };
         folder.Click += (_, _) => RevealInExplorer(row.LocalPath);
         row.Folder = folder;
+        var abort = new Button
+        {
+            Content = "✕", Width = 24, Height = 22, Cursor = Cursors.Hand, ToolTip = "Abort transfer",
+            Background = Brushes.Transparent, BorderThickness = new Thickness(0), Padding = new Thickness(0),
+            Foreground = new SolidColorBrush(Color.FromRgb(0xF5, 0x48, 0x4D))
+        };
+        abort.Click += (_, _) => { try { _session?.Files.Cancel(); } catch { } };
+        row.Abort = abort;
         var titleRow = new Grid();
         titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
         titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        Grid.SetColumn(title, 0); Grid.SetColumn(folder, 1);
-        titleRow.Children.Add(title); titleRow.Children.Add(folder);
+        titleRow.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        Grid.SetColumn(title, 0); Grid.SetColumn(folder, 1); Grid.SetColumn(abort, 2);
+        titleRow.Children.Add(title); titleRow.Children.Add(folder); titleRow.Children.Add(abort);
         var route = new TextBlock
         {
             Text = up ? $"This PC → {_display}" : $"{_display} → This PC",
@@ -954,6 +966,7 @@ public partial class ViewerWindow : Window
     {
         double pct = row.Total > 0 ? Math.Min(1.0, (double)row.Done / row.Total) : (row.Completed ? 1 : 0);
         row.Bar.Width = row.TrackWidth * pct;
+        if (row.Abort != null) row.Abort.Visibility = (row.Completed || row.Failed) ? Visibility.Collapsed : Visibility.Visible;
         if (row.Failed)
         {
             row.Sub.Text = "✕ failed"; row.Sub.Foreground = new SolidColorBrush(Color.FromRgb(0xF5, 0x48, 0x4D));
@@ -1130,7 +1143,7 @@ public partial class ViewerWindow : Window
     {
         if (_session is not { } session) return;
         if (_browser is { IsLoaded: true }) { _browser.Activate(); return; }
-        _browser = new RemoteBrowserWindow(session, _display, _id) { Owner = this };
+        _browser = new RemoteBrowserWindow(session, _display, _id, _dark) { Owner = this };
         _browser.Closed += (_, _) => _browser = null;
         _browser.Show();
     }

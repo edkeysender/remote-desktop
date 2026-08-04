@@ -5,16 +5,23 @@
         WindowStartupLocation="CenterOwner" WindowStyle="None" AllowsTransparency="True"
         Background="Transparent" ResizeMode="NoResize" FontFamily="Segoe UI">
     <Window.Resources>
-        <SolidColorBrush x:Key="Line" Color="#232538"/>
-        <SolidColorBrush x:Key="Card" Color="#12141F"/>
-        <SolidColorBrush x:Key="Muted" Color="#8A8DA3"/>
+        <!-- theme brushes (swapped at runtime by ApplyTheme; defaults = dark) -->
+        <SolidColorBrush x:Key="Bg"        Color="#0B0C15"/>
+        <SolidColorBrush x:Key="Card"      Color="#12141F"/>
+        <SolidColorBrush x:Key="Line"      Color="#232538"/>
+        <SolidColorBrush x:Key="Text"      Color="#F3F4F9"/>
+        <SolidColorBrush x:Key="Muted"     Color="#8A8DA3"/>
+        <SolidColorBrush x:Key="PathBg"    Color="#0B0C15"/>
+        <SolidColorBrush x:Key="ItemHover" Color="#1A1C2B"/>
+        <SolidColorBrush x:Key="ItemSel"   Color="#26284A"/>
+        <SolidColorBrush x:Key="BtnBg"     Color="#1A1C2B"/>
         <LinearGradientBrush x:Key="Grad" StartPoint="0,0" EndPoint="1,1">
             <GradientStop Color="#5B5BF5" Offset="0"/><GradientStop Color="#9D5CFF" Offset="0.55"/><GradientStop Color="#3EC8FF" Offset="1"/>
         </LinearGradientBrush>
 
         <Style x:Key="PaneBtn" TargetType="Button">
-            <Setter Property="Foreground" Value="{StaticResource Muted}"/>
-            <Setter Property="Background" Value="#1A1C2B"/>
+            <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
+            <Setter Property="Background" Value="{DynamicResource BtnBg}"/>
             <Setter Property="Cursor" Value="Hand"/>
             <Setter Property="Height" Value="28"/>
             <Setter Property="Padding" Value="10,0"/>
@@ -23,8 +30,8 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="7"
-                                BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="{TemplateBinding Padding}">
+                        <Border x:Name="b" Background="{TemplateBinding Background}" CornerRadius="4"
+                                BorderBrush="{DynamicResource Line}" BorderThickness="1" Padding="{TemplateBinding Padding}">
                             <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
@@ -45,15 +52,15 @@
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="Button">
-                        <Border x:Name="b" CornerRadius="999" Padding="18,0">
+                        <Border x:Name="b" CornerRadius="8" Padding="18,0">
                             <Border.Background><StaticResource ResourceKey="Grad"/></Border.Background>
                             <ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center"/>
                         </Border>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Opacity" Value="0.92"/></Trigger>
                             <Trigger Property="IsEnabled" Value="False">
-                                <Setter TargetName="b" Property="Background" Value="#1A1C2B"/>
-                                <Setter Property="Foreground" Value="{StaticResource Muted}"/>
+                                <Setter TargetName="b" Property="Background" Value="{DynamicResource BtnBg}"/>
+                                <Setter Property="Foreground" Value="{DynamicResource Muted}"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
@@ -61,26 +68,25 @@
             </Setter>
         </Style>
 
-        <!-- dark file list -->
         <Style x:Key="FileList" TargetType="ListView">
             <Setter Property="Background" Value="Transparent"/>
-            <Setter Property="Foreground" Value="#E6EDF3"/>
+            <Setter Property="Foreground" Value="{DynamicResource Text}"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="ScrollViewer.HorizontalScrollBarVisibility" Value="Disabled"/>
         </Style>
         <Style x:Key="FileItem" TargetType="ListViewItem">
-            <Setter Property="Foreground" Value="#E6EDF3"/>
+            <Setter Property="Foreground" Value="{DynamicResource Text}"/>
             <Setter Property="Padding" Value="6,7"/>
             <Setter Property="BorderThickness" Value="0"/>
             <Setter Property="Template">
                 <Setter.Value>
                     <ControlTemplate TargetType="ListViewItem">
-                        <Border x:Name="b" Background="Transparent" CornerRadius="7" Padding="{TemplateBinding Padding}">
+                        <Border x:Name="b" Background="Transparent" CornerRadius="4" Padding="{TemplateBinding Padding}">
                             <GridViewRowPresenter Content="{TemplateBinding Content}" Columns="{TemplateBinding GridView.ColumnCollection}"/>
                         </Border>
                         <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="#1A1C2B"/></Trigger>
-                            <Trigger Property="IsSelected" Value="True"><Setter TargetName="b" Property="Background" Value="#26284A"/></Trigger>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="{DynamicResource ItemHover}"/></Trigger>
+                            <Trigger Property="IsSelected" Value="True"><Setter TargetName="b" Property="Background" Value="{DynamicResource ItemSel}"/></Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>
                 </Setter.Value>
@@ -88,7 +94,7 @@
         </Style>
     </Window.Resources>
 
-    <Border Background="#0B0C15" CornerRadius="18" BorderBrush="{StaticResource Line}" BorderThickness="1">
+    <Border Background="{DynamicResource Bg}" CornerRadius="12" BorderBrush="{DynamicResource Line}" BorderThickness="1">
         <Grid Margin="26,22,26,24">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto"/>
@@ -99,15 +105,15 @@
             <!-- header -->
             <Grid Grid.Row="0" x:Name="Header" Margin="0,0,0,18" Background="Transparent">
                 <StackPanel>
-                    <TextBlock Text="Transfer files" Foreground="#F3F4F9" FontSize="19" FontWeight="Bold"/>
-                    <TextBlock x:Name="Subtitle" Foreground="{StaticResource Muted}" FontSize="12.5" Margin="0,3,0,0"/>
+                    <TextBlock Text="Transfer files" Foreground="{DynamicResource Text}" FontSize="19" FontWeight="Bold"/>
+                    <TextBlock x:Name="Subtitle" Foreground="{DynamicResource Muted}" FontSize="12.5" Margin="0,3,0,0"/>
                 </StackPanel>
                 <Button x:Name="CloseBtn" Content="✕" Click="CloseBtn_Click" HorizontalAlignment="Right" VerticalAlignment="Top"
-                        Width="34" Height="34" Foreground="#E6EDF3" Cursor="Hand" FontSize="14">
+                        Width="34" Height="34" Foreground="{DynamicResource Text}" Cursor="Hand" FontSize="14">
                     <Button.Template>
                         <ControlTemplate TargetType="Button">
-                            <Border x:Name="b" Background="#1A1C2B" CornerRadius="17"><ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center"/></Border>
-                            <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="#26283A"/></Trigger></ControlTemplate.Triggers>
+                            <Border x:Name="b" Background="{DynamicResource BtnBg}" CornerRadius="8"><ContentPresenter VerticalAlignment="Center" HorizontalAlignment="Center"/></Border>
+                            <ControlTemplate.Triggers><Trigger Property="IsMouseOver" Value="True"><Setter TargetName="b" Property="Background" Value="{DynamicResource ItemSel}"/></Trigger></ControlTemplate.Triggers>
                         </ControlTemplate>
                     </Button.Template>
                 </Button>
@@ -122,15 +128,15 @@
                 </Grid.ColumnDefinitions>
 
                 <!-- LOCAL pane -->
-                <Border Grid.Column="0" Background="{StaticResource Card}" CornerRadius="12" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="14">
+                <Border Grid.Column="0" Background="{DynamicResource Card}" CornerRadius="10" BorderBrush="{DynamicResource Line}" BorderThickness="1" Padding="14">
                     <DockPanel>
                         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                             <TextBlock Text="🖥" FontSize="13" Margin="0,0,7,0" VerticalAlignment="Center"/>
-                            <TextBlock Text="This computer" Foreground="#F3F4F9" FontWeight="Bold" FontSize="13.5" VerticalAlignment="Center"/>
+                            <TextBlock Text="This computer" Foreground="{DynamicResource Text}" FontWeight="Bold" FontSize="13.5" VerticalAlignment="Center"/>
                         </StackPanel>
                         <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
-                            <Border Background="#0B0C15" CornerRadius="7" Padding="10,6" Margin="0,0,74,0">
-                                <TextBlock x:Name="LocalPath" Text="This PC" Foreground="{StaticResource Muted}" FontFamily="Consolas" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                            <Border Background="{DynamicResource PathBg}" CornerRadius="6" Padding="10,6" Margin="0,0,74,0">
+                                <TextBlock x:Name="LocalPath" Text="This PC" Foreground="{DynamicResource Muted}" FontFamily="Consolas" FontSize="12" TextTrimming="CharacterEllipsis"/>
                             </Border>
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                                 <Button x:Name="LUp" Content="↑" Style="{StaticResource PaneBtn}" Width="30" Click="LUp_Click" ToolTip="Up"/>
@@ -151,21 +157,21 @@
                 <StackPanel Grid.Column="1" VerticalAlignment="Center" HorizontalAlignment="Center">
                     <Button x:Name="SendBtn" Content="→ Send" Style="{StaticResource DirBtn}" Width="110" IsEnabled="False" Click="Send_Click"/>
                     <Button x:Name="GetBtn" Content="← Get" Style="{StaticResource DirBtn}" Width="110" Margin="0,12,0,0" IsEnabled="False" Click="Get_Click"/>
-                    <TextBlock x:Name="DirHint" Text="Select a file, then choose direction" Foreground="{StaticResource Muted}"
+                    <TextBlock x:Name="DirHint" Text="Select a file, then choose direction" Foreground="{DynamicResource Muted}"
                                FontSize="11" TextAlignment="Center" TextWrapping="Wrap" Width="120" Margin="0,14,0,0"/>
                 </StackPanel>
 
                 <!-- REMOTE pane -->
-                <Border Grid.Column="2" Background="{StaticResource Card}" CornerRadius="12" BorderBrush="{StaticResource Line}" BorderThickness="1" Padding="14">
+                <Border Grid.Column="2" Background="{DynamicResource Card}" CornerRadius="10" BorderBrush="{DynamicResource Line}" BorderThickness="1" Padding="14">
                     <DockPanel>
                         <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,8">
                             <TextBlock Text="🌐" FontSize="12" Margin="0,0,7,0" VerticalAlignment="Center"/>
-                            <TextBlock x:Name="RemoteName" Text="Remote" Foreground="#F3F4F9" FontWeight="Bold" FontSize="13.5" VerticalAlignment="Center"/>
-                            <TextBlock x:Name="RemoteId" Text="" Foreground="{StaticResource Muted}" FontFamily="Consolas" FontSize="11.5" Margin="8,0,0,0" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="RemoteName" Text="Remote" Foreground="{DynamicResource Text}" FontWeight="Bold" FontSize="13.5" VerticalAlignment="Center"/>
+                            <TextBlock x:Name="RemoteId" Text="" Foreground="{DynamicResource Muted}" FontFamily="Consolas" FontSize="11.5" Margin="8,0,0,0" VerticalAlignment="Center"/>
                         </StackPanel>
                         <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
-                            <Border Background="#0B0C15" CornerRadius="7" Padding="10,6" Margin="0,0,74,0">
-                                <TextBlock x:Name="RemotePath" Text="This PC" Foreground="{StaticResource Muted}" FontFamily="Consolas" FontSize="12" TextTrimming="CharacterEllipsis"/>
+                            <Border Background="{DynamicResource PathBg}" CornerRadius="6" Padding="10,6" Margin="0,0,74,0">
+                                <TextBlock x:Name="RemotePath" Text="This PC" Foreground="{DynamicResource Muted}" FontFamily="Consolas" FontSize="12" TextTrimming="CharacterEllipsis"/>
                             </Border>
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
                                 <Button x:Name="RUp" Content="↑" Style="{StaticResource PaneBtn}" Width="30" Click="RUp_Click" ToolTip="Up"/>
@@ -183,7 +189,7 @@
                 </Border>
             </Grid>
 
-            <TextBlock x:Name="StatusText" Grid.Row="2" Text="Connecting…" Foreground="{StaticResource Muted}"
+            <TextBlock x:Name="StatusText" Grid.Row="2" Text="Connecting…" Foreground="{DynamicResource Muted}"
                        FontSize="12" Margin="2,12,0,0" TextTrimming="CharacterEllipsis"/>
         </Grid>
     </Border>
