@@ -1,0 +1,91 @@
+name: Release
+
+# Build the Remotler app + both installers on a Windows runner and publish a
+# GitHub Release with all artifacts attached. Fully remote — no local machine
+# or Pi involved.
+#
+# Trigger a release:
+#   git tag v0.3.1 && git push origin v0.3.1
+# or run it manually from the Actions tab (workflow_dispatch) and type the version.
+
+on:
+  push:
+    tags: ['v*.*.*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Version to build and release (x.y.z), e.g. 0.3.1'
+        required: true
+
+permissions:
+  contents: write        # required to create the Release (and tag, for manual runs)
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET 8
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      - name: Install Inno Setup
+        run: choco install innosetup --no-progress -y
+
+      - name: Resolve version
+        id: ver
+        shell: pwsh
+        run: |
+          if ($env:GITHUB_REF_TYPE -eq 'tag') {
+            $v = $env:GITHUB_REF_NAME -replace '^v',''
+          } else {
+            $v = '${{ github.event.inputs.version }}'
+          }
+          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "Version must be x.y.z (got '$v')." }
+          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "== Releasing version $v =="
+
+      - name: Build app + installers + update package
+        shell: pwsh
+        run: ./build.ps1 -Version ${{ steps.ver.outputs.version }} -Bump none
+
+      - name: Collect release assets
+        id: assets
+        shell: pwsh
+        run: |
+          $v = '${{ steps.ver.outputs.version }}'
+          $out = "$env:RUNNER_TEMP\release"
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          # Attended app installer + unattended agent installer.
+          Copy-Item "installer/dist/*.exe" $out -Force
+          # Auto-update package: manifest + raw component exes (exclude the *-Setup-* copies
+          # that build.ps1 also stages there, to avoid duplicate asset names).
+          Copy-Item "publish/update/manifest.json" $out -Force
+          Get-ChildItem "publish/update/*.exe" |
+            Where-Object { $_.Name -notlike '*-Setup-*' } |
+            ForEach-Object { Copy-Item $_.FullName $out -Force }
+          Write-Host "Assets:"; Get-ChildItem $out | ForEach-Object { Write-Host "  $($_.Name)  ($([math]::Round($_.Length/1MB,1)) MB)" }
+          "dir=$out" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+
+      - name: Publish GitHub Release
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $v = '${{ steps.ver.outputs.version }}'
+          $files = (Get-ChildItem '${{ steps.assets.outputs.dir }}').FullName
+          # Create the release if it doesn't exist yet; otherwise upload/overwrite assets.
+          $exists = gh release view "v$v" --repo $env:GITHUB_REPOSITORY 2>$null
+          if ($LASTEXITCODE -eq 0) {
+            gh release upload "v$v" $files --clobber --repo $env:GITHUB_REPOSITORY
+          } else {
+            gh release create "v$v" $files `
+              --repo $env:GITHUB_REPOSITORY `
+              --title "Remotler v$v" `
+              --notes "Automated build of Remotler v$v.`n`n- Remotler-Setup-$v.exe — attended app (host + viewer)`n- RemotlerAgent-Setup-$v.exe — unattended agent + service"
+          }
+          Write-Host "Release v$v published."

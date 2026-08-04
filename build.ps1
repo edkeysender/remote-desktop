@@ -33,8 +33,11 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = $PSScriptRoot
 
-# Make dotnet + ISCC resolvable even in a fresh shell.
-$env:Path = [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
+# Make dotnet + ISCC resolvable even in a fresh shell. Append (don't replace) so a
+# runner/session that already put dotnet on the process PATH (e.g. GitHub Actions
+# setup-dotnet) keeps working.
+$env:Path = $env:Path + ';' +
+            [Environment]::GetEnvironmentVariable('Path','Machine') + ';' +
             [Environment]::GetEnvironmentVariable('Path','User')
 
 $ver = (Get-Content "$root\VERSION" -Raw).Trim()
