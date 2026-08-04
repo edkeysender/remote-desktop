@@ -121,7 +121,9 @@ th{color:var(--muted);font-size:.72rem;text-transform:uppercase;letter-spacing:.
 <div id="app"></div>
 <script>
 const $=(h)=>{const t=document.createElement('template');t.innerHTML=h.trim();return t.content.firstChild;};
-const esc=(s)=>(s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+// Escapes ' as well as "&<> — attributes here are double-quoted, but one single-quoted
+// attribute added later would otherwise turn this into an injection point.
+const esc=(s)=>(s==null?'':String(s)).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const fmtId=(id)=>id&&/^\d{9}$/.test(id)?`${id.slice(0,3)} ${id.slice(3,6)} ${id.slice(6)}`:(id||'—');
 let me=null, tab='devices';
 
@@ -451,10 +453,11 @@ async function viewBranding(){
 }
 
 // ---------- MCP / API tokens ----------
-async function viewMcp(){
+async function viewMcp(justCreated){
   const toks=await api('/api/api-tokens');
   const origin=location.origin;
-  const rows=toks.map(t=>`<tr><td>${esc(t.label||'—')}</td><td><span class="linkbox">${esc(t.token)}</span></td><td class="tick" style="white-space:nowrap">${new Date(t.createdAt).toLocaleDateString()}</td><td style="text-align:right"><button class="sm" data-cp="${esc(t.token)}">Copy</button> <button class="danger sm" data-rv="${esc(t.token)}">Revoke</button></td></tr>`).join('');
+  // Only a prefix is stored server-side — the full token exists once, at creation.
+  const rows=toks.map(t=>`<tr><td>${esc(t.label||'—')}</td><td><span class="linkbox">${esc(t.prefix||'hk_')}…</span></td><td class="tick" style="white-space:nowrap">${new Date(t.createdAt).toLocaleDateString()}</td><td class="tick" style="white-space:nowrap">${t.expiresAt?new Date(t.expiresAt).toLocaleDateString():'—'}</td><td style="text-align:right"><button class="danger sm" data-rv="${esc(t.id)}">Revoke</button></td></tr>`).join('');
   const cfg=`{
   "mcpServers": {
     "remotler": {
@@ -469,13 +472,16 @@ async function viewMcp(){
     <div class="card">
       <div class="rowline" style="border:none"><input id="tl" placeholder="Token label (e.g. Claude Desktop)" style="max-width:280px"><button class="primary" id="gen">Create token</button></div>
       <div id="new" class="ok" style="margin-top:8px"></div>
-      ${toks.length?`<table style="margin-top:10px"><thead><tr><th>Label</th><th>Token</th><th>Created</th><th></th></tr></thead><tbody>${rows}</tbody></table>`:'<div class="empty">No tokens yet.</div>'}
+      ${toks.length?`<table style="margin-top:10px"><thead><tr><th>Label</th><th>Token</th><th>Created</th><th>Expires</th><th></th></tr></thead><tbody>${rows}</tbody></table>`:'<div class="empty">No tokens yet.</div>'}
     </div>
     <h2 style="font-size:.9rem;margin-top:22px">Client config</h2>
     <div class="card"><pre class="linkbox" style="white-space:pre-wrap;margin:0">${esc(cfg)}</pre></div></div>`));
-  view().querySelector('#gen').onclick=async()=>{const t=await api('/api/api-tokens','POST',{label:val('tl')});view().querySelector('#new').innerHTML='New token: <span class="linkbox">'+esc(t.token)+'</span> — copy it now.';viewMcp();};
+  // Show the plaintext exactly once. It is not recoverable afterwards — the server keeps
+  // only a hash — so render it before refreshing the list, and don't clobber it.
+  if(justCreated) view().querySelector('#new').innerHTML='New token: <span class="linkbox">'+esc(justCreated)+'</span> — copy it now, it will not be shown again. <button class="sm" data-cp="'+esc(justCreated)+'">Copy</button>';
+  view().querySelector('#gen').onclick=async()=>{const t=await api('/api/api-tokens','POST',{label:val('tl')});viewMcp(t.token);};
   view().querySelectorAll('[data-cp]').forEach(b=>b.onclick=()=>copyText(b.dataset.cp,b));
-  view().querySelectorAll('[data-rv]').forEach(b=>b.onclick=async()=>{if(confirm('Revoke this token?')){await api('/api/api-tokens/'+encodeURIComponent(b.dataset.rv),'DELETE');viewMcp();}});
+  view().querySelectorAll('[data-rv]').forEach(b=>b.onclick=async()=>{if(confirm('Revoke this token? Anything using it stops working immediately.')){await api('/api/api-tokens/'+encodeURIComponent(b.dataset.rv),'DELETE');viewMcp();}});
 }
 
 // ---------- device configurations ----------

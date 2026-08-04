@@ -14,5 +14,22 @@
 
 remotler.com {
 	encode zstd gzip
+
+	header {
+		# Pin browsers to https so the session cookie never rides a plaintext hop.
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options "nosniff"
+		Referrer-Policy "strict-origin-when-cross-origin"
+		# The dashboard has no reason to be framed; this plus frame-ancestors kills
+		# clickjacking on a console that can start remote-control sessions.
+		X-Frame-Options "DENY"
+		# The SPA is a single file with inline <style>/<script>, hence unsafe-inline;
+		# it still blocks loading script from anywhere but this origin. Fonts come from
+		# Google Fonts, WebSocket signalling from this host.
+		Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com; img-src 'self' data:; connect-src 'self' wss://remotler.com; frame-ancestors 'none'; base-uri 'none'; form-action 'self'; object-src 'none'"
+		-Server
+		-X-Powered-By
+	}
+
 	reverse_proxy 127.0.0.1:8081
 }

@@ -11,8 +11,8 @@
 // Access rule: a user may connect to a computer iff same org AND (user is admin OR
 // the computer's group is one of the user's groups).
 
-import { randomBytes } from 'crypto';
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
+import { randomBytes, createHash } from 'crypto';
+import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, chmodSync } from 'fs';
 import { resolve, join } from 'path';
 
 const DATA_DIR = resolve(process.env.DATA_DIR || './data');
@@ -29,14 +29,54 @@ function load() {
   try { if (existsSync(DB_FILE)) db = { ...empty(), ...JSON.parse(readFileSync(DB_FILE, 'utf8')) }; }
   catch (e) { console.error('[store] load failed:', e.message); }
 }
+// This file holds password hashes, API/enrollment/invite tokens and the org's TURN
+// password — it must not be world-readable. Write to a temp file and rename so a crash
+// mid-write can never truncate the database.
 function save() {
-  try { mkdirSync(DATA_DIR, { recursive: true }); writeFileSync(DB_FILE, JSON.stringify(db, null, 2)); }
-  catch (e) { console.error('[store] save failed:', e.message); }
+  try {
+    mkdirSync(DATA_DIR, { recursive: true, mode: 0o700 });
+    const tmp = DB_FILE + '.tmp';
+    writeFileSync(tmp, JSON.stringify(db, null, 2), { mode: 0o600 });
+    renameSync(tmp, DB_FILE);
+    chmodSync(DB_FILE, 0o600);   // rename preserves the temp file's mode; be explicit anyway
+  } catch (e) { console.error('[store] save failed:', e.message); }
 }
 load();
 
 const id = (p) => p + randomBytes(6).toString('hex');
 const now = () => Date.now();
+const sha256 = (s) => createHash('sha256').update(String(s)).digest('hex');
+
+const API_TOKEN_TTL_MS = 365 * 24 * 60 * 60 * 1000;   // 1 year
+const ENROLL_TTL_MS = 90 * 24 * 60 * 60 * 1000;       // 90 days
+const MIGRATION_GRACE_MS = 30 * 24 * 60 * 60 * 1000;  // never expire an existing token instantly
+
+// Bring older on-disk data up to the current shape. Runs once at boot, idempotent.
+function migrate() {
+  let dirty = false;
+  for (const o of Object.values(db.orgs)) {
+    if (!o.apiTokens) continue;
+    for (const [key, v] of Object.entries(o.apiTokens)) {
+      if (v.hash) continue;                      // already migrated
+      // The plaintext token was the map key. Re-key by hash so a database read no longer
+      // yields usable credentials; keep a prefix so the UI can still identify the row.
+      delete o.apiTokens[key];
+      o.apiTokens[sha256(key)] = {
+        id: id('at_'), label: v.label || '', prefix: String(key).slice(0, 11),
+        createdAt: v.createdAt || now(), hash: true,
+        expiresAt: Math.max((v.createdAt || now()) + API_TOKEN_TTL_MS, now() + MIGRATION_GRACE_MS),
+      };
+      dirty = true;
+    }
+  }
+  for (const e of Object.values(db.enrollTokens)) {
+    if (e.expiresAt) continue;
+    e.expiresAt = Math.max((e.createdAt || now()) + ENROLL_TTL_MS, now() + MIGRATION_GRACE_MS);
+    dirty = true;
+  }
+  if (dirty) save();
+}
+migrate();
 
 // Role model (plan §1). 'owner' is the org creator (immutable, full control).
 // Assignable roles, most→least privilege:
@@ -107,25 +147,56 @@ export function findUserByEmail(email) {
 export function getUser(userId) { return db.users[userId] || null; }
 export function getOrg(orgId) { return db.orgs[orgId] || null; }
 
+// ---- session revocation ----
+// Session tokens are stateless HMACs, so there is no server-side list to delete from.
+// Instead each user carries a watermark: any token issued before it is refused. Signing
+// out, or an admin cutting someone off, moves the watermark and kills every outstanding
+// token for that user immediately. See auth.verifyToken.
+export function revokeSessions(userId) {
+  const u = db.users[userId];
+  if (!u) return;
+  u.tokenEpoch = now();
+  save();
+}
+export function sessionsValidFrom(userId) { return db.users[userId]?.tokenEpoch || 0; }
+
 // ---- org API tokens (for the MCP server / integrations; manager-scoped) ----
+// Stored keyed by SHA-256 of the token, never in the clear: these grant org-admin, so a
+// read of db.json must not hand them over. The plaintext is returned exactly once, at
+// creation; afterwards only a prefix is shown so a row stays identifiable.
 export function createApiToken(orgId, label) {
   const o = db.orgs[orgId]; if (!o) return null;
   o.apiTokens = o.apiTokens || {};
   const token = 'hk_' + randomBytes(24).toString('hex');
-  o.apiTokens[token] = { label: (label || '').toString().slice(0, 60), createdAt: now() };
+  const rec = {
+    id: id('at_'), label: (label || '').toString().slice(0, 60), prefix: token.slice(0, 11),
+    createdAt: now(), expiresAt: now() + API_TOKEN_TTL_MS, hash: true,
+  };
+  o.apiTokens[sha256(token)] = rec;
   save();
-  return { token, label: o.apiTokens[token].label };
+  return { token, id: rec.id, label: rec.label, prefix: rec.prefix, expiresAt: rec.expiresAt };
 }
 export function listApiTokens(orgId) {
   const o = db.orgs[orgId];
-  return o?.apiTokens ? Object.entries(o.apiTokens).map(([token, v]) => ({ token, label: v.label, createdAt: v.createdAt })) : [];
+  if (!o?.apiTokens) return [];
+  return Object.values(o.apiTokens)
+    .map((v) => ({ id: v.id, label: v.label, prefix: v.prefix, createdAt: v.createdAt, expiresAt: v.expiresAt }));
 }
-export function revokeApiToken(orgId, token) {
+export function revokeApiToken(orgId, tokenId) {
   const o = db.orgs[orgId];
-  if (o?.apiTokens && o.apiTokens[token]) { delete o.apiTokens[token]; save(); }
+  if (!o?.apiTokens) return;
+  for (const [k, v] of Object.entries(o.apiTokens)) {
+    if (v.id === tokenId) { delete o.apiTokens[k]; save(); return; }
+  }
 }
 export function resolveApiToken(token) {
-  for (const [orgId, o] of Object.entries(db.orgs)) if (o.apiTokens && o.apiTokens[token]) return orgId;
+  const h = sha256(token);
+  for (const [orgId, o] of Object.entries(db.orgs)) {
+    const rec = o.apiTokens?.[h];
+    if (!rec) continue;
+    if (rec.expiresAt && rec.expiresAt < now()) return null;
+    return orgId;
+  }
   return null;
 }
 
@@ -395,12 +466,18 @@ export function createEnrollToken(orgId, { groupId, label, createdBy }) {
     token, orgId,
     groupId: groupId && db.groups[groupId]?.orgId === orgId ? groupId : null,
     label: (label || '').trim(), createdBy: createdBy || null, createdAt: now(),
+    expiresAt: now() + ENROLL_TTL_MS,
   };
   save();
   return db.enrollTokens[token];
 }
 
-export function getEnrollToken(token) { return db.enrollTokens[token] || null; }
+// Expired tokens read as absent, so a leaked one stops enrolling rogue devices on its own.
+export function getEnrollToken(token) {
+  const e = db.enrollTokens[token];
+  if (!e) return null;
+  return (e.expiresAt && e.expiresAt < now()) ? null : e;
+}
 
 export function listEnrollTokens(orgId) {
   return Object.values(db.enrollTokens).filter((e) => e.orgId === orgId);

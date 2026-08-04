@@ -9,6 +9,7 @@ import * as store from './store.js';
 import {
   hashPassword, verifyPassword, issueToken, verifyToken, parseCookies, SESSION_COOKIE,
 } from './auth.js';
+import { limit, reset as rlReset, clientIp } from './ratelimit.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const PUBLIC_DIR = join(__dirname, '..', 'public');
@@ -41,42 +42,73 @@ export function buildWebApp({ relayStatus, sendCommand, onlinePeer }) {
   const requireAuditor = (req, res, next) =>
     store.canAudit(req.user) ? next() : res.status(403).json({ error: 'not permitted' });
 
-  const setSession = (res, userId) => {
+  // Behind Caddy every real request arrives as https, so the cookie is marked Secure and
+  // never rides a plaintext hop (a browser would otherwise attach it to the initial
+  // http:// request that only *then* gets 308'd to https). Plain-http dev keeps working.
+  const isHttps = (req) =>
+    (req.headers['x-forwarded-proto'] || '').split(',')[0].trim() === 'https' || !!req.secure;
+
+  const setSession = (req, res, userId) => {
     const token = issueToken(userId);
-    res.cookie?.(SESSION_COOKIE, token, { httpOnly: true, sameSite: 'lax', maxAge: 30 * 864e5 });
+    const attrs = `HttpOnly; SameSite=Lax; Path=/; Max-Age=${30 * 86400}` + (isHttps(req) ? '; Secure' : '');
     // Router has no res.cookie without cookie middleware; set header directly.
-    res.setHeader('Set-Cookie',
-      `${SESSION_COOKIE}=${token}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${30 * 86400}`);
+    res.setHeader('Set-Cookie', `${SESSION_COOKIE}=${token}; ${attrs}`);
     return token;
   };
 
   const publicUser = (u) => ({ id: u.id, email: u.email, name: u.name, role: u.role, groupIds: u.groupIds || [] });
 
   // ------------------------------- auth -------------------------------
+  // Unauthenticated endpoints are the ones worth grinding on, so each gets a budget.
+  // Login is limited per-IP *and* per-account: the first stops one host spraying many
+  // accounts, the second stops a botnet converging on one account.
+  const perIp = (n, windowMs, tag) => limit({
+    windowMs, max: n, keyFn: (req) => `${tag}:${clientIp(req)}`,
+  });
+  const loginIpLimit = perIp(20, 15 * 60_000, 'login-ip');
+  const loginAccountLimit = limit({
+    windowMs: 15 * 60_000, max: 8,
+    keyFn: (req) => {
+      const e = String(req.body?.email || '').toLowerCase().trim();
+      return e ? `login-acct:${e}` : null;
+    },
+    message: 'too many sign-in attempts for this account — try again shortly',
+  });
+  const registerLimit = perIp(5, 60 * 60_000, 'register');
+  const inviteLimit = perIp(20, 60 * 60_000, 'invite');
 
-  app.post('/api/register', async (req, res) => {
+  app.post('/api/register', registerLimit, async (req, res) => {
     const { orgName, email, name, password } = req.body || {};
     if (!orgName || !email || !password) return res.status(400).json({ error: 'orgName, email, password required' });
     if (String(password).length < 8) return res.status(400).json({ error: 'password must be at least 8 characters' });
     if (store.emailTaken(email)) return res.status(409).json({ error: 'that email is already registered' });
     const { org, user } = store.createOrgWithOwner({ orgName, email, name, passHash: await hashPassword(password) });
     store.logEvent(org.id, 'org.create', { actorEmail: user.email, target: org.name });
-    const token = setSession(res, user.id);
+    const token = setSession(req, res, user.id);
     res.json({ token, user: publicUser(user), org: { id: org.id, name: org.name } });
   });
 
-  app.post('/api/login', async (req, res) => {
+  app.post('/api/login', loginIpLimit, loginAccountLimit, async (req, res) => {
     const { email, password } = req.body || {};
     const user = store.findUserByEmail(email || '');
-    if (!user || !(await verifyPassword(password || '', user.passHash)))
+    if (!user || !(await verifyPassword(password || '', user.passHash))) {
+      store.logEvent(user?.orgId, 'login.fail', { actorEmail: String(email || '').slice(0, 120) });
       return res.status(401).json({ error: 'wrong email or password' });
-    const token = setSession(res, user.id);
+    }
+    // Succeeded — clear the counters so a few typos don't lock out a legitimate user.
+    rlReset(`login-acct:${String(email).toLowerCase().trim()}`);
+    rlReset(`login-ip:${clientIp(req)}`);
+    const token = setSession(req, res, user.id);
     const org = store.getOrg(user.orgId);
     store.logEvent(user.orgId, 'login', { actorEmail: user.email });
     res.json({ token, user: publicUser(user), org: { id: org.id, name: org.name } });
   });
 
+  // Signing out revokes every token for this user, not just the cookie in this browser.
+  // Stateless tokens can't be individually cancelled, and a session you believe you ended
+  // must actually be dead — so the desktop app is signed out too.
   app.post('/api/logout', (req, res) => {
+    if (req.user && !req.apiPrincipal) store.revokeSessions(req.user.id);
     res.setHeader('Set-Cookie', `${SESSION_COOKIE}=; HttpOnly; Path=/; Max-Age=0`);
     res.json({ ok: true });
   });
@@ -93,13 +125,20 @@ export function buildWebApp({ relayStatus, sendCommand, onlinePeer }) {
     store.logEvent(req.user.orgId, 'api.token', { actorEmail: req.user.email, target: t?.label });
     res.json(t);
   });
-  app.delete('/api/api-tokens/:token', requireUser, requireAdmin, requireHuman, (req, res) => {
-    store.revokeApiToken(req.user.orgId, req.params.token);
+  // Revoke by record id — the token itself is only ever held by its owner now.
+  app.delete('/api/api-tokens/:id', requireUser, requireAdmin, requireHuman, (req, res) => {
+    store.revokeApiToken(req.user.orgId, req.params.id);
+    store.logEvent(req.user.orgId, 'api.revoke', { actorEmail: req.user.email });
     res.json({ ok: true });
   });
 
-  // ---- per-org network / ICE (STUN/TURN): any member reads; managers set ----
-  app.get('/api/ice', requireUser, (req, res) => res.json(store.getIce(req.user.orgId)));
+  // ---- per-org network / ICE (STUN/TURN): managers only ----
+  // The TURN username and password are long-term credentials for a relay that can be
+  // pointed at arbitrary destinations, so they are not something every org member —
+  // including read-only auditors — should be able to read over REST. Clients still
+  // receive them where they're actually needed, on the relay's registered/connected
+  // messages, which requires possession of a device or session credential.
+  app.get('/api/ice', requireUser, requireAdmin, (req, res) => res.json(store.getIce(req.user.orgId)));
   app.put('/api/ice', requireUser, requireAdmin, (req, res) => {
     const i = store.setIce(req.user.orgId, req.body || {});
     store.logEvent(req.user.orgId, 'network', { actorEmail: req.user.email });
@@ -143,7 +182,7 @@ export function buildWebApp({ relayStatus, sendCommand, onlinePeer }) {
     res.json({ email: inv.email, role: inv.role, orgName: org?.name || '' });
   });
 
-  app.post('/api/accept-invite', async (req, res) => {
+  app.post('/api/accept-invite', inviteLimit, async (req, res) => {
     const { token, name, password } = req.body || {};
     const inv = store.getInvite(token);
     if (!inv) return res.status(404).json({ error: 'invite not found or already used' });
@@ -154,7 +193,7 @@ export function buildWebApp({ relayStatus, sendCommand, onlinePeer }) {
     const user = store.createUser({ orgId: inv.orgId, email, name, passHash: await hashPassword(password), role: inv.role });
     store.acceptInvite(token, user.id);
     store.logEvent(inv.orgId, 'user.join', { actorEmail: user.email, detail: `role ${user.role}` });
-    const t = setSession(res, user.id);
+    const t = setSession(req, res, user.id);
     const org = store.getOrg(user.orgId);
     res.json({ token: t, user: publicUser(user), org: { id: org.id, name: org.name } });
   });

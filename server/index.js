@@ -10,11 +10,12 @@ import { WebSocketServer } from 'ws';
 import { createServer } from 'http';
 import express from 'express';
 import { randomBytes, timingSafeEqual } from 'crypto';
-import { readFileSync, writeFileSync, existsSync, createReadStream, statSync } from 'fs';
+import { readFileSync, writeFileSync, existsSync, createReadStream, statSync, renameSync, chmodSync } from 'fs';
 import { resolve, join, basename, extname, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { buildWebApp } from './lib/web.js';
 import * as releases from './lib/releases.js';
+import * as rateLimit from './lib/ratelimit.js';
 import { verifyToken } from './lib/auth.js';
 import * as store from './lib/store.js';
 
@@ -45,9 +46,18 @@ function loadIdMap() {
         tokenToId.set(tok, id);
   } catch (e) { console.error('[server] could not load id map:', e.message); }
 }
+// Device tokens are the credential behind password-less sibling connects, so this file
+// must not be world-readable. Same for admin.json below.
+function writePrivate(path, text, what) {
+  try {
+    const tmp = path + '.tmp';
+    writeFileSync(tmp, text, { mode: 0o600 });
+    renameSync(tmp, path);
+    chmodSync(path, 0o600);
+  } catch (e) { console.error(`[server] could not save ${what}:`, e.message); }
+}
 function saveIdMap() {
-  try { writeFileSync(ID_MAP_FILE, JSON.stringify(Object.fromEntries(tokenToId), null, 2)); }
-  catch (e) { console.error('[server] could not save id map:', e.message); }
+  writePrivate(ID_MAP_FILE, JSON.stringify(Object.fromEntries(tokenToId), null, 2), 'id map');
 }
 loadIdMap();
 
@@ -82,8 +92,7 @@ function loadAdmin() {
   } catch (e) { console.error('[server] could not load admin store:', e.message); }
 }
 function saveAdmin() {
-  try { writeFileSync(ADMIN_FILE, JSON.stringify(admin, null, 2)); }
-  catch (e) { console.error('[server] could not save admin store:', e.message); }
+  writePrivate(ADMIN_FILE, JSON.stringify(admin, null, 2), 'admin store');
 }
 loadAdmin();
 store.closeOpenSessions();   // a fresh boot means nothing is still live
@@ -197,6 +206,7 @@ function onlinePeer(orgId, excludeDeviceToken) {
 }
 
 const app = express();
+app.disable('x-powered-by');   // don't advertise the stack
 app.use(legacyRoutes);
 app.use(buildWebApp({ relayStatus, sendCommand, onlinePeer }));
 const http = createServer(app);
@@ -220,12 +230,6 @@ function clientIp(req) {
   return ip.startsWith('::ffff:') ? ip.slice(7) : ip;   // unwrap IPv4-mapped IPv6
 }
 
-function isAdminPassword(pw) {
-  if (typeof pw !== 'string') return false;
-  const a = Buffer.from(pw), b = Buffer.from(ADMIN_PASSWORD);
-  return a.length === b.length && timingSafeEqual(a, b);
-}
-
 function checkBasic(req, expected) {
   const m = /^Basic (.+)$/.exec(req.headers['authorization'] || '');
   if (!m) return false;
@@ -240,11 +244,22 @@ function sendJson(res, obj, code = 200) {
   res.end(JSON.stringify(obj));
 }
 
+const MAX_BODY_BYTES = 1e6;
 function readBody(req) {
   return new Promise((resolvePromise) => {
-    let data = '';
-    req.on('data', (c) => { data += c; if (data.length > 1e6) req.destroy(); });
-    req.on('end', () => { try { resolvePromise(JSON.parse(data || '{}')); } catch { resolvePromise({}); } });
+    // Count bytes, not string length — concatenating chunks into a string measures UTF-16
+    // code units, which lets a multi-byte payload run to roughly twice the intended cap.
+    const chunks = [];
+    let size = 0;
+    req.on('data', (c) => {
+      size += c.length;
+      if (size > MAX_BODY_BYTES) { req.destroy(); return; }
+      chunks.push(c);
+    });
+    req.on('end', () => {
+      try { resolvePromise(JSON.parse(Buffer.concat(chunks).toString('utf8') || '{}')); }
+      catch { resolvePromise({}); }
+    });
     req.on('error', () => resolvePromise({}));
   });
 }
@@ -382,8 +397,21 @@ http.listen(PORT, () => {
 });
 
 // Safety net: an unexpected error on one connection must never crash the relay and
-// drop everyone's sessions. Log and keep serving.
-process.on('uncaughtException', (e) => console.error('[server] uncaught:', e?.stack || e));
+// drop everyone's sessions. Log and keep serving — but a process that is throwing
+// continuously is in an unknown state, not a healthy one, so give up and let systemd
+// restart us cleanly rather than serving indefinitely from a corrupt heap.
+const CRASH_WINDOW_MS = 60_000, CRASH_LIMIT = 20;
+let crashes = [];
+process.on('uncaughtException', (e) => {
+  console.error('[server] uncaught:', e?.stack || e);
+  const cutoff = Date.now() - CRASH_WINDOW_MS;
+  crashes = crashes.filter((t) => t > cutoff);
+  crashes.push(Date.now());
+  if (crashes.length >= CRASH_LIMIT) {
+    console.error(`[server] ${crashes.length} uncaught errors in ${CRASH_WINDOW_MS / 1000}s — exiting for a clean restart`);
+    process.exit(1);
+  }
+});
 
 function newId() {
   // 9-digit numeric ID, avoids leading zero so it's always 9 chars.
@@ -500,6 +528,11 @@ wss.on('connection', (ws, req) => {
       }
 
       case 'connect': {                      // viewer -> "let me into <id>"
+        // IDs are 9 digits and the reply distinguishes "no such ID online" from a real
+        // host, which is an enumeration oracle over the whole space. Budget the attempts
+        // per IP so sweeping it — and grinding per-host passwords — is impractical.
+        const rl = rateLimit.hit(`ws-connect:${ws._ip}`, 60_000, 30);
+        if (!rl.ok) { send(ws, { t: 'rejected', reason: 'too many attempts, slow down' }); break; }
         const entry = hosts.get(String(msg.id));
         if (!entry) { send(ws, { t: 'rejected', reason: 'no such ID online' }); break; }
         if (entry.viewer) { send(ws, { t: 'rejected', reason: 'host is busy' }); break; }
@@ -511,12 +544,15 @@ wss.on('connection', (ws, req) => {
         // Remember who is viewing (for session history) when account-authenticated.
         const vuser = msg.auth ? store.getUser(verifyToken(msg.auth) || '') : null;
         ws._viewerEmail = vuser?.email ?? null;
-        // Three ways to be authorized (host then accepts without the per-client password):
-        //  • legacy admin password proven to the relay (0.2.x directory picker), or
+        // Two ways to be authorized (host then accepts without the per-client password):
         //  • an account session whose user may access this computer (org + group), or
-        //  • otherwise the host verifies the per-client password itself (normal path).
+        //  • an enrolled sibling device proving its own token,
+        // otherwise the host verifies the per-client password itself (normal path).
+        //
+        // The 0.2.x `admin`+`adminPassword` path is deliberately gone: one shared secret
+        // granted password-less control of every host on the relay, across all orgs, and
+        // left no session record. Accounts do the same job scoped and audited.
         const admin =
-          (msg.admin === true && isAdminPassword(msg.adminPassword)) ||
           accountAuthorized(msg.auth, entry) ||
           peerAuthorized(msg.from, entry);
         send(entry.ws, { t: 'connect-request', rid, password: msg.password ?? '', admin });

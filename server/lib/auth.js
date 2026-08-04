@@ -7,6 +7,7 @@ import bcrypt from 'bcryptjs';
 import { createHmac, randomBytes, timingSafeEqual } from 'crypto';
 import { readFileSync, writeFileSync, existsSync, mkdirSync } from 'fs';
 import { resolve, join } from 'path';
+import * as store from './store.js';
 
 const DATA_DIR = resolve(process.env.DATA_DIR || './data');
 const SECRET_FILE = join(DATA_DIR, 'session-secret');
@@ -43,7 +44,12 @@ export function verifyToken(token) {
   const a = Buffer.from(mac), b = Buffer.from(good);
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
   const [userId, expStr] = body.split('.');
-  if (!userId || Number(expStr) < Date.now()) return null;
+  const exp = Number(expStr);
+  if (!userId || !Number.isFinite(exp) || exp < Date.now()) return null;
+  // Revocation: the token carries no issue time, but the TTL is fixed, so we can derive
+  // it. Anything issued before the user's watermark was revoked (sign-out, admin action)
+  // and must be refused even though the signature and expiry are still good.
+  if (exp - TTL_MS < store.sessionsValidFrom(userId)) return null;
   return userId;
 }
 
