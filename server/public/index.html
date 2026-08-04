@@ -272,7 +272,7 @@ async function viewDownload(){
       <p class="muted" style="margin-bottom:16px">Install Remotler on a Windows PC to control it, or to reach the rest of your fleet.${ver?` Latest version <b>${esc(ver)}</b>.`:''}</p>
       ${appExe?`<a class="primary" href="${appExe}" download style="display:inline-block;text-decoration:none">⬇ Download Remotler for Windows</a>
         <p class="muted" style="margin:10px 0 0;font-size:.82rem">Installs per-user (no admin) with a Start Menu shortcut. After installing, sign in or paste an enrollment token to claim the PC into your organization.</p>`
-        :`<div class="empty">No installer has been published yet. On the build machine run <span class="mono">build.ps1 -PushTo &lt;pi&gt;</span> to publish one.</div>`}
+        :`<div class="empty">No installer has been published yet. Tag a release (<span class="mono">git tag v0.0.0 &amp;&amp; git push origin v0.0.0</span>) to build and publish one.</div>`}
       ${agentExe?`<div style="margin-top:22px;border-top:1px solid var(--line);padding-top:16px">
         <a class="ghost" href="${agentExe}" download style="display:inline-block;text-decoration:none">⬇ Download unattended agent</a>
         <p class="muted" style="margin:10px 0 0;font-size:.82rem">Background service for always-on unattended access (requires admin to install).</p></div>`:''}

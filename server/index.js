@@ -14,6 +14,7 @@ import { readFileSync, writeFileSync, existsSync, createReadStream, statSync } f
 import { resolve, join, basename, extname, dirname } from 'path';
 import { fileURLToPath } from 'url';
 import { buildWebApp } from './lib/web.js';
+import * as releases from './lib/releases.js';
 import { verifyToken } from './lib/auth.js';
 import * as store from './lib/store.js';
 
@@ -22,7 +23,8 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const PORT = process.env.PORT ? Number(process.env.PORT) : 8080;
 const ID_MAP_FILE = process.env.ID_MAP_FILE || 'idmap.json';
 // Directory of app-update artifacts (manifest.json + the published .exe files).
-// The Windows apps poll <http>/update/manifest.json and download from here.
+// The Windows apps poll <http>/update/manifest.json and download from here. Optional:
+// when a file isn't staged locally we resolve it from the latest GitHub Release instead.
 const UPDATE_DIR = resolve(process.env.UPDATE_DIR || './update');
 // Admin panel: persisted groups + client metadata, and the panel password.
 const ADMIN_FILE = process.env.ADMIN_FILE || 'admin.json';
@@ -130,14 +132,34 @@ async function legacyRoutes(req, res, next) {
 
   if (url.pathname === '/health') { res.writeHead(200).end('ok'); return; }
 
-  if (req.method === 'GET' && url.pathname === '/update/manifest.json')
-    return serveFile(res, join(UPDATE_DIR, 'manifest.json'), 'application/json');
+  // Update artifacts: a local UPDATE_DIR wins (self-hosted / air-gapped), otherwise fall
+  // back to the latest GitHub Release — see lib/releases.js.
+  if (req.method === 'GET' && url.pathname === '/update/manifest.json') {
+    const local = join(UPDATE_DIR, 'manifest.json');
+    if (existsSync(local)) return serveFile(res, local, 'application/json');
+    const body = await releases.manifestJson();
+    if (!body) { res.writeHead(404).end('not found'); return; }
+    res.writeHead(200, {
+      'Content-Type': 'application/json',
+      'Content-Length': Buffer.byteLength(body),
+      'Cache-Control': 'no-cache',
+    }).end(body);
+    return;
+  }
   if (req.method === 'GET' && url.pathname.startsWith('/update/')) {
     // basename() strips any path components, so "../" can't escape UPDATE_DIR.
     const name = basename(decodeURIComponent(url.pathname.slice('/update/'.length)));
     if (!name || !ALLOWED_EXT.has(extname(name).toLowerCase())) { res.writeHead(404).end(); return; }
-    const type = extname(name) === '.json' ? 'application/json' : 'application/octet-stream';
-    return serveFile(res, join(UPDATE_DIR, name), type);
+    const local = join(UPDATE_DIR, name);
+    if (existsSync(local)) {
+      const type = extname(name) === '.json' ? 'application/json' : 'application/octet-stream';
+      return serveFile(res, local, type);
+    }
+    // The updater's HttpClient and every browser follow this; nothing streams through us.
+    const href = await releases.assetUrl(name);
+    if (!href) { res.writeHead(404).end('not found'); return; }
+    res.writeHead(302, { Location: href, 'Cache-Control': 'no-cache' }).end();
+    return;
   }
 
   next();   // hand off to the account-based control-plane web app
@@ -348,7 +370,8 @@ async function handlePlatform(req, res, url) {
 const wss = new WebSocketServer({ server: http });
 http.listen(PORT, () => {
   console.log(`[server] signaling/relay listening on ws://0.0.0.0:${PORT}`);
-  console.log(`[server] update artifacts served from ${UPDATE_DIR}`);
+  console.log(`[server] update artifacts served from ${UPDATE_DIR}`
+    + `, falling back to GitHub Releases (${process.env.GITHUB_REPO || 'edkeysender/remote-desktop'})`);
   console.log(`[server] web app (accounts) at http://0.0.0.0:${PORT}/`);
   console.log(`[server] platform console at http://0.0.0.0:${PORT}/platform`);
   console.log(`[server] legacy admin panel at http://0.0.0.0:${PORT}/admin`);
