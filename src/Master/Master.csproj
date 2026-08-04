@@ -14,6 +14,9 @@
     <Version>0.3.0</Version>
     <Product>Remotler</Product>
     <Company>remotler.com</Company>
+    <!-- This is a WPF app; DPI awareness comes from app.manifest. UseWindowsForms (tray icon
+         only) triggers the WinForms high-DPI analyzer (WFAC010) — not applicable here. -->
+    <NoWarn>$(NoWarn);WFAC010</NoWarn>
   </PropertyGroup>
 
   <!-- UseWindowsForms is only for the tray NotifyIcon; drop its implicit global usings so
