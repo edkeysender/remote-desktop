@@ -38,16 +38,10 @@ button{font-family:inherit;cursor:pointer;border:none;background:none;color:inhe
 .tb-login{font-size:.78rem;font-weight:600;color:var(--accent);padding:6px 12px;border:1px solid var(--line);border-radius:var(--r-pill)}
 .tb-login.authed{color:var(--ok);border-color:rgba(31,201,139,.4)}
 .tb-login.authed::before{content:"● ";font-size:.7em;vertical-align:middle}
-.upd-toast[hidden]{display:none}
-.upd-toast{position:fixed;right:20px;bottom:20px;z-index:60;display:flex;align-items:center;gap:13px;
-  background:#0B0C15;color:#fff;border:1px solid rgba(255,255,255,.12);border-radius:14px;padding:13px 15px;
-  box-shadow:0 14px 44px rgba(0,0,0,.45);max-width:380px}
-.upd-toast .ut-i{width:34px;height:34px;border-radius:10px;background:var(--grad,linear-gradient(135deg,#5B5BF5,#3EC8FF));display:grid;place-items:center;flex:none}
-.upd-toast b{font-size:.88rem}
-.upd-toast .ut-sub{font-size:.74rem;color:rgba(255,255,255,.62);margin-top:1px}
-.upd-toast .ut-go{background:var(--grad,linear-gradient(135deg,#5B5BF5,#3EC8FF));color:#fff;border:none;border-radius:999px;padding:8px 16px;font-weight:600;font-size:.8rem;cursor:pointer}
-.upd-toast .ut-go:disabled{opacity:.6;cursor:default}
-.upd-toast .ut-x{background:transparent;color:rgba(255,255,255,.55);border:none;cursor:pointer;font-size:1rem;padding:2px 4px}
+.sb-update[hidden]{display:none}
+.sb-update{background:var(--grad,linear-gradient(135deg,#5B5BF5,#3EC8FF));color:#fff;border:none;border-radius:var(--r-pill,999px);
+  padding:3px 12px;font-size:.72rem;font-weight:600;cursor:pointer}
+.sb-update:disabled{opacity:.6;cursor:default}
 .body{display:grid;grid-template-columns:64px 1fr;min-height:0}
 .rail{background:var(--card);border-right:1px solid var(--line);display:flex;flex-direction:column;align-items:center;gap:6px;padding:14px 0}
 .rail-btn{width:44px;height:44px;border-radius:14px;display:grid;place-items:center;color:var(--muted);transition:all .15s;position:relative}
@@ -281,16 +275,9 @@ button.lrow:hover{background:#FAFAFE}
   <div class="statusbar">
     <span class="sb"><span class="led" id="sb-led" style="background:var(--muted)"></span><span id="sb-status">Starting…</span></span>
     <span class="sb-spacer"></span>
+    <button class="sb-update" id="sb-update" hidden title="Install the update and restart">⭡ Update</button>
     <span class="sb ver" id="sb-ver">Remotler</span>
   </div>
-</div>
-
-<!-- update-available toast (bottom-right) -->
-<div class="upd-toast" id="updToast" hidden>
-  <div class="ut-i"><svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="#fff" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v13M7 11l5 5 5-5M5 21h14"/></svg></div>
-  <div style="flex:1"><b>Update available</b><div class="ut-sub" id="updVer"></div></div>
-  <button class="ut-go" id="updBtn">Update</button>
-  <button class="ut-x" id="updX" title="Dismiss">✕</button>
 </div>
 
 <!-- login / enroll modal -->
@@ -380,9 +367,7 @@ $('set-update').addEventListener('click',()=>send({t:'update'}));
 // address-book expand state (per group name), preserved across state refreshes
 let bookOpen={};
 // update-available toast (bottom-right)
-let updDismissed=false;
-$('updBtn').addEventListener('click',()=>{ $('updBtn').disabled=true; $('updBtn').textContent='Updating…'; send({t:'update'}); });
-$('updX').addEventListener('click',()=>{ updDismissed=true; $('updToast').hidden=true; });
+$('sb-update').addEventListener('click',()=>{ const b=$('sb-update'); b.disabled=true; b.textContent='Updating…'; send({t:'update'}); });
 
 // device card renderer
 function devCard(c){const b=document.createElement('button');b.className='r-card';b.disabled=!c.online;
@@ -414,10 +399,12 @@ window.chrome?.webview?.addEventListener('message',ev=>{
   $('sb-ver').textContent=brandName+' '+(s.version||'');
   $('set-ver').textContent=s.updateAvailable?('Update to v'+s.updateAvailable+' available'):('Version '+(s.version||'—')+' · up to date');
   $('set-update').hidden=!s.updateAvailable;
-  if(s.updateAvailable && !updDismissed){ $('updToast').hidden=false; $('updVer').textContent='v'+s.updateAvailable+' · you’re on v'+(s.version||'?'); }
-  else if(!s.updateAvailable){ $('updToast').hidden=true; }
-  // An update failure re-enables the button and shows why, instead of sticking on "Updating…".
-  if(s.error && /update|swap|checksum/i.test(s.error)){ const b=$('updBtn'); b.disabled=false; b.textContent='Retry'; updDismissed=false; $('updToast').hidden=false; $('updVer').textContent='⚠ '+s.error; }
+  // Compact update chip in the status bar, next to the version.
+  const su=$('sb-update');
+  if(s.updateAvailable){ su.hidden=false; su.disabled=false; su.textContent='⭡ Update to v'+s.updateAvailable; su.title='You’re on v'+(s.version||'?')+' — click to install v'+s.updateAvailable+' and restart'; }
+  else su.hidden=true;
+  // An update failure re-enables the chip and shows why, instead of sticking on "Updating…".
+  if(s.error && /update|swap|checksum/i.test(s.error)){ su.hidden=false; su.disabled=false; su.textContent='⭡ Retry update'; su.title=s.error; }
   syncConsent(!!s.consent);
   if(s.signedIn||org) closeModal();
   if(s.error){ $('m-err').textContent=s.error; $('m-err2').textContent=s.error; }
