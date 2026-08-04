@@ -423,10 +423,30 @@ public partial class ViewerWindow : Window
         UpdateReadout();
     }
 
+    // Effective render scale of the stage image (px shown per source px). 0 = uniform-fit.
+    private double EffScale()
+    {
+        if (_zoom > 0) return _zoom;
+        if (ShowAll && _srcH > 0 && Scroller.ViewportHeight > 0) return Scroller.ViewportHeight / _srcH;   // fit-to-height strip
+        return 0;   // single-monitor uniform fit
+    }
+
+    // True when the surface is larger than the viewport (edge-pan + strip minimap apply).
+    private bool Scrollable => EffScale() > 0;
+
     private void ApplyZoom()
     {
         if (Scroller == null) return;
-        if (_zoom <= 0)
+        if (ShowAll && _zoom <= 0)
+        {
+            // Combined strip: fill the stage height, scroll horizontally across channels.
+            double s = _srcH > 0 && Scroller.ViewportHeight > 0 ? Scroller.ViewportHeight / _srcH : 1;
+            Scroller.HorizontalScrollBarVisibility = ScrollBarVisibility.Auto;
+            Scroller.VerticalScrollBarVisibility = ScrollBarVisibility.Disabled;
+            RemoteImage.Stretch = Stretch.None;
+            RemoteImage.LayoutTransform = new ScaleTransform(s, s);
+        }
+        else if (_zoom <= 0)
         {
             StopPan();
             Scroller.HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled;
@@ -515,6 +535,46 @@ public partial class ViewerWindow : Window
 
     private void Scroller_ScrollChanged(object sender, ScrollChangedEventArgs e) => UpdateReadout();
 
+    private void Scroller_SizeChanged(object sender, SizeChangedEventArgs e)
+    {
+        if (ShowAll && _zoom <= 0) ApplyZoom();   // recompute fit-to-height on resize
+        UpdateReadout();
+    }
+
+    // ---- Show-All bottom strip minimap (click/drag to move across the combined surface) ----
+    private bool _stripDrag;
+
+    private void UpdateStripMinimap()
+    {
+        if (StripMap == null) return;
+        if (!ShowAll || !_connected || _srcW <= 0 || _srcH <= 0) { StripMap.Visibility = Visibility.Collapsed; return; }
+        StripMap.Visibility = Visibility.Visible;
+        double h = StripMap.Height;
+        double w = Math.Min(900, h * _srcW / _srcH);
+        StripMap.Width = w; StripCanvas.Width = w; StripCanvas.Height = h;
+        if (!ReferenceEquals(StripImg.Source, _wb)) StripImg.Source = _wb;
+        double eff = EffScale(); if (eff <= 0) eff = 1;
+        double sx = w / _srcW;
+        double visW = Math.Min(_srcW, Scroller.ViewportWidth / eff);
+        double offX = Scroller.HorizontalOffset / eff;
+        StripRect.Width = Math.Max(8, visW * sx);
+        StripRect.Height = h;
+        Canvas.SetLeft(StripRect, Math.Clamp(offX * sx, 0, Math.Max(0, w - StripRect.Width)));
+        Canvas.SetTop(StripRect, 0);
+    }
+
+    private void Strip_Down(object sender, MouseButtonEventArgs e) { _stripDrag = true; StripMap.CaptureMouse(); StripTo(e.GetPosition(StripMap)); e.Handled = true; }
+    private void Strip_Move(object sender, MouseEventArgs e) { if (_stripDrag) { StripTo(e.GetPosition(StripMap)); e.Handled = true; } }
+    private void Strip_Up(object sender, MouseButtonEventArgs e) { _stripDrag = false; StripMap.ReleaseMouseCapture(); e.Handled = true; }
+
+    private void StripTo(Point p)
+    {
+        if (!ShowAll || StripMap.Width <= 0) return;
+        double eff = EffScale(); if (eff <= 0) eff = 1;
+        double srcX = p.X / StripMap.Width * _srcW;                 // click point in combined-source px
+        Scroller.ScrollToHorizontalOffset(srcX * eff - Scroller.ViewportWidth / 2);   // center the view there
+    }
+
     private void UpdateReadout()
     {
         if (MonReadout == null) return;
@@ -530,6 +590,7 @@ public partial class ViewerWindow : Window
         }
         MonReadout.Text = $"{mon} · {view}";
         UpdateMinimap();
+        UpdateStripMinimap();
     }
 
     // ---- theme ----
@@ -1019,7 +1080,7 @@ public partial class ViewerWindow : Window
     private void RemoteImage_MouseMove(object sender, MouseEventArgs e)
     {
         if (!_connected) return;
-        if (_zoom > 0) UpdateEdgePan(e);
+        if (Scrollable) UpdateEdgePan(e);
         long now = _moveClock.ElapsedMilliseconds;
         if (now - _lastMoveMs < 12) return;
         _lastMoveMs = now;

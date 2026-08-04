@@ -252,6 +252,7 @@
                               HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Disabled"
                               Focusable="False" PreviewMouseWheel="Scroller_PreviewMouseWheel"
                               MouseLeave="Scroller_MouseLeave" ScrollChanged="Scroller_ScrollChanged"
+                              SizeChanged="Scroller_SizeChanged"
                               AllowDrop="True" DragOver="RemoteView_DragOver" Drop="RemoteView_Drop"
                               DragLeave="RemoteView_DragLeave">
                     <Image x:Name="RemoteImage" Stretch="Uniform" Focusable="True" AllowDrop="True"
@@ -303,6 +304,21 @@
                     <TextBlock Text="⬇  Drop files into the folder open on the remote PC (else Downloads)" Foreground="#8B8BFF"
                                FontSize="18" FontWeight="SemiBold"
                                HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                </Border>
+
+                <!-- Show-All bottom strip minimap: click/drag to move across the combined surface -->
+                <Border x:Name="StripMap" Visibility="Collapsed" HorizontalAlignment="Center" VerticalAlignment="Bottom"
+                        Margin="0,0,0,14" Height="48" Background="#E60B0C15" BorderBrush="#3EC8FF" BorderThickness="1"
+                        CornerRadius="8" ClipToBounds="True" Cursor="Hand"
+                        MouseLeftButtonDown="Strip_Down" MouseMove="Strip_Move" MouseLeftButtonUp="Strip_Up">
+                    <Grid>
+                        <Image x:Name="StripImg" Stretch="Fill"/>
+                        <Canvas x:Name="StripCanvas">
+                            <Rectangle x:Name="StripRect" Stroke="#3EC8FF" StrokeThickness="1.5">
+                                <Rectangle.Fill><SolidColorBrush Color="#3EC8FF" Opacity="0.18"/></Rectangle.Fill>
+                            </Rectangle>
+                        </Canvas>
+                    </Grid>
                 </Border>
 
                 <!-- transfer tray (bottom-right) -->
