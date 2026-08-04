@@ -7,8 +7,11 @@ using RemoteDesktop.Shared;
 
 namespace RemoteDesktop.Master;
 
-/// <summary>A monitor the host is offering, as advertised over signaling.</summary>
-public readonly record struct RemoteMonitor(int Index, int Width, int Height, bool Primary, string Name);
+/// <summary>A monitor the host is offering, as advertised over signaling (bounds in virtual-desktop coords).</summary>
+public readonly record struct RemoteMonitor(int Index, int X, int Y, int Width, int Height, bool Primary, string Name);
+
+/// <summary>The host's whole virtual desktop (combined surface bounds) for Show-All.</summary>
+public readonly record struct VdBounds(int X, int Y, int W, int H);
 
 /// <summary>A file copied on the remote clipboard (to be pulled to the local machine).</summary>
 public readonly record struct RemoteClipFile(string Path, string Name, long Size);
@@ -32,7 +35,7 @@ public sealed class ViewerSession : IDisposable
     public event Action<string>? Rejected;
     public event Action<int, int, byte[]>? Frame;   // width, height, BGR24
     public event Action<bool>? ControlReady;        // input data channel open/closed
-    public event Action<List<RemoteMonitor>, int>? Monitors;  // available monitors, current index
+    public event Action<List<RemoteMonitor>, int, VdBounds>? Monitors;  // monitors, current index, virtual-desktop bounds
     public event Action<int, int, int, byte[]>? Thumbnail;    // monitor index, w, h, JPEG bytes
     public event Action<int>? NewWindow;                      // a new top-level window appeared on this monitor
     public event Action<long>? PongReceived;                  // echo of a ping timestamp (for RTT)
@@ -109,11 +112,18 @@ public sealed class ViewerSession : IDisposable
                 var mons = new List<RemoteMonitor>();
                 foreach (var m in root.GetProperty("list").EnumerateArray())
                     mons.Add(new RemoteMonitor(
-                        m.GetProperty("i").GetInt32(), m.GetProperty("w").GetInt32(),
-                        m.GetProperty("h").GetInt32(), m.GetProperty("primary").GetBoolean(),
+                        m.GetProperty("i").GetInt32(),
+                        m.TryGetProperty("x", out var mx) ? mx.GetInt32() : 0,
+                        m.TryGetProperty("y", out var my) ? my.GetInt32() : 0,
+                        m.GetProperty("w").GetInt32(), m.GetProperty("h").GetInt32(),
+                        m.GetProperty("primary").GetBoolean(),
                         m.TryGetProperty("name", out var n) ? n.GetString() ?? "" : ""));
                 int current = root.TryGetProperty("current", out var c) ? c.GetInt32() : 0;
-                Monitors?.Invoke(mons, current);
+                var vd = new VdBounds(0, 0, 0, 0);
+                if (root.TryGetProperty("vd", out var v) && v.ValueKind == JsonValueKind.Object)
+                    vd = new VdBounds(v.GetProperty("x").GetInt32(), v.GetProperty("y").GetInt32(),
+                                      v.GetProperty("w").GetInt32(), v.GetProperty("h").GetInt32());
+                Monitors?.Invoke(mons, current, vd);
                 break;
             }
 

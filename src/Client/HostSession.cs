@@ -345,8 +345,9 @@ public sealed class HostSession : IDisposable
 
     private void SendMonitorList()
     {
-        var list = _monitors.Select(m => new { i = m.Index, w = m.Width, h = m.Height, primary = m.Primary, name = m.Name });
-        _ = _conn!.SendJsonAsync(new { t = "monitors", list, current = _currentMon });
+        var list = _monitors.Select(m => new { i = m.Index, x = m.X, y = m.Y, w = m.Width, h = m.Height, primary = m.Primary, name = m.Name });
+        var vd = ScreenCapture.VirtualDesktop();   // combined-surface bounds for Show-All chips/dividers
+        _ = _conn!.SendJsonAsync(new { t = "monitors", list, current = _currentMon, vd = new { x = vd.X, y = vd.Y, w = vd.Width, h = vd.Height } });
     }
 
     private void SelectMonitor(int index)

@@ -151,7 +151,7 @@ public partial class ViewerWindow : Window
         _session.Connected += () => Dispatcher.Invoke(OnConnected);
         _session.Rejected  += r  => Dispatcher.Invoke(() => { SetStatus("Rejected: " + r, "#F5484D"); CloseSoon(); });
         _session.Frame     += DrawFrame;
-        _session.Monitors  += (mons, cur) => Dispatcher.Invoke(() => PopulateMonitors(mons, cur));
+        _session.Monitors  += (mons, cur, vd) => Dispatcher.Invoke(() => PopulateMonitors(mons, cur, vd));
         _session.Thumbnail += (i, _, _, bytes) => Dispatcher.Invoke(() => OnThumb(i, bytes));
         _session.NewWindow += i => Dispatcher.Invoke(() => OnNewWindow(i));
         _session.PongReceived += ts => Dispatcher.Invoke(() => OnPong(ts));
@@ -360,12 +360,17 @@ public partial class ViewerWindow : Window
     }
 
     // ---- monitor picker (moves into the left rail in Phase B) ----
-    private void PopulateMonitors(List<RemoteMonitor> mons, int current)
+    private VdBounds _vd;
+
+    private void PopulateMonitors(List<RemoteMonitor> mons, int current, VdBounds vd)
     {
-        _monitors = mons; _currentMon = current;
+        _monitors = mons; _currentMon = current; _vd = vd;
         OverviewBtn.IsEnabled = mons.Count > 0;
         RebuildMonitorButtons(); RebuildRail(); UpdateReadout();
     }
+
+    // Show-All = the combined virtual desktop (host streams monitor -1 as one surface).
+    private bool ShowAll => _currentMon == -1;
 
     private void RebuildMonitorButtons()
     {
@@ -514,7 +519,7 @@ public partial class ViewerWindow : Window
     {
         if (MonReadout == null) return;
         if (!_connected) { MonReadout.Text = "—"; return; }
-        string mon = _currentMon == -1 ? "All displays" : $"Display {_currentMon + 1}";
+        string mon = ShowAll ? $"All monitors · {_monitors.Count} × ({_srcW}×{_srcH} combined)" : $"Display {_currentMon + 1} · {_srcW}×{_srcH}";
         string view;
         if (_zoom <= 0) view = "fit";
         else
@@ -523,7 +528,7 @@ public partial class ViewerWindow : Window
             int vh = (int)Math.Round(Math.Min(_srcH, Scroller.ViewportHeight / _zoom));
             view = $"viewing {vw}×{vh}";
         }
-        MonReadout.Text = $"{mon} · {_srcW}×{_srcH} · {view}";
+        MonReadout.Text = $"{mon} · {view}";
         UpdateMinimap();
     }
 
@@ -575,6 +580,7 @@ public partial class ViewerWindow : Window
 
     private void OnNewWindow(int index)
     {
+        if (ShowAll) return;   // every display is visible in Show-All — no need to flag
         if (index == _currentMon || !_monitors.Any(m => m.Index == index)) return;
         if (!_newWin.Add(index)) return;
         RebuildRail();
@@ -611,6 +617,29 @@ public partial class ViewerWindow : Window
         _miniCanvas = null; _miniRect = null; _miniIndex = -2;
         UpdateRailBadge();
         double dispW = _railExpanded ? 172 : 40;
+
+        // "Show all" tile at the top — combined view of every display (hosts with 2+ monitors).
+        if (_monitors.Count > 1)
+        {
+            bool allActive = ShowAll;
+            var label = new TextBlock
+            {
+                Text = _railExpanded ? $"▦  Show all · {_monitors.Count}×" : "▦",
+                Foreground = allActive ? Brushes.White : new SolidColorBrush(Res("TextBrush")),
+                FontSize = 12, FontWeight = FontWeights.SemiBold, HorizontalAlignment = HorizontalAlignment.Center
+            };
+            var tile = new Border
+            {
+                Width = dispW, MinHeight = 34, CornerRadius = new CornerRadius(6), Margin = new Thickness(0, 0, 0, 10),
+                Padding = new Thickness(6), Cursor = Cursors.Hand,
+                Background = new SolidColorBrush(allActive ? Color.FromRgb(0x5B, 0x5B, 0xF5) : Res("CardBrush")),
+                BorderBrush = new SolidColorBrush(allActive ? Color.FromRgb(0x8B, 0x8B, 0xFF) : Res("LineBrush")),
+                BorderThickness = new Thickness(allActive ? 2 : 1),
+                Child = label, ToolTip = "Show all monitors as one surface"
+            };
+            tile.MouseLeftButtonUp += (_, _) => SwitchTo(-1);
+            RailList.Children.Add(tile);
+        }
         foreach (var m in _monitors)
         {
             double dispH = Math.Max(24, dispW * m.Height / Math.Max(1, m.Width));
@@ -1002,8 +1031,24 @@ public partial class ViewerWindow : Window
     {
         if (!_connected) return;
         RemoteImage.Focus();
+        // In Show-All, double-click drops into single-monitor view of the display under the cursor.
+        if (ShowAll && e.ChangedButton == MouseButton.Left && e.ClickCount == 2)
+        {
+            ExitToMonitorAt(e.GetPosition(RemoteImage));
+            return;
+        }
         var (x, y) = Norm(e.GetPosition(RemoteImage));
         _session!.MouseButton(x, y, ToBtn(e.ChangedButton), true);
+    }
+
+    // Map a click on the combined surface to the display it lands on, then open it single.
+    private void ExitToMonitorAt(Point p)
+    {
+        var (nx, ny) = Norm(p);
+        double vx = _vd.X + nx * _srcW, vy = _vd.Y + ny * _srcH;
+        foreach (var m in _monitors)
+            if (vx >= m.X && vx < m.X + m.Width && vy >= m.Y && vy < m.Y + m.Height) { SwitchTo(m.Index); return; }
+        if (_monitors.Count > 0) SwitchTo(_monitors[0].Index);
     }
 
     private void RemoteImage_MouseUp(object sender, MouseButtonEventArgs e)
