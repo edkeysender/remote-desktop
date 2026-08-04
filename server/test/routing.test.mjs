@@ -101,3 +101,9 @@ test('landing page loads the shared design tokens', async () => {
   assert.equal(res.status, 200);
   assert.match(await res.text(), /--accent:\s*#5B5BF5/);
 });
+
+test('landing page resolves auth state against /api/me', async () => {
+  const { html } = await get('/');
+  assert.match(html, /fetch\('\/api\/me'/);
+  assert.match(html, /credentials:\s*'same-origin'/);
+});

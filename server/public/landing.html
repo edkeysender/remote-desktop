@@ -199,5 +199,19 @@ footer nav{display:flex;gap:20px}
   </div>
 </footer>
 
+<script>
+// The session is an httpOnly same-origin cookie, so auth state can't be read
+// synchronously. The page ships in its logged-out state — the common case, and the
+// reason there's no flash — and upgrades in place if /api/me answers.
+fetch('/api/me', { credentials: 'same-origin' })
+  .then((r) => (r.ok ? r.json() : null))
+  .then((me) => {
+    if (!me) return;
+    document.querySelectorAll('[data-auth-cta]').forEach((el) => el.remove());
+    document.querySelectorAll('[data-dash-cta]').forEach((el) => { el.hidden = false; });
+  })
+  .catch(() => {});   // offline or server down: the logged-out CTAs remain correct
+</script>
+
 </body>
 </html>
