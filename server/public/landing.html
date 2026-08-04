@@ -11,6 +11,11 @@
 <link rel="stylesheet" href="/tokens.css">
 <style>
 *{margin:0;padding:0;box-sizing:border-box}
+/* Author `display` rules (e.g. .btn below) beat the user-agent stylesheet's
+   [hidden]{display:none}, regardless of specificity — so any hidden element
+   that also matches a display-setting class needs this reasserted with
+   !important, or it renders even while the hidden attribute is set. */
+[hidden]{display:none!important}
 html{font-size:15px;scroll-behavior:smooth}
 body{font-family:'Inter',system-ui,sans-serif;background:var(--paper);color:var(--text);-webkit-font-smoothing:antialiased;line-height:1.6}
 h1,h2,h3{font-family:'Schibsted Grotesk',system-ui,sans-serif;letter-spacing:-.02em;line-height:1.15}
@@ -20,7 +25,7 @@ a{color:var(--accent);text-decoration:none}
 
 /* nav */
 .nav{position:sticky;top:0;z-index:10;background:rgba(245,246,249,.85);backdrop-filter:blur(12px);border-bottom:1px solid var(--line)}
-.nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px;gap:16px}
+.nav .wrap{display:flex;align-items:center;justify-content:space-between;height:64px;gap:16px;flex-wrap:wrap}
 .logo{display:flex;align-items:center;gap:10px;font-family:'Schibsted Grotesk',sans-serif;font-weight:800;font-size:1.1rem;color:var(--ink)}
 .logo img{height:26px;width:auto;display:block}
 .nav-cta{display:flex;align-items:center;gap:10px}
@@ -178,7 +183,7 @@ footer nav{display:flex;gap:20px}
           </a>
           <a class="dl" href="https://github.com/edkeysender/remote-desktop/releases/download/v0.3.1/Remotler-Setup-0.3.1.exe">
             <strong>Remotler</strong>
-            <span>For your own PC. Per-user install, no admin rights needed.</span>
+            <span>For your own PC — the one you drive from. Installs to Program Files; requires admin.</span>
             <em>v0.3.1 · 71 MB</em>
           </a>
         </div>

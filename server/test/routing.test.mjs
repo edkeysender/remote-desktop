@@ -107,3 +107,15 @@ test('landing page resolves auth state against /api/me', async () => {
   assert.match(html, /fetch\('\/api\/me'/);
   assert.match(html, /credentials:\s*'same-origin'/);
 });
+
+// Source-level guard, not behavioural coverage: there is no DOM in this test
+// environment (jsdom is not permitted), so we can't assert that
+// [data-dash-cta][hidden] actually renders as display:none. What we can check
+// is that the CSS rule the hiding depends on is still present in the served
+// markup — author `display` rules (e.g. .btn) beat the user-agent stylesheet's
+// [hidden]{display:none}, so without this rule the dashboard CTA would be
+// visible to logged-out visitors again.
+test('landing page CSS still forces [hidden] elements to display:none', async () => {
+  const { html } = await get('/');
+  assert.match(html, /\[hidden\]\s*\{\s*display:\s*none\s*!important\s*\}/);
+});
