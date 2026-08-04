@@ -4,6 +4,7 @@
     <OutputType>WinExe</OutputType>
     <TargetFramework>net8.0-windows</TargetFramework>
     <UseWPF>true</UseWPF>
+    <UseWindowsForms>true</UseWindowsForms>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
     <RootNamespace>RemoteDesktop.Master</RootNamespace>
@@ -14,6 +15,14 @@
     <Product>Remotler</Product>
     <Company>remotler.com</Company>
   </PropertyGroup>
+
+  <!-- UseWindowsForms is only for the tray NotifyIcon; drop its implicit global usings so
+       WPF types (Clipboard, Application, MessageBox, …) don't become ambiguous. Tray code
+       uses fully-qualified System.Windows.Forms.* / System.Drawing.* names. -->
+  <ItemGroup>
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
+  </ItemGroup>
 
   <ItemGroup>
     <ProjectReference Include="..\Shared\Shared.csproj" />

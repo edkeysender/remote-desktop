@@ -38,6 +38,8 @@ public partial class MainWindow : Window
     private string _groupId = "", _groupName = "";
     private readonly LanDiscovery _lan = new();
     private List<HostSession.FleetDevice> _relayFleet = new();   // org/group siblings from the relay
+    private System.Windows.Forms.NotifyIcon? _tray;
+    private bool _reallyClose, _trayHinted;
 
     public MainWindow()
     {
@@ -50,7 +52,60 @@ public partial class MainWindow : Window
             && Updater.Current >= new Version(tv.Major, tv.Minor, Math.Max(0, tv.Build)))
         { _config.UpdateTriedVersion = null; _config.UpdateTriedCount = 0; }
         _config.Save("app");
+        SetupTray();
         _ = InitAsync();
+    }
+
+    // ---- system tray: closing the window hides here instead of quitting (keeps hosting alive) ----
+    private void SetupTray()
+    {
+        try
+        {
+            var menu = new System.Windows.Forms.ContextMenuStrip();
+            menu.Items.Add("Open Remotler", null, (_, _) => RestoreFromTray());
+            menu.Items.Add("Quit", null, (_, _) => QuitApp());
+            System.Drawing.Icon? ico = null;
+            try { if (Environment.ProcessPath is { } p) ico = System.Drawing.Icon.ExtractAssociatedIcon(p); } catch { }
+            _tray = new System.Windows.Forms.NotifyIcon
+            {
+                Text = "Remotler",
+                Visible = true,
+                ContextMenuStrip = menu,
+                Icon = ico ?? System.Drawing.SystemIcons.Application,
+            };
+            _tray.DoubleClick += (_, _) => RestoreFromTray();
+        }
+        catch { /* tray is best-effort */ }
+    }
+
+    protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+    {
+        // First close hides to the tray so the PC stays reachable; Quit (tray menu) really exits.
+        if (!_reallyClose && _tray != null)
+        {
+            e.Cancel = true;
+            Hide();
+            if (!_trayHinted)
+            {
+                _trayHinted = true;
+                try { _tray.ShowBalloonTip(2500, "Remotler", "Still running — click the tray icon to reopen or quit.", System.Windows.Forms.ToolTipIcon.Info); } catch { }
+            }
+            return;
+        }
+        base.OnClosing(e);
+    }
+
+    private void RestoreFromTray()
+    {
+        Show(); WindowState = WindowState.Normal; Activate();
+        Topmost = true; Topmost = false;   // bring to front
+    }
+
+    private void QuitApp()
+    {
+        _reallyClose = true;
+        try { if (_tray != null) { _tray.Visible = false; _tray.Dispose(); _tray = null; } } catch { }
+        Application.Current.Shutdown();
     }
 
     private async Task InitAsync()
@@ -430,7 +485,12 @@ public partial class MainWindow : Window
     {
         var v = Prompt("Signaling server", "Server URL (ws://host:port):", _config.ServerUrl);
         if (v == null || v.Trim().Length == 0) return;
-        _config.ServerUrl = v.Trim();
+        var url = v.Trim();
+        // Tolerate a missing scheme (e.g. "70.84.68.196:8081") — default to ws://.
+        if (!url.StartsWith("ws://", StringComparison.OrdinalIgnoreCase) &&
+            !url.StartsWith("wss://", StringComparison.OrdinalIgnoreCase))
+            url = "ws://" + url;
+        _config.ServerUrl = url;
         _config.Save("app");
         _appliedServer = "";   // force host restart
         StartHosting();
