@@ -220,13 +220,14 @@ button.lrow:hover{background:#FAFAFE}
             </div>
             <div class="me-opts">
               <div class="opt"><div><b>Enrolled organization</b><span id="opt-org">Not enrolled — log in or use a token</span></div></div>
+              <div class="opt" id="opt-lan-row" hidden><div><b>Local address</b><span id="opt-lan">—</span></div></div>
               <div class="opt"><div><b>Ask before each session</b><span>Show a consent prompt on this screen</span></div><span class="grow"></span><button class="toggle" id="tg-consent" role="switch" aria-checked="false"></button></div>
             </div>
           </div>
           <div class="connect">
             <h2>Control a remote computer</h2>
             <p class="sub">Enter the device ID shown on the remote screen, or pick one from your fleet.</p>
-            <div class="field"><label for="rid">Remote ID</label><div class="input"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg><input id="rid" placeholder="000 000 000" inputmode="numeric" autocomplete="off"></div></div>
+            <div class="field"><label for="rid">Remote ID</label><div class="input"><svg viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="13" rx="2"/><path d="M8 21h8M12 17v4"/></svg><input id="rid" placeholder="000 000 000  or  192.168.1.5" autocomplete="off"></div></div>
             <div class="field"><label for="rpw">Password</label><div class="input"><svg viewBox="0 0 24 24"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg><input id="rpw" type="password" placeholder="Session password (blank if it's your device)" autocomplete="off"></div></div>
             <button class="btn-go" id="go">Connect now</button>
             <div class="mode-hint"><span class="led"></span><span id="hint-text">Direct P2P with relay fallback · end-to-end encrypted</span></div>
@@ -271,6 +272,7 @@ button.lrow:hover{background:#FAFAFE}
         <div class="set-card">
           <div class="opt"><div><b>Signaling server</b><span>Where this app registers and finds devices</span></div><span class="grow"></span><button class="btn-small" id="set-server">Change</button></div>
           <div class="opt"><div><b>Account</b><span id="set-acct">Not signed in</span></div><span class="grow"></span><button class="btn-small" id="set-acct-btn">Log in</button></div>
+          <div class="opt"><div><b>Direct LAN connections</b><span>Let others on your network connect to this PC by IP — no server</span></div><span class="grow"></span><button class="toggle" id="tg-direct" role="switch" aria-checked="false"></button></div>
         </div>
         <div class="set-card"><div class="opt"><div><b>Updates</b><span id="set-ver">Checking…</span></div><span class="grow"></span><button class="btn-small" id="set-update" hidden>Update</button></div></div>
       </section>
@@ -372,6 +374,7 @@ $('m-signin').addEventListener('click',()=>send({t:'login',email:$('m-email').va
 $('m-enrollbtn').addEventListener('click',()=>send({t:'enroll',token:$('m-token').value.trim()}));
 $('sec-setpw').addEventListener('click',()=>send({t:'setpw'}));
 $('set-server').addEventListener('click',()=>send({t:'setserver'}));
+$('tg-direct')?.addEventListener('click',()=>{const el=$('tg-direct');const on=el.classList.toggle('on');el.setAttribute('aria-checked',on);send({t:'setting',key:'directlan',on});});
 $('set-update').addEventListener('click',()=>send({t:'update'}));
 
 // address-book expand state (per group name), preserved across state refreshes
@@ -401,6 +404,10 @@ window.chrome?.webview?.addEventListener('message',ev=>{
   $('tb-login').textContent = s.signedIn ? (s.email || 'Account') : (org ? 'Logged in' : 'Log in');
   $('tb-login').classList.toggle('authed', !!(s.signedIn || org));
   $('opt-org').textContent=org?('Enrolled in '+org):(s.signedIn?'Signed in':'Not enrolled — log in or use a token');
+  // direct-LAN address + settings toggle
+  const ips=s.lanIps||[]; const lanRow=$('opt-lan-row');
+  if(lanRow){ if(s.directLan && ips.length){ lanRow.hidden=false; $('opt-lan').textContent=ips.map(ip=>ip+':'+(s.directPort||8891)).join('   '); } else lanRow.hidden=true; }
+  const td=$('tg-direct'); if(td){ td.classList.toggle('on',!!s.directLan); td.setAttribute('aria-checked',!!s.directLan); }
   $('set-acct').textContent=s.email?('Signed in as '+s.email):'Not signed in';
   $('set-acct-btn').textContent=s.signedIn?'Switch':'Log in';
   $('sb-status').textContent=s.status||''; $('sb-led').style.background=s.online?'var(--ok)':'var(--muted)';

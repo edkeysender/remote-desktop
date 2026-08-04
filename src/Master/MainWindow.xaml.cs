@@ -40,6 +40,7 @@ public partial class MainWindow : Window
     private List<HostSession.FleetDevice> _relayFleet = new();   // org/group siblings from the relay
     private System.Windows.Forms.NotifyIcon? _tray;
     private bool _reallyClose, _trayHinted;
+    private DirectHostListener? _directListener;
 
     public MainWindow()
     {
@@ -53,7 +54,55 @@ public partial class MainWindow : Window
         { _config.UpdateTriedVersion = null; _config.UpdateTriedCount = 0; }
         _config.Save("app");
         SetupTray();
+        StartDirectListener();
         _ = InitAsync();
+    }
+
+    // ---- serverless LAN direct-connect (TightVNC-style: connect by IP, no relay) ----
+    private void StartDirectListener()
+    {
+        if (!_config.AllowDirectLan) { _directListener?.Dispose(); _directListener = null; return; }
+        if (_directListener != null) return;
+        _directListener = new DirectHostListener(DirectHostListener.DefaultPort, () => _config.FixedPassword ?? "");
+        _directListener.Start();
+    }
+
+    // This PC's LAN IPv4 addresses (shown so others know what to type to connect directly).
+    private static string[] LocalIps()
+    {
+        try
+        {
+            return System.Net.NetworkInformation.NetworkInterface.GetAllNetworkInterfaces()
+                .Where(n => n.OperationalStatus == System.Net.NetworkInformation.OperationalStatus.Up
+                         && n.NetworkInterfaceType != System.Net.NetworkInformation.NetworkInterfaceType.Loopback)
+                .SelectMany(n => n.GetIPProperties().UnicastAddresses)
+                .Where(a => a.Address.AddressFamily == System.Net.Sockets.AddressFamily.InterNetwork)
+                .Select(a => a.Address.ToString())
+                .Where(ip => !ip.StartsWith("169.254"))   // skip auto-config (APIPA)
+                .Distinct().ToArray();
+        }
+        catch { return Array.Empty<string>(); }
+    }
+
+    // "192.168.1.5" or "192.168.1.5:8891" or a hostname → direct; a 9-digit relay ID → not.
+    private static bool TryParseDirect(string raw, out string host, out int port)
+    {
+        host = ""; port = 0;
+        var s = (raw ?? "").Trim();
+        if (s.Length == 0) return false;
+        var digits = s.Replace(" ", "");
+        if (digits.All(char.IsDigit) && !s.Contains(':')) return false;   // relay ID
+        if (!s.Contains('.') && !s.Contains(':')) return false;           // not an IP/host
+        host = s; port = DirectHostListener.DefaultPort;
+        int ci = s.LastIndexOf(':');
+        if (ci > 0 && int.TryParse(s[(ci + 1)..], out var p)) { host = s[..ci]; port = p; }
+        return true;
+    }
+
+    private void OpenDirectViewer(string host, int port, string? pw)
+    {
+        var w = new ViewerWindow("", host, host, password: pw, directPort: port) { Owner = this };
+        w.Show();
     }
 
     // ---- system tray: closing the window hides here instead of quitting (keeps hosting alive) ----
@@ -104,6 +153,7 @@ public partial class MainWindow : Window
     private void QuitApp()
     {
         _reallyClose = true;
+        try { _directListener?.Dispose(); } catch { }
         try { if (_tray != null) { _tray.Visible = false; _tray.Dispose(); _tray = null; } } catch { }
         Application.Current.Shutdown();
     }
@@ -156,9 +206,13 @@ public partial class MainWindow : Window
                 PushState();
                 break;
             case "connect":
-                OpenViewer(r.GetProperty("id").GetString() ?? "", r.GetProperty("id").GetString() ?? "",
-                    password: r.TryGetProperty("pw", out var pw) ? pw.GetString() : "", authToken: null);
+            {
+                var raw = (r.GetProperty("id").GetString() ?? "").Trim();
+                var pw = r.TryGetProperty("pw", out var pv) ? pv.GetString() : "";
+                if (TryParseDirect(raw, out var dhost, out var dport)) OpenDirectViewer(dhost, dport, pw);
+                else OpenViewer(raw, raw, password: pw, authToken: null);
                 break;
+            }
             case "connectDevice":
             {
                 var rid = r.GetProperty("relayId").GetString() ?? "";
@@ -172,6 +226,8 @@ public partial class MainWindow : Window
             case "setting":
                 if (r.GetProperty("key").GetString() == "consent")
                 { _config.AskConsent = r.GetProperty("on").GetBoolean(); _config.Save("app"); }
+                else if (r.GetProperty("key").GetString() == "directlan")
+                { _config.AllowDirectLan = r.GetProperty("on").GetBoolean(); _config.Save("app"); StartDirectListener(); PushState(); }
                 break;
             case "setpw": SetPassword(); break;
             case "setserver": SetServer(); break;
@@ -242,6 +298,9 @@ public partial class MainWindow : Window
             version = Updater.Current.ToString(),
             updateAvailable = _pendingUpdate?.Version.ToString(),
             consent = _config.AskConsent,
+            directLan = _config.AllowDirectLan,
+            directPort = DirectHostListener.DefaultPort,
+            lanIps = _config.AllowDirectLan ? LocalIps() : Array.Empty<string>(),
             brand = new { name = _brandName, accent = _brandAccent, logo = _brandLogo },
             computers = fleet,
             localDevices = _lan.GetDevices()

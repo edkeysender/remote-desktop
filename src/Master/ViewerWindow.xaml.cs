@@ -23,6 +23,7 @@ public partial class ViewerWindow : Window
     private readonly string _serverUrl, _password;
     private string _id, _display;                 // mutable: the device switcher reconnects in place
     private readonly string? _adminPw, _authToken, _peerToken;
+    private readonly int _directPort;   // >0 = LAN direct connect to _id:_directPort (no relay)
     private readonly Func<IReadOnlyList<(string Name, string? RelayId, bool Online)>>? _fleetProvider;
     private AccountClient? _account;
 
@@ -63,12 +64,13 @@ public partial class ViewerWindow : Window
 
     public ViewerWindow(string serverUrl, string id, string display,
                         string? password = null, string? adminPw = null, string? authToken = null, string? peerToken = null,
-                        Func<IReadOnlyList<(string Name, string? RelayId, bool Online)>>? fleetProvider = null)
+                        Func<IReadOnlyList<(string Name, string? RelayId, bool Online)>>? fleetProvider = null,
+                        int directPort = 0)
     {
         InitializeComponent();
         _serverUrl = serverUrl; _id = id; _display = display;
         _password = password ?? ""; _adminPw = adminPw; _authToken = authToken; _peerToken = peerToken;
-        _fleetProvider = fleetProvider;
+        _fleetProvider = fleetProvider; _directPort = directPort;
         Title = $"Remotler — {display}";
         TitleText.Text = display;
         Loaded += async (_, _) => await StartSessionAsync();
@@ -168,7 +170,10 @@ public partial class ViewerWindow : Window
         try
         {
             SetStatus("Connecting…");
-            await _session.ConnectAsync(_serverUrl, _id, _password, _adminPw, _authToken, _peerToken);
+            if (_directPort > 0)
+                await _session.ConnectDirectAsync(_id, _directPort, _password, _peerToken);
+            else
+                await _session.ConnectAsync(_serverUrl, _id, _password, _adminPw, _authToken, _peerToken);
         }
         catch (Exception ex)
         {

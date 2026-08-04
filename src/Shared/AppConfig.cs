@@ -38,6 +38,10 @@ public sealed class AppConfig
     /// <summary>Host: show a consent prompt before accepting each incoming session (attended mode).</summary>
     public bool AskConsent { get; set; }
 
+    /// <summary>Allow serverless LAN connections: this PC listens on a local port so others can
+    /// connect straight to it by IP (no relay). On by default.</summary>
+    public bool AllowDirectLan { get; set; } = true;
+
     /// <summary>Recently-connected devices (most recent first), for the app's Recent list.</summary>
     public List<RecentConnection> Recent { get; set; } = new();
 

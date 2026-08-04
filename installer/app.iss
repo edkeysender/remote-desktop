@@ -68,4 +68,11 @@ Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: 
     Flags: uninsdeletevalue; Tasks: autostart
 
 [Run]
+; Allow inbound LAN direct connections (serverless connect-by-IP) through the firewall.
+Filename: "{sys}\netsh.exe"; \
+    Parameters: "advfirewall firewall add rule name=""Remotler Direct LAN"" dir=in action=allow program=""{app}\{#AppExe}"" enable=yes profile=private,domain"; \
+    Flags: runhidden
 Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName} now"; Flags: nowait postinstall skipifsilent
+
+[UninstallRun]
+Filename: "{sys}\netsh.exe"; Parameters: "advfirewall firewall delete rule name=""Remotler Direct LAN"""; Flags: runhidden; RunOnceId: "DelRemotlerFw"

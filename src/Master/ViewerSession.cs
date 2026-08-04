@@ -21,7 +21,7 @@ public readonly record struct RemoteClipFile(string Path, string Name, long Size
 /// </summary>
 public sealed class ViewerSession : IDisposable
 {
-    private readonly SignalingConnection _conn = new();
+    private ISignaling _conn = new SignalingConnection();
     private readonly VpxVideoEncoder _decoder = new();
     private RTCPeerConnection? _pc;
     private RTCDataChannel? _inputChannel;
@@ -55,7 +55,7 @@ public sealed class ViewerSession : IDisposable
     {
         _conn.JsonReceived += OnJson;
         _conn.Closed += reason => Closed?.Invoke(reason);
-        await _conn.ConnectAsync(serverUrl);
+        await ((SignalingConnection)_conn).ConnectAsync(serverUrl);
         // `from` = this device's own host token; lets the relay authorize a password-less
         // connect to a sibling in the same org+group even when no user account is signed in.
         if (!string.IsNullOrEmpty(authToken))
@@ -64,6 +64,18 @@ public sealed class ViewerSession : IDisposable
             await _conn.SendJsonAsync(new { t = "connect", id, admin = true, adminPassword, from = peerToken });
         else
             await _conn.SendJsonAsync(new { t = "connect", id, password, from = peerToken });
+    }
+
+    /// <summary>LAN direct connect: dial a host by IP/hostname, no relay. Host-candidate ICE only.</summary>
+    public async Task ConnectDirectAsync(string host, int port, string password, string? peerToken = null)
+    {
+        _iceServers = new List<RTCIceServer>();   // LAN: host candidates only
+        var d = new DirectSignaling();
+        _conn = d;
+        _conn.JsonReceived += OnJson;
+        _conn.Closed += reason => Closed?.Invoke(reason);
+        await d.ConnectAsync(host, port);
+        await _conn.SendJsonAsync(new { t = "connect", password, from = peerToken });
     }
 
     private void OnJson(JsonElement root)

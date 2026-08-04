@@ -30,7 +30,8 @@ public sealed class HostSession : IDisposable
     private readonly string? _enrollToken; // pre-baked enrollment token → claims into an org (no login)
     private readonly string? _hostName;    // friendly computer name shown in the org list
 
-    private SignalingConnection? _conn;
+    private ISignaling? _conn;
+    private bool _direct;               // LAN direct-connect mode (no relay)
     private ScreenCapture? _capture;
     private RTCPeerConnection? _pc;
     private RTCDataChannel? _inputChannel;
@@ -62,6 +63,7 @@ public sealed class HostSession : IDisposable
     public event Action<string?, string?, string?>? Branding;   // appName, accent(#hex), logo(data URL)
     public event Action<string>? Status;
     public event Action<bool>? SessionActive;
+    public event Action<HostSession>? Ended;   // direct-mode: the socket closed, listener can drop us
 
     /// <summary>File send/receive over the session's "file" data channel.</summary>
     public FileTransferChannel Files { get; } = new();
@@ -80,13 +82,35 @@ public sealed class HostSession : IDisposable
         _capture = new ScreenCapture(RegionFor(_currentMon));
         ApplyInputRegion();
 
-        _conn = new SignalingConnection();
+        var ws = new SignalingConnection();
+        _conn = ws;
         _conn.JsonReceived += OnJson;
         _conn.Closed += _ => { SessionActive?.Invoke(false); Status?.Invoke("Disconnected from server"); TearDownPeer(); };
 
         Status?.Invoke("Connecting to server…");
-        await _conn.ConnectAsync(_serverUrl);
+        await ws.ConnectAsync(_serverUrl);
         await _conn.SendJsonAsync(new { t = "register", token = _token, auth = _authToken, enroll = _enrollToken, name = _hostName, mac = PrimaryMac() });
+    }
+
+    /// <summary>
+    /// LAN direct mode: serve a viewer that connected straight to us over TCP (no relay).
+    /// The socket is already established; we wait for its {connect,password}, then offer.
+    /// Uses host-candidate-only ICE (pure P2P on the local network).
+    /// </summary>
+    public async Task StartDirectAsync(ISignaling signaling)
+    {
+        _direct = true;
+        _iceServers = new List<RTCIceServer>();   // LAN: host candidates only, no STUN/TURN
+        _monitors = ScreenCapture.EnumerateMonitors();
+        _currentMon = PrimaryIndex();
+        _capture = new ScreenCapture(RegionFor(_currentMon));
+        ApplyInputRegion();
+
+        _conn = signaling;
+        _conn.JsonReceived += OnJson;
+        _conn.Closed += _ => { SessionActive?.Invoke(false); Status?.Invoke("Direct viewer disconnected"); TearDownPeer(); Ended?.Invoke(this); };
+        Status?.Invoke("Direct LAN connection — waiting for viewer");
+        await Task.CompletedTask;
     }
 
     private void OnJson(JsonElement root)
@@ -111,6 +135,20 @@ public sealed class HostSession : IDisposable
                 Status?.Invoke("Ready — waiting for a connection");
                 StartMetrics();
                 break;
+
+            case "connect":   // LAN direct mode: a viewer connected straight to us
+            {
+                if (!_direct) break;
+                var pw = root.TryGetProperty("password", out var pv) ? pv.GetString() : "";
+                if (string.Equals(pw, _password, StringComparison.Ordinal))
+                {
+                    _ = _conn!.SendJsonAsync(new { t = "connected", ice = (object?)null });
+                    Status?.Invoke("Direct viewer connected — negotiating video…");
+                    _ = StartPeerAsync();
+                }
+                else _ = _conn!.SendJsonAsync(new { t = "rejected", reason = "wrong password" });
+                break;
+            }
 
             case "connect-request":
             {

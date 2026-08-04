@@ -12,7 +12,7 @@ namespace RemoteDesktop.Shared;
 /// Events fire on the receive-loop thread; UI consumers should marshal to their
 /// dispatcher. This class knows nothing about WPF.
 /// </summary>
-public sealed class SignalingConnection : IDisposable
+public sealed class SignalingConnection : ISignaling
 {
     private readonly ClientWebSocket _ws = new();
     private readonly SemaphoreSlim _sendLock = new(1, 1);
