@@ -382,7 +382,39 @@ async function handlePlatform(req, res, url) {
   res.writeHead(404).end();
 }
 
-const wss = new WebSocketServer({ server: http });
+// Cross-Site WebSocket Hijacking guard. The relay accepts the panel's session cookie on
+// the upgrade, and cookies are attached by the browser, not by page script — so without
+// this a hostile page could open an authenticated relay socket and start a session.
+// SameSite=Lax already stops that in current browsers; this is a second, independent
+// control so the cookie path doesn't rest on one mechanism.
+//
+// Only browsers send Origin. Native clients (the desktop app, the MCP server) don't, and
+// a hostile page cannot suppress it, so a missing Origin is allowed — those callers
+// authenticate with an explicit token instead.
+//
+// Set ALLOWED_ORIGINS (comma-separated) when the panel is served from another hostname;
+// same-origin is always accepted.
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
+  .split(',').map((s) => s.trim().toLowerCase()).filter(Boolean);
+
+function originAllowed(req) {
+  const origin = req.headers['origin'];
+  if (!origin) return true;                       // native client
+  let host;
+  try { host = new URL(origin).host.toLowerCase(); } catch { return false; }
+  if (ALLOWED_ORIGINS.includes(origin.toLowerCase()) || ALLOWED_ORIGINS.includes(host)) return true;
+  const reqHost = String(req.headers['host'] || '').toLowerCase();
+  return !!reqHost && host === reqHost;           // the page came from the host it's calling
+}
+
+const wss = new WebSocketServer({
+  server: http,
+  verifyClient: ({ req }, done) => {
+    if (originAllowed(req)) return done(true);
+    console.warn(`[server] rejected ws upgrade, origin not allowed: ${req.headers['origin']}`);
+    done(false, 403, 'origin not allowed');
+  },
+});
 http.listen(PORT, () => {
   console.log(`[server] signaling/relay listening on ws://0.0.0.0:${PORT}`);
   console.log(`[server] update artifacts served from ${UPDATE_DIR}`
@@ -461,7 +493,11 @@ wss.on('connection', (ws, req) => {
   // The browser viewer connects same-origin, so the panel's session cookie rides on
   // the upgrade request. Keep it as a fallback credential: a signed-in user opens a
   // session without their HttpOnly token ever being exposed to page JavaScript.
-  ws._cookieAuth = parseCookies(req)[SESSION_COOKIE] || null;
+  //
+  // Only honoured for connections that carried an Origin — i.e. real browsers, already
+  // checked same-origin above. Cookie auth exists for the panel alone; native clients
+  // must present an explicit token, so a stray cookie on one can never stand in for one.
+  ws._cookieAuth = req.headers['origin'] ? (parseCookies(req)[SESSION_COOKIE] || null) : null;
 
   ws.on('message', (data, isBinary) => {
     // Binary = a media frame from the host. Fast-path relay to its viewer.
