@@ -162,3 +162,16 @@ test('landing page resolves download links from the update manifest', async () =
   assert.match(html, /data-dl="appInstaller"/);
   assert.match(html, /data-dl-ver/);
 });
+
+test('both pages use the R-mark favicon, and it is served', async () => {
+  for (const path of ['/', '/login']) {
+    const { html } = await get(path);
+    assert.match(html, /rel="icon" href="\/favicon\.svg"/);
+  }
+  const res = await fetch(base + '/favicon.svg');
+  assert.equal(res.status, 200);
+  assert.match(res.headers.get('content-type') || '', /svg/);
+  // The crop is the whole point: a viewBox wider than ~80 would let the
+  // wordmark bleed in and the icon becomes an unreadable smear at 16px.
+  assert.match(await res.text(), /viewBox="0 0 80 80"/);
+});
