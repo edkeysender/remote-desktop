@@ -82,9 +82,12 @@ test('landing page covers the required sections', async () => {
 
 test('landing page links to both installers at the pinned version', async () => {
   const { html } = await get('/');
-  const bases = 'https://github.com/edkeysender/remote-desktop/releases/download/v0.3.1';
-  assert.ok(html.includes(`${bases}/RemotlerAgent-Setup-0.3.1.exe`));
-  assert.ok(html.includes(`${bases}/Remotler-Setup-0.3.1.exe`));
+  // These hrefs are the no-JS fallback; the live version comes from
+  // /update/manifest.json at runtime. They pin a release deliberately, so they
+  // must stay real URLs even when they lag the latest tag.
+  const base = 'https://github.com/edkeysender/remote-desktop/releases/download/v0.4.3';
+  assert.ok(html.includes(`${base}/RemotlerAgent-Setup-0.4.3.exe`));
+  assert.ok(html.includes(`${base}/Remotler-Setup-0.4.3.exe`));
 });
 
 test('landing page offers both sign-in and register entry points', async () => {
@@ -148,4 +151,14 @@ test('landing register CTAs point at /register, sign-in at /login', async () => 
   assert.match(html, /href="\/register" data-auth-cta>Get started/);
   assert.match(html, /href="\/register" data-auth-cta>Create account/);
   assert.match(html, /href="\/login" data-auth-cta>Sign in/);
+});
+
+test('landing page resolves download links from the update manifest', async () => {
+  // Source-level guard: the fetch runs in the browser. It checks the page wires
+  // the manifest to the download anchors so the version can't silently rot.
+  const { html } = await get('/');
+  assert.match(html, /fetch\('\/update\/manifest\.json'/);
+  assert.match(html, /data-dl="agentInstaller"/);
+  assert.match(html, /data-dl="appInstaller"/);
+  assert.match(html, /data-dl-ver/);
 });

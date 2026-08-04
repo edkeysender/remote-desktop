@@ -209,15 +209,17 @@ footer nav{display:flex;gap:20px}
         <h2>Download for Windows</h2>
         <p>Install the agent on machines you want to reach, and Remotler on the machine you drive from.</p>
         <div class="dl-grid">
-          <a class="dl" href="https://github.com/edkeysender/remote-desktop/releases/download/v0.3.1/RemotlerAgent-Setup-0.3.1.exe">
+          <a class="dl" data-dl="agentInstaller"
+             href="https://github.com/edkeysender/remote-desktop/releases/download/v0.4.3/RemotlerAgent-Setup-0.4.3.exe">
             <strong>Remotler Agent</strong>
             <span>For the PC being controlled. Installs as a service for unattended access; requires admin.</span>
-            <em>v0.3.1 · 98 MB</em>
+            <em data-dl-ver>v0.4.3</em>
           </a>
-          <a class="dl" href="https://github.com/edkeysender/remote-desktop/releases/download/v0.3.1/Remotler-Setup-0.3.1.exe">
+          <a class="dl" data-dl="appInstaller"
+             href="https://github.com/edkeysender/remote-desktop/releases/download/v0.4.3/Remotler-Setup-0.4.3.exe">
             <strong>Remotler</strong>
             <span>For your own PC — the one you drive from. Installs to Program Files; requires admin.</span>
-            <em>v0.3.1 · 71 MB</em>
+            <em data-dl-ver>v0.4.3</em>
           </a>
         </div>
       </div>
@@ -241,6 +243,26 @@ footer nav{display:flex;gap:20px}
 // The session is an httpOnly same-origin cookie, so auth state can't be read
 // synchronously. The page ships in its logged-out state — the common case, and the
 // reason there's no flash — and upgrades in place if /api/me answers.
+// Download links track the published release. The hrefs above are a working
+// fallback for no-JS visitors, but they pin a version and go stale on every
+// release — /update/manifest.json is the same source the dashboard reads, and
+// /update/<file> redirects to the release asset. Sizes aren't shown: the
+// manifest carries sizes for the raw exes, not for the installers, so any
+// figure here would be a guess.
+fetch('/update/manifest.json', { cache: 'no-store' })
+  .then((r) => (r.ok ? r.json() : null))
+  .then((mf) => {
+    if (!mf) return;
+    document.querySelectorAll('[data-dl]').forEach((el) => {
+      const file = mf[el.dataset.dl];
+      if (file) el.href = '/update/' + encodeURIComponent(file);
+    });
+    if (mf.version) {
+      document.querySelectorAll('[data-dl-ver]').forEach((el) => { el.textContent = 'v' + mf.version; });
+    }
+  })
+  .catch(() => {});   // manifest unreachable: the static hrefs still work
+
 fetch('/api/me', { credentials: 'same-origin' })
   .then((r) => (r.ok ? r.json() : null))
   .then((me) => {
