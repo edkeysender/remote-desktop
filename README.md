@@ -59,8 +59,8 @@ powershell -ExecutionPolicy Bypass -File build.ps1
 ```
 Produces:
 ```
-installer\dist\AllViewerAgent-Setup-0.1.0.exe   (~70 MB, admin install)
-installer\dist\AllViewer-Setup-0.1.0.exe   (~70 MB, per-user install)
+installer\dist\RemotlerAgent-Setup-0.1.0.exe   (~70 MB, admin install)
+installer\dist\Remotler-Setup-0.1.0.exe   (~70 MB, per-user install)
 ```
 The Client installer requests admin (it injects input) and offers optional
 sign-in autostart. The Master installs per-user with no UAC.
@@ -74,10 +74,10 @@ cd server && npm install && npm start      # ws://0.0.0.0:8080
 ```
 
 **2. Client** (on the PC to be controlled): install and run
-`AllViewerAgent-Setup`. Set the server URL, click **Start**. It shows a
+`RemotlerAgent-Setup`. Set the server URL, click **Start**. It shows a
 **9-digit ID** and a **password**. Hand those to whoever will connect.
 
-**3. Master** (on your PC): install and run `AllViewer-Setup`. Enter the
+**3. Master** (on your PC): install and run `Remotler-Setup`. Enter the
 server URL, the Client's ID and password, click **Connect**. The remote screen
 appears and your mouse + keyboard drive it.
 

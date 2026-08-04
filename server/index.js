@@ -109,7 +109,7 @@ async function legacyRoutes(req, res, next) {
 
   if (url.pathname === '/admin' || url.pathname.startsWith('/admin/') || url.pathname === '/directory') {
     if (!checkAuth(req)) {
-      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="AllViewer Admin"' }).end('auth required');
+      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Remotler Admin"' }).end('auth required');
       return;
     }
     try { await handleAdmin(req, res, url); }
@@ -120,7 +120,7 @@ async function legacyRoutes(req, res, next) {
   // Platform console (super-admin across all orgs), Basic-auth with PLATFORM_PASSWORD.
   if (url.pathname === '/platform' || url.pathname.startsWith('/platform/')) {
     if (!checkBasic(req, PLATFORM_PASSWORD)) {
-      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="AllViewer HQ"' }).end('auth required');
+      res.writeHead(401, { 'WWW-Authenticate': 'Basic realm="Remotler HQ"' }).end('auth required');
       return;
     }
     try { await handlePlatform(req, res, url); }

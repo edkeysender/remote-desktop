@@ -1,9 +1,9 @@
 {
-  "name": "allviewer-mcp",
+  "name": "remotler-mcp",
   "version": "0.1.0",
-  "description": "MCP server exposing a AllViewer organization's computers + task manager",
+  "description": "MCP server exposing a Remotler organization's computers + task manager",
   "type": "module",
-  "bin": { "allviewer-mcp": "index.js" },
+  "bin": { "remotler-mcp": "index.js" },
   "scripts": { "start": "node index.js" },
   "dependencies": {
     "@modelcontextprotocol/sdk": "^1.0.0"

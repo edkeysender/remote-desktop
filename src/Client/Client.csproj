@@ -8,12 +8,12 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>RemoteDesktop.Client</RootNamespace>
-    <AssemblyName>AllViewerAgent</AssemblyName>
+    <AssemblyName>RemotlerAgent</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <ApplicationIcon>..\..\assets\allviewer.ico</ApplicationIcon>
+    <ApplicationIcon>..\..\assets\remotler.ico</ApplicationIcon>
     <Version>0.3.0</Version>
-    <Product>AllViewer Client</Product>
-    <Company>allviewer.tech</Company>
+    <Product>Remotler Client</Product>
+    <Company>remotler.com</Company>
   </PropertyGroup>
 
   <ItemGroup>

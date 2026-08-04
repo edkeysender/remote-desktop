@@ -16,7 +16,7 @@ namespace RemoteDesktop.Master;
 /// A single remote-control session in its own window. Opened by the hub with a target
 /// (server + id) and one auth mode: an account token (password-less), an admin/directory
 /// password, or a per-host password. Closing the window ends the session.
-/// The chrome follows the AllViewer design (Appendix D) — dark by default, light on toggle.
+/// The chrome follows the Remotler design (Appendix D) — dark by default, light on toggle.
 /// </summary>
 public partial class ViewerWindow : Window
 {
@@ -69,7 +69,7 @@ public partial class ViewerWindow : Window
         _serverUrl = serverUrl; _id = id; _display = display;
         _password = password ?? ""; _adminPw = adminPw; _authToken = authToken; _peerToken = peerToken;
         _fleetProvider = fleetProvider;
-        Title = $"AllViewer — {display}";
+        Title = $"Remotler — {display}";
         TitleText.Text = display;
         Loaded += async (_, _) => await StartSessionAsync();
     }
@@ -122,7 +122,7 @@ public partial class ViewerWindow : Window
     private async void OnRemoteClipFiles(List<RemoteClipFile> files)
     {
         if (_session is not { } session) return;
-        var stage = Path.Combine(Path.GetTempPath(), "AllViewer", "clip");
+        var stage = Path.Combine(Path.GetTempPath(), "Remotler", "clip");
         try { Directory.CreateDirectory(stage); } catch { }
         var local = new System.Collections.Specialized.StringCollection();
         SetStatus($"Fetching {files.Count} file(s) from the remote clipboard…");
@@ -346,7 +346,7 @@ public partial class ViewerWindow : Window
         foreach (var b in new[] { ZoomFit, Zoom100, Zoom200, TransferBtn, WinKeyBtn, ClipboardBtn, OverviewBtn }) b.IsEnabled = false;
 
         _id = id; _display = name;
-        TitleText.Text = name; Title = $"AllViewer — {name}";
+        TitleText.Text = name; Title = $"Remotler — {name}";
         P2pText.Text = "Connecting"; P2pDot.Fill = new SolidColorBrush(Color.FromRgb(0x3E, 0xC8, 0xFF));
         TimerText.Text = "00:00";
         SetStatus("Connecting…", "#8A8DA3");

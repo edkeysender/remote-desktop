@@ -48,7 +48,7 @@ public sealed class LanDiscovery : IDisposable
 
     private void UpdatePayload(string id, string name, string org, string gid, string gname) =>
         _payload = Encoding.UTF8.GetBytes(JsonSerializer.Serialize(
-            new { t = "allviewer-announce", id, name, org, groupId = gid, groupName = gname }));
+            new { t = "remotler-announce", id, name, org, groupId = gid, groupName = gname }));
 
     private void Tick()
     {
@@ -65,7 +65,7 @@ public sealed class LanDiscovery : IDisposable
                 var r = await _sock.ReceiveAsync(ct);
                 using var doc = JsonDocument.Parse(r.Buffer);
                 var e = doc.RootElement;
-                if (!(e.TryGetProperty("t", out var t) && t.GetString() == "allviewer-announce")) continue;
+                if (!(e.TryGetProperty("t", out var t) && t.GetString() == "remotler-announce")) continue;
                 var id = e.GetProperty("id").GetString() ?? "";
                 if (id.Length == 0 || id == _self) continue;
                 var dev = new LanDevice(id,

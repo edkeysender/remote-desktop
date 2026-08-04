@@ -6,14 +6,14 @@ namespace RemoteDesktop.Master;
 /// <summary>
 /// The app is often just downloaded and run straight from the Downloads folder. On launch
 /// from such a "loose" location we copy the exe into a proper per-user install directory
-/// (%LocalAppData%\Programs\AllViewer), add a Start Menu shortcut, and relaunch from there —
+/// (%LocalAppData%\Programs\Remotler), add a Start Menu shortcut, and relaunch from there —
 /// so it lives somewhere sane, updates cleanly, and isn't cluttering Downloads.
 /// Settings live in %AppData% (independent of exe path), so nothing is lost in the move.
 /// </summary>
 public static class SelfInstall
 {
     public static string InstallExe => Path.Combine(
-        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "AllViewer", "RemoteControl.exe");
+        Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs", "Remotler", "RemoteControl.exe");
 
     /// <summary>If we're running loose, install to the per-user dir and relaunch. Returns true
     /// if the caller should exit (a relocated instance has been started).</summary>
@@ -61,7 +61,7 @@ public static class SelfInstall
     {
         try
         {
-            var lnk = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "AllViewer.lnk");
+            var lnk = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Programs), "Remotler.lnk");
             var t = Type.GetTypeFromProgID("WScript.Shell");
             if (t == null) return;
             dynamic sh = Activator.CreateInstance(t)!;
@@ -69,7 +69,7 @@ public static class SelfInstall
             sc.TargetPath = target;
             sc.WorkingDirectory = Path.GetDirectoryName(target);
             sc.IconLocation = target + ",0";
-            sc.Description = "AllViewer Remote";
+            sc.Description = "Remotler Remote";
             sc.Save();
         }
         catch { /* shortcut is best-effort */ }

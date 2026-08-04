@@ -1,18 +1,18 @@
-# AllViewer control plane — automatic HTTPS + WSS reverse proxy in front of the Node server.
+# Remotler control plane — automatic HTTPS + WSS reverse proxy in front of the Node server.
 # Caddy fetches/renews a Let's Encrypt certificate for the domain automatically and
 # transparently proxies WebSocket upgrades, so the app connects over wss:// on 443.
 #
-# 1. Point an A record (e.g. allviewer.tech) at the droplet's public IP.
+# 1. Point an A record (e.g. remotler.com) at the droplet's public IP.
 # 2. Replace the domain below and email.
 # 3. Put this at /etc/caddy/Caddyfile and: sudo systemctl reload caddy
 #
 # The Node server keeps listening on 127.0.0.1:8081 (not exposed publicly).
 
 {
-	email admin@allviewer.tech
+	email admin@remotler.com
 }
 
-allviewer.tech {
+remotler.com {
 	encode zstd gzip
 	reverse_proxy 127.0.0.1:8081
 }

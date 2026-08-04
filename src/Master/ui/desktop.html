@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>AllViewer — Desktop App</title>
+<title>Remotler — Desktop App</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Schibsted+Grotesk:wght@500;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@500;600;700&display=swap" rel="stylesheet">
 <style>
@@ -182,9 +182,9 @@ button.lrow:hover{background:#FAFAFE}
 </style>
 </head>
 <body>
-<div class="app" role="application" aria-label="AllViewer desktop client">
+<div class="app" role="application" aria-label="Remotler desktop client">
   <div class="titlebar">
-    <div class="tb-brand"><span class="tb-mark" id="brandMark"><svg viewBox="0 0 24 24" width="13" height="13" fill="none"><path d="M3 18 L12 4 L21 18 M7.5 18 L12 11 L16.5 18" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span id="brandName">AllViewer</span></div>
+    <div class="tb-brand"><span class="tb-mark" id="brandMark"><svg viewBox="0 0 24 24" width="13" height="13" fill="none"><path d="M3 18 L12 4 L21 18 M7.5 18 L12 11 L16.5 18" stroke="#fff" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"/></svg></span><span id="brandName">Remotler</span></div>
     <div class="tb-org" id="tb-org" hidden>Enrolled in <b id="tb-org-name">—</b></div>
     <div class="tb-spacer"></div>
     <button class="tb-login" id="tb-login">Log in</button>
@@ -279,7 +279,7 @@ button.lrow:hover{background:#FAFAFE}
   <div class="statusbar">
     <span class="sb"><span class="led" id="sb-led" style="background:var(--muted)"></span><span id="sb-status">Starting…</span></span>
     <span class="sb-spacer"></span>
-    <span class="sb ver" id="sb-ver">AllViewer</span>
+    <span class="sb ver" id="sb-ver">Remotler</span>
   </div>
 </div>
 
@@ -296,7 +296,7 @@ button.lrow:hover{background:#FAFAFE}
   <div class="sheet">
     <div class="tabs"><button class="on" id="mt-login">Sign in</button><button id="mt-enroll">Enroll with token</button></div>
     <div id="m-login">
-      <h3>Sign in</h3><p>Use your AllViewer account to enroll this PC and reach your fleet.</p>
+      <h3>Sign in</h3><p>Use your Remotler account to enroll this PC and reach your fleet.</p>
       <div class="field"><input id="m-email" type="email" placeholder="Email"></div>
       <div class="field"><input id="m-pass" type="password" placeholder="Password"></div>
       <div class="err" id="m-err"></div>
@@ -319,7 +319,7 @@ const esc=(s)=>(s==null?'':String(s)).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&l
 function hx(h){h=(h||'#5B5BF5').replace('#','');return [parseInt(h.slice(0,2),16),parseInt(h.slice(2,4),16),parseInt(h.slice(4,6),16)];}
 function lighten(h,p){const [r,g,b]=hx(h);const m=v=>Math.round(v+(255-v)*p/100);return `rgb(${m(r)},${m(g)},${m(b)})`;}
 function rgba(h,a){const [r,g,b]=hx(h);return `rgba(${r},${g},${b},${a})`;}
-let brandName='AllViewer';
+let brandName='Remotler';
 function applyBrand(b){
   if(!b) return;
   const a=(/^#[0-9a-fA-F]{6}$/.test(b.accent||''))?b.accent:'#5B5BF5';
@@ -327,7 +327,7 @@ function applyBrand(b){
   rs.setProperty('--accent',a);
   rs.setProperty('--accent-soft',rgba(a,0.12));
   rs.setProperty('--grad',`linear-gradient(135deg, ${a} 0%, ${lighten(a,22)} 55%, ${lighten(a,48)} 120%)`);
-  brandName=(b.name||'AllViewer');
+  brandName=(b.name||'Remotler');
   document.getElementById('brandName').textContent=brandName;
   const mark=document.getElementById('brandMark');
   if(b.logo){ mark.innerHTML=`<img src="${b.logo}" alt="" style="width:100%;height:100%;object-fit:contain;border-radius:8px">`; }

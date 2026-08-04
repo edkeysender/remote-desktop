@@ -1,4 +1,4 @@
-# Deploying AllViewer to a public server (DigitalOcean droplet)
+# Deploying Remotler to a public server (DigitalOcean droplet)
 
 Moving from the Raspberry Pi (LAN) to a public host adds two must-haves:
 
@@ -19,29 +19,29 @@ Files referenced below live in this `deploy/` folder.
 - Add your SSH key. Note the public IP.
 
 ## 2. DNS
-Point an A record at the droplet, e.g. `allviewer.tech → <droplet-ip>`.
+Point an A record at the droplet, e.g. `remotler.com → <droplet-ip>`.
 (TURN can share the same name.)
 
 ## 3. Base setup
 ```bash
 ssh root@<droplet-ip>
-adduser --system --group allviewer
+adduser --system --group remotler
 apt update && apt install -y nodejs npm git
 
 # get the code
-mkdir -p /opt/allviewer && chown allviewer:allviewer /opt/allviewer
-sudo -u allviewer git clone https://github.com/edkeysender/remote-desktop.git /opt/allviewer
-cd /opt/allviewer/server && sudo -u allviewer npm install --omit=dev
+mkdir -p /opt/remotler && chown remotler:remotler /opt/remotler
+sudo -u remotler git clone https://github.com/edkeysender/remote-desktop.git /opt/remotler
+cd /opt/remotler/server && sudo -u remotler npm install --omit=dev
 ```
 > Node from Ubuntu's repo may be old. If `node -v` < 18, install NodeSource 20:
 > `curl -fsSL https://deb.nodesource.com/setup_20.x | bash - && apt install -y nodejs`
 
 ## 4. Run the server as a service
 ```bash
-cp /opt/allviewer/deploy/allviewer-signal.service /etc/systemd/system/
+cp /opt/remotler/deploy/remotler-signal.service /etc/systemd/system/
 # EDIT it: set strong ADMIN_PASSWORD and PLATFORM_PASSWORD
-systemctl daemon-reload && systemctl enable --now allviewer-signal
-systemctl status allviewer-signal --no-pager        # should be active, listening on 127.0.0.1:8081
+systemctl daemon-reload && systemctl enable --now remotler-signal
+systemctl status remotler-signal --no-pager        # should be active, listening on 127.0.0.1:8081
 ```
 
 ## 5. TLS reverse proxy (Caddy)
@@ -51,24 +51,24 @@ curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/gpg.key' | gpg --dearmo
 curl -1sLf 'https://dl.cloudsmith.io/public/caddy/stable/debian.deb.txt' | tee /etc/apt/sources.list.d/caddy-stable.list
 apt update && apt install -y caddy
 
-cp /opt/allviewer/deploy/Caddyfile /etc/caddy/Caddyfile
+cp /opt/remotler/deploy/Caddyfile /etc/caddy/Caddyfile
 # EDIT it: set your domain + email
 systemctl reload caddy
 ```
-Caddy now serves `https://allviewer.tech` and `wss://allviewer.tech` with an
-auto-renewing certificate. Verify: `curl https://allviewer.tech/health` → `ok`.
+Caddy now serves `https://remotler.com` and `wss://remotler.com` with an
+auto-renewing certificate. Verify: `curl https://remotler.com/health` → `ok`.
 
 ## 6. TURN relay (coturn)
 ```bash
 apt install -y coturn
 sed -i 's/#TURNSERVER_ENABLED=1/TURNSERVER_ENABLED=1/' /etc/default/coturn
-cp /opt/allviewer/deploy/turnserver.conf /etc/turnserver.conf
+cp /opt/remotler/deploy/turnserver.conf /etc/turnserver.conf
 # EDIT it: domain + a strong TURN secret; ensure the cert path exists
 systemctl enable --now coturn
 ```
 Then in the org dashboard → **Configurations → Network / relay**:
-- STUN: `stun:allviewer.tech:3478`
-- TURN URL: `turn:allviewer.tech:3478` · user `allviewer` · password `<your secret>`
+- STUN: `stun:remotler.com:3478`
+- TURN URL: `turn:remotler.com:3478` · user `remotler` · password `<your secret>`
 
 ## 7. Firewall
 ```bash
@@ -85,26 +85,26 @@ Do **not** expose 8081 publicly — it's localhost-only behind Caddy.
 ## 8. Point the apps at it
 In the desktop app: **Settings → Signaling server → Change** to:
 ```
-wss://allviewer.tech
+wss://remotler.com
 ```
 (No port — 443 is implied.) New device enrollments and the web dashboard are then reachable
-at `https://allviewer.tech`.
+at `https://remotler.com`.
 
 ## 9. First-run security
 - Change `ADMIN_PASSWORD` and `PLATFORM_PASSWORD` (done in step 4) — never leave defaults.
 - Create your org via the web dashboard, then create users/enrollment tokens.
-- Publish the app installers + update package from your build machine (the `allviewer` service
+- Publish the app installers + update package from your build machine (the `remotler` service
   user has no SSH login, so push as root, then hand ownership back):
   ```powershell
-  build.ps1 -PushTo root@allviewer.tech -PiUpdateDir /opt/allviewer/server/update
+  build.ps1 -PushTo root@remotler.com -PiUpdateDir /opt/remotler/server/update
   ```
   ```bash
-  ssh root@allviewer.tech 'chown -R allviewer:allviewer /opt/allviewer/server/update'
+  ssh root@remotler.com 'chown -R remotler:remotler /opt/remotler/server/update'
   ```
   so the dashboard's **Download** tab and in-app updates work.
 
 ## Updating the server later
 ```bash
-cd /opt/allviewer && sudo -u allviewer git pull && cd server && sudo -u allviewer npm install --omit=dev
-systemctl restart allviewer-signal
+cd /opt/remotler && sudo -u remotler git pull && cd server && sudo -u remotler npm install --omit=dev
+systemctl restart remotler-signal
 ```

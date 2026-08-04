@@ -172,7 +172,7 @@ if (!string.IsNullOrEmpty(updDir))
         version = "9.9.9",
         notes = "e2e test build",
         master = new[] { new { name = "RemoteControl.exe", sha256 = sha, size = (long)exeBytes.Length } },
-        client = new[] { new { name = "AllViewerAgent.exe", sha256 = sha, size = (long)exeBytes.Length } },
+        client = new[] { new { name = "RemotlerAgent.exe", sha256 = sha, size = (long)exeBytes.Length } },
     };
     File.WriteAllText(Path.Combine(updDir, "manifest.json"),
         System.Text.Json.JsonSerializer.Serialize(manifest));

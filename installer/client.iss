@@ -1,15 +1,15 @@
 ; Inno Setup script — Remote Desktop CLIENT (the PC being controlled)
 ; Build: publish first (see build.ps1), then compile this with ISCC.exe.
 
-#define AppName "AllViewer Agent"
+#define AppName "Remotler Agent"
 ; Version can be overridden from build.ps1 via ISCC /DAppVersion=x.y.z
 #ifndef AppVersion
   #define AppVersion "0.2.0"
 #endif
-#define AppPublisher "allviewer.tech"
-#define AppExe "AllViewerAgent.exe"
-#define SvcExe "AllViewerService.exe"
-#define SvcName "AllViewerService"
+#define AppPublisher "remotler.com"
+#define AppExe "RemotlerAgent.exe"
+#define SvcExe "RemotlerService.exe"
+#define SvcName "RemotlerService"
 
 [Setup]
 ; A stable, unique GUID keeps upgrades/uninstall coherent across versions.
@@ -17,13 +17,13 @@ AppId={{7C1E9A2B-3D4F-4A55-9C11-A1B2C3D4E5F6}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
-DefaultDirName={autopf}\AllViewer\Client
-DefaultGroupName=AllViewer
+DefaultDirName={autopf}\Remotler\Client
+DefaultGroupName=Remotler
 UninstallDisplayName={#AppName}
 UninstallDisplayIcon={app}\{#AppExe}
 OutputDir=dist
-OutputBaseFilename=AllViewerAgent-Setup-{#AppVersion}
-SetupIconFile=..\assets\allviewer.ico
+OutputBaseFilename=RemotlerAgent-Setup-{#AppVersion}
+SetupIconFile=..\assets\remotler.ico
 Compression=lzma2/max
 SolidCompression=yes
 ; Self-contained x64 build → require 64-bit Windows.
@@ -53,17 +53,17 @@ Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExe}"; Tasks: desktopico
 [Registry]
 ; Optional per-user autostart (only if the task is selected).
 Root: HKCU; Subkey: "Software\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; \
-    ValueName: "AllViewerAgent"; ValueData: """{app}\{#AppExe}"""; \
+    ValueName: "RemotlerAgent"; ValueData: """{app}\{#AppExe}"""; \
     Flags: uninsdeletevalue; Tasks: autostart
 
 [Run]
 ; Register + start the unattended service only if the user opted in. `binPath= ` needs the
 ; trailing space; the doubled quotes wrap the path (may contain spaces).
 Filename: "{sys}\sc.exe"; \
-    Parameters: "create {#SvcName} binPath= ""{app}\{#SvcExe}"" start= auto DisplayName= ""AllViewer Service"""; \
+    Parameters: "create {#SvcName} binPath= ""{app}\{#SvcExe}"" start= auto DisplayName= ""Remotler Service"""; \
     Flags: runhidden; Tasks: unattended
 Filename: "{sys}\sc.exe"; \
-    Parameters: "description {#SvcName} ""Unattended remote access for AllViewer (LocalSystem)."""; \
+    Parameters: "description {#SvcName} ""Unattended remote access for Remotler (LocalSystem)."""; \
     Flags: runhidden; Tasks: unattended
 ; Seed a custom unattended password (if the admin typed one) BEFORE the service starts,
 ; so the worker picks it up instead of auto-generating a random one.
@@ -74,8 +74,8 @@ Filename: "{app}\{#AppExe}"; Description: "Launch {#AppName} now"; Flags: nowait
 
 [UninstallRun]
 ; Runs before files are removed, so stopping releases the exe lock. Harmless if absent.
-Filename: "{sys}\sc.exe"; Parameters: "stop {#SvcName}"; Flags: runhidden; RunOnceId: "StopAllViewerSvc"
-Filename: "{sys}\sc.exe"; Parameters: "delete {#SvcName}"; Flags: runhidden; RunOnceId: "DelAllViewerSvc"
+Filename: "{sys}\sc.exe"; Parameters: "stop {#SvcName}"; Flags: runhidden; RunOnceId: "StopRemotlerSvc"
+Filename: "{sys}\sc.exe"; Parameters: "delete {#SvcName}"; Flags: runhidden; RunOnceId: "DelRemotlerSvc"
 
 [Code]
 var
@@ -109,7 +109,7 @@ begin
   Result := Trim(UnPwPage.Values[0]) <> '';
 end;
 
-// On upgrade the service may be running and holding AllViewerService.exe open, which would
+// On upgrade the service may be running and holding RemotlerService.exe open, which would
 // block [Files] from overwriting it. Stop it (best-effort) before files are copied.
 function PrepareToInstall(var NeedsRestart: Boolean): String;
 var

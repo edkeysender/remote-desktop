@@ -7,11 +7,11 @@
     <Nullable>enable</Nullable>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <RootNamespace>RemoteDesktop.Service</RootNamespace>
-    <AssemblyName>AllViewerService</AssemblyName>
+    <AssemblyName>RemotlerService</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Version>0.3.0</Version>
-    <Product>AllViewer Service</Product>
-    <Company>allviewer.tech</Company>
+    <Product>Remotler Service</Product>
+    <Company>remotler.com</Company>
   </PropertyGroup>
 
   <ItemGroup>

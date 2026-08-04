@@ -8,14 +8,14 @@ using Microsoft.Win32;
 namespace RemoteDesktop.Master;
 
 /// <summary>
-/// App startup: registers the <c>allviewer://</c> URL scheme (so the web dashboard's Connect
+/// App startup: registers the <c>remotler://</c> URL scheme (so the web dashboard's Connect
 /// button can launch us), enforces a single instance, and routes a
-/// <c>allviewer://connect?...</c> URI to the running window to open a session.
+/// <c>remotler://connect?...</c> URI to the running window to open a session.
 /// </summary>
 public partial class App : Application
 {
-    private const string Scheme = "allviewer";
-    private const string PipeName = "AllViewer.connect";
+    private const string Scheme = "remotler";
+    private const string PipeName = "Remotler.connect";
     private static Mutex? _mutex;
     private MainWindow? _main;
 
@@ -28,7 +28,7 @@ public partial class App : Application
         RegisterUriScheme();
         var uri = e.Args.FirstOrDefault(a => a.StartsWith(Scheme + "://", StringComparison.OrdinalIgnoreCase));
 
-        _mutex = new Mutex(true, @"Local\AllViewerSingleton", out bool isNew);
+        _mutex = new Mutex(true, @"Local\RemotlerSingleton", out bool isNew);
         if (!isNew)
         {
             // Already running — hand the connect URI to the primary instance and exit.
@@ -49,7 +49,7 @@ public partial class App : Application
         {
             var exe = Environment.ProcessPath ?? Process.GetCurrentProcess().MainModule!.FileName;
             using var k = Registry.CurrentUser.CreateSubKey(@"Software\Classes\" + Scheme);
-            k.SetValue("", "URL:AllViewer Remote");
+            k.SetValue("", "URL:Remotler Remote");
             k.SetValue("URL Protocol", "");
             using var cmd = Registry.CurrentUser.CreateSubKey(@"Software\Classes\" + Scheme + @"\shell\open\command");
             cmd.SetValue("", "\"" + exe + "\" \"%1\"");

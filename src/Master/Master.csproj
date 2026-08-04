@@ -8,11 +8,11 @@
     <Nullable>enable</Nullable>
     <RootNamespace>RemoteDesktop.Master</RootNamespace>
     <AssemblyName>RemoteControl</AssemblyName>
-    <ApplicationIcon>..\..\assets\allviewer.ico</ApplicationIcon>
+    <ApplicationIcon>..\..\assets\remotler.ico</ApplicationIcon>
     <ApplicationManifest>app.manifest</ApplicationManifest>
     <Version>0.3.0</Version>
-    <Product>AllViewer</Product>
-    <Company>allviewer.tech</Company>
+    <Product>Remotler</Product>
+    <Company>remotler.com</Company>
   </PropertyGroup>
 
   <ItemGroup>
@@ -34,7 +34,7 @@
     <Resource Include="..\..\assets\logo-ftd.png">
       <Link>logo-ftd.png</Link>
     </Resource>
-    <!-- The AllViewer desktop UI (Appendix C), rendered pixel-exact in WebView2. -->
+    <!-- The Remotler desktop UI (Appendix C), rendered pixel-exact in WebView2. -->
     <EmbeddedResource Include="ui\desktop.html" />
   </ItemGroup>
 

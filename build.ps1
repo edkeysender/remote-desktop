@@ -8,9 +8,9 @@
 # assemblies, installers, and update manifest.
 #
 # Outputs:
-#   publish\client\AllViewerAgent.exe   publish\master\RemoteControl.exe
+#   publish\client\RemotlerAgent.exe   publish\master\RemoteControl.exe
 #   publish\update\manifest.json  + the exes    (upload this dir to the Pi)
-#   installer\dist\AllViewerAgent-Setup-<ver>.exe   (+ Master)
+#   installer\dist\RemotlerAgent-Setup-<ver>.exe   (+ Master)
 #
 # -PushTo <user@host> scp's publish\update\* to the Pi so connected apps see the update.
 
@@ -54,7 +54,7 @@ if ($Version) {
 # Persist so the number is monotonic across builds (commit VERSION with each release).
 # ASCII (no BOM) — a UTF-8 BOM here can corrupt the version string for downstream readers.
 Set-Content "$root\VERSION" $ver -Encoding ascii -NoNewline
-if (-not $Notes) { $Notes = "AllViewer $ver" }
+if (-not $Notes) { $Notes = "Remotler $ver" }
 Write-Host "== Building version $ver ==" -ForegroundColor Cyan
 
 function Find-ISCC {
@@ -73,7 +73,7 @@ function Find-ISCC {
 # Stop only processes running from THIS repo's publish folder — never the installed
 # apps or the SYSTEM service.
 $pubRoot = Join-Path $root 'publish'
-Get-Process RemoteControl,AllViewerAgent,AllViewerService -ErrorAction SilentlyContinue |
+Get-Process RemoteControl,RemotlerAgent,RemotlerService -ErrorAction SilentlyContinue |
     Where-Object { $_.Path -and $_.Path.StartsWith($pubRoot, [StringComparison]::OrdinalIgnoreCase) } |
     ForEach-Object {
         Write-Host "   stopping running test build: $($_.ProcessName) (pid $($_.Id))" -ForegroundColor DarkYellow
@@ -88,7 +88,7 @@ $publishArgs = @(
 
 # The unified attended app (host + viewer in one), RemoteControl.exe. A branded build bakes
 # the org's icon (Explorer/taskbar) into the exe; name/colour/logo also apply at runtime.
-$brandIconPath = if ($BrandName -and $BrandIcon -and (Test-Path $BrandIcon)) { (Resolve-Path $BrandIcon).Path } else { "$root\assets\allviewer.ico" }
+$brandIconPath = if ($BrandName -and $BrandIcon -and (Test-Path $BrandIcon)) { (Resolve-Path $BrandIcon).Path } else { "$root\assets\remotler.ico" }
 $appPubArgs = $publishArgs
 if ($BrandName) { $appPubArgs = $publishArgs + @("/p:ApplicationIcon=$brandIconPath", "/p:Product=$BrandName") }
 $brandLabel = if ($BrandName) { " (branded: $BrandName)" } else { "" }
@@ -96,7 +96,7 @@ Write-Host "== Publishing App (unified)$brandLabel ==" -ForegroundColor Cyan
 dotnet publish "$root\src\Master\Master.csproj" @appPubArgs -o "$root\publish\app"
 
 # The unattended host worker + Windows service (headless). The service finds the worker
-# exe (AllViewerAgent.exe) next to itself, so both live in publish\client.
+# exe (RemotlerAgent.exe) next to itself, so both live in publish\client.
 Write-Host '== Publishing Client worker ==' -ForegroundColor Cyan
 dotnet publish "$root\src\Client\Client.csproj" @publishArgs -o "$root\publish\client"
 Write-Host '== Publishing Service ==' -ForegroundColor Cyan
@@ -118,8 +118,8 @@ function New-Entry([string]$path) {
 }
 
 # Installer filenames (also staged into the update dir so the dashboard can offer them).
-$appOut   = if ($BrandName) { (($BrandName -replace '[^\w\-]', '_')) + "-Setup-$ver" } else { "AllViewer-Setup-$ver" }
-$agentOut = "AllViewerAgent-Setup-$ver"
+$appOut   = if ($BrandName) { (($BrandName -replace '[^\w\-]', '_')) + "-Setup-$ver" } else { "Remotler-Setup-$ver" }
+$agentOut = "RemotlerAgent-Setup-$ver"
 
 # @(...) keeps these as JSON arrays; the app parser also tolerates a bare object.
 # Components: "app" = the unified attended app; "client" = the unattended worker+service.
@@ -128,8 +128,8 @@ $manifest = [ordered]@{
     notes          = $Notes
     app            = @( New-Entry "$root\publish\app\RemoteControl.exe" )
     client         = @(
-        New-Entry "$root\publish\client\AllViewerAgent.exe"
-        New-Entry "$root\publish\client\AllViewerService.exe"
+        New-Entry "$root\publish\client\RemotlerAgent.exe"
+        New-Entry "$root\publish\client\RemotlerService.exe"
     )
     appInstaller   = "$appOut.exe"      # attended app installer (dashboard Download tab)
     agentInstaller = "$agentOut.exe"    # unattended agent + service installer
@@ -143,11 +143,11 @@ Write-Host "== Compiling installers ($iscc) ==" -ForegroundColor Cyan
 # Brand values go through env vars (Inno reads them via GetEnv) to dodge CLI quoting.
 if ($BrandName) {
     $safe = ($BrandName -replace '[^\w\-]', '_')
-    $env:ALLVIEWER_BRAND_NAME = $BrandName
-    $env:ALLVIEWER_BRAND_ICON = $brandIconPath
-    $env:ALLVIEWER_OUTFILE = "$safe-Setup-$ver"
+    $env:REMOTLER_BRAND_NAME = $BrandName
+    $env:REMOTLER_BRAND_ICON = $brandIconPath
+    $env:REMOTLER_OUTFILE = "$safe-Setup-$ver"
 } else {
-    Remove-Item Env:ALLVIEWER_BRAND_NAME, Env:ALLVIEWER_BRAND_ICON, Env:ALLVIEWER_OUTFILE -ErrorAction SilentlyContinue
+    Remove-Item Env:REMOTLER_BRAND_NAME, Env:REMOTLER_BRAND_ICON, Env:REMOTLER_OUTFILE -ErrorAction SilentlyContinue
 }
 & $iscc "/DAppVersion=$ver" "$root\installer\app.iss"
 & $iscc "/DAppVersion=$ver" "$root\installer\client.iss"
@@ -173,6 +173,6 @@ if ($PushTo) {
 }
 else {
     Write-Host "`nTo publish the update to the server:" -ForegroundColor Yellow
-    Write-Host "  build.ps1 -PushTo root@allviewer.tech -PiUpdateDir /opt/allviewer/server/update"
-    Write-Host "  (then on the server:  chown -R allviewer:allviewer /opt/allviewer/server/update )"
+    Write-Host "  build.ps1 -PushTo root@remotler.com -PiUpdateDir /opt/remotler/server/update"
+    Write-Host "  (then on the server:  chown -R remotler:remotler /opt/remotler/server/update )"
 }

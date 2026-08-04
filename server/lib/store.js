@@ -207,14 +207,14 @@ export function setIce(orgId, { stun, turnUrl, turnUser, turnPass } = {}) {
 // ---- per-org branding (white-label) ----
 export function getBranding(orgId) {
   const b = db.orgs[orgId]?.branding || {};
-  return { appName: b.appName || 'AllViewer', accent: b.accent || '#5B5BF5', logo: b.logo || null };
+  return { appName: b.appName || 'Remotler', accent: b.accent || '#5B5BF5', logo: b.logo || null };
 }
 export function setBranding(orgId, { appName, accent, logo } = {}) {
   const o = db.orgs[orgId];
   if (!o) return null;
   const prev = o.branding || {};
   o.branding = {
-    appName: (appName || '').toString().trim().slice(0, 40) || 'AllViewer',
+    appName: (appName || '').toString().trim().slice(0, 40) || 'Remotler',
     accent: /^#[0-9a-fA-F]{6}$/.test(accent || '') ? accent : (prev.accent || '#5B5BF5'),
     // logo is a small data: URL (PNG/SVG). Cap size; keep previous if omitted/invalid.
     logo: typeof logo === 'string' && logo.startsWith('data:image/') && logo.length < 400_000

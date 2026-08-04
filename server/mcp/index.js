@@ -1,15 +1,15 @@
 #!/usr/bin/env node
-// AllViewer MCP server — exposes one organization's fleet to an MCP client.
+// Remotler MCP server — exposes one organization's fleet to an MCP client.
 // Auth: an org API token (create it in the web app → MCP tab).
-//   ALLVIEWER_URL=http://<host>:<port>   ALLVIEWER_TOKEN=hk_...
+//   REMOTLER_URL=http://<host>:<port>   REMOTLER_TOKEN=hk_...
 // Tools: get_computers, get_online_computers, get_tasks, kill_task.
 
 import { Server } from '@modelcontextprotocol/sdk/server/index.js';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio.js';
 import { ListToolsRequestSchema, CallToolRequestSchema } from '@modelcontextprotocol/sdk/types.js';
 
-const BASE = (process.env.ALLVIEWER_URL || 'https://allviewer.tech').replace(/\/$/, '');
-const TOKEN = process.env.ALLVIEWER_TOKEN || '';
+const BASE = (process.env.REMOTLER_URL || 'https://remotler.com').replace(/\/$/, '');
+const TOKEN = process.env.REMOTLER_TOKEN || '';
 
 async function api(path, opts = {}) {
   const r = await fetch(BASE + path, {
@@ -37,7 +37,7 @@ const tools = [
   { name: 'kill_task', description: 'Kill a process by PID on an online computer.', inputSchema: { type: 'object', properties: { device: { type: 'string' }, pid: { type: 'number' } }, required: ['device', 'pid'] } },
 ];
 
-const server = new Server({ name: 'allviewer', version: '0.1.0' }, { capabilities: { tools: {} } });
+const server = new Server({ name: 'remotler', version: '0.1.0' }, { capabilities: { tools: {} } });
 server.setRequestHandler(ListToolsRequestSchema, async () => ({ tools }));
 server.setRequestHandler(CallToolRequestSchema, async (req) => {
   const { name, arguments: args = {} } = req.params;
@@ -55,4 +55,4 @@ server.setRequestHandler(CallToolRequestSchema, async (req) => {
 });
 
 await server.connect(new StdioServerTransport());
-console.error('[allviewer-mcp] ready ->', BASE);
+console.error('[remotler-mcp] ready ->', BASE);

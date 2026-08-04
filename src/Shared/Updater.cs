@@ -131,9 +131,9 @@ public sealed class Updater
         var installDir = Path.GetDirectoryName(exePath)!;
         var exeName = Path.GetFileName(exePath);
         // The client shares its exe with the unattended worker; stopping the service frees
-        // both it and AllViewerService.exe before the swap. Empty for the master.
-        var serviceName = _component == "client" && File.Exists(Path.Combine(installDir, "AllViewerService.exe"))
-            ? "AllViewerService" : "";
+        // both it and RemotlerService.exe before the swap. Empty for the master.
+        var serviceName = _component == "client" && File.Exists(Path.Combine(installDir, "RemotlerService.exe"))
+            ? "RemotlerService" : "";
 
         var scriptPath = Path.Combine(Path.GetTempPath(), "ftd-update-" + Guid.NewGuid().ToString("N") + ".ps1");
         File.WriteAllText(scriptPath, SwapScript, new UTF8Encoding(false));
