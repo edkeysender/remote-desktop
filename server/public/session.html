@@ -1,0 +1,246 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Remotler — Session</title>
+<style>
+  :root { color-scheme: dark; }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: #010409; color: #e6edf3;
+         font: 14px/1.5 -apple-system, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
+         height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+  header { display: flex; gap: 10px; align-items: center; padding: 8px 14px;
+           background: #0d1117; border-bottom: 1px solid #30363d; flex: none; }
+  header .name { font-weight: 600; }
+  header .id { font-family: Consolas, monospace; color: #58a6ff; font-size: 13px; }
+  #status { font-size: 13px; color: #8b949e; }
+  .sp { flex: 1; }
+  #mons { display: flex; gap: 6px; }
+  #mons button { padding: 4px 10px; }
+  #mons button.cur { background: #1f6feb; border-color: #1f6feb; color: #fff; }
+  button { background: #21262d; color: #e6edf3; border: 1px solid #30363d; border-radius: 6px;
+           padding: 5px 12px; font: inherit; cursor: pointer; }
+  button:hover { filter: brightness(1.2); }
+  button.stop { background: transparent; border-color: #6e2b28; color: #f85149; }
+  #stage { flex: 1; display: grid; place-items: center; min-height: 0; position: relative; }
+  video { max-width: 100%; max-height: 100%; width: 100%; height: 100%; object-fit: contain;
+          outline: none; display: none; }
+  video.live { display: block; cursor: none; }
+  #hint { color: #6e7681; text-align: center; line-height: 1.8; padding: 24px; }
+  #hint .big { font-size: 16px; color: #8b949e; }
+  kbd { background: #21262d; border: 1px solid #30363d; border-radius: 4px; padding: 1px 5px; font-size: 12px; }
+  #kbdnote { position: absolute; bottom: 10px; left: 50%; transform: translateX(-50%);
+             background: #161b22cc; border: 1px solid #30363d; border-radius: 20px;
+             padding: 3px 14px; font-size: 12px; color: #8b949e; display: none; }
+</style>
+</head>
+<body>
+<header>
+  <span class="name" id="cname"></span>
+  <span class="id" id="cid"></span>
+  <span id="status">connecting…</span>
+  <span class="sp"></span>
+  <span id="mons"></span>
+  <button id="fs" title="Fullscreen">⛶</button>
+  <button id="bye" class="stop">Disconnect</button>
+</header>
+<div id="stage">
+  <div id="hint"><span class="big" id="hintmain">Connecting…</span><br>
+    <span id="hintsub">Click the screen to send keyboard input. Press <kbd>Esc</kbd> <kbd>Esc</kbd> quickly to release.</span></div>
+  <video id="screen" autoplay playsinline muted tabindex="0"></video>
+  <span id="kbdnote">keyboard captured — <kbd>Esc</kbd> <kbd>Esc</kbd> to release</span>
+</div>
+
+<script>
+'use strict';
+const q = new URLSearchParams(location.search);
+const relayId = (q.get('id') || '').trim();
+const name = q.get('name') || '';
+document.getElementById('cname').textContent = name || 'Remote session';
+document.getElementById('cid').textContent = relayId;
+document.title = (name ? name + ' — ' : '') + 'Remotler session';
+
+const $ = (id) => document.getElementById(id);
+const video = $('screen'), statusEl = $('status'), hint = $('hint');
+
+let ws = null, pc = null, inputCh = null, thumbsCh = null;
+let closed = false;
+
+function setStatus(t, color) { statusEl.textContent = t; statusEl.style.color = color || '#8b949e'; }
+function fail(msg) {
+  closed = true;
+  try { pc && pc.close(); } catch {}
+  try { ws && ws.close(); } catch {}
+  video.classList.remove('live');
+  hint.style.display = 'block';
+  $('hintmain').textContent = msg;
+  $('hintsub').innerHTML = 'You can close this tab, or <a href="" onclick="location.reload();return false">retry</a>.';
+  setStatus(msg, '#f85149');
+}
+
+if (!relayId) { fail('No device id in the URL'); throw new Error('no id'); }
+
+// ---- signaling ------------------------------------------------------------
+// Same-origin WebSocket: the panel's session cookie rides on the upgrade request,
+// and the relay uses it to authorize this account for a password-less connect.
+ws = new WebSocket((location.protocol === 'https:' ? 'wss://' : 'ws://') + location.host);
+ws.onopen = () => { ws.send(JSON.stringify({ t: 'connect', id: relayId })); setStatus('authorizing…', '#d29922'); };
+ws.onerror = () => { if (!closed) fail('Signaling connection error'); };
+ws.onclose = () => { if (!closed) fail('Disconnected'); };
+ws.onmessage = async (ev) => {
+  if (typeof ev.data !== 'string') return;
+  const msg = JSON.parse(ev.data);
+  switch (msg.t) {
+    case 'connected': setStatus('negotiating video…', '#d29922'); makePeer(msg.ice); break;
+    case 'offer':     await onOffer(msg.sdp); break;
+    case 'ice':       await onRemoteIce(msg.candidate); break;
+    case 'monitors':  renderMonitors(msg.list || [], msg.current); break;
+    case 'rejected':  fail('Rejected: ' + (msg.reason || 'not authorized')); break;
+    case 'bye':       fail('Session ended' + (msg.reason ? ' — ' + msg.reason : '')); break;
+  }
+};
+const sig = (o) => { if (ws && ws.readyState === 1) ws.send(JSON.stringify(o)); };
+
+// ---- WebRTC ---------------------------------------------------------------
+function iceServers(ice) {
+  if (!ice) return [{ urls: 'stun:stun.l.google.com:19302' }];
+  // An explicitly-empty STUN list (LAN-only org) is honored — host candidates only.
+  const list = (Array.isArray(ice.stun) ? ice.stun : []).filter(Boolean).map((u) => ({ urls: u }));
+  if (ice.turnUrl) list.push({ urls: ice.turnUrl, username: ice.turnUser || undefined, credential: ice.turnPass || undefined });
+  return list;
+}
+
+const pendingIce = [];   // candidates that arrive before the offer
+function makePeer(ice) {
+  pc = new RTCPeerConnection({ iceServers: iceServers(ice) });
+  pc.ontrack = (e) => {
+    video.srcObject = e.streams[0] || new MediaStream([e.track]);
+    video.classList.add('live');
+    hint.style.display = 'none';
+  };
+  pc.ondatachannel = (e) => {
+    if (e.channel.label === 'input') { inputCh = e.channel; }
+    else if (e.channel.label === 'thumbs') { thumbsCh = e.channel; thumbsCh.onmessage = onThumbMsg; }
+  };
+  pc.onicecandidate = (e) => { if (e.candidate && e.candidate.candidate) sig({ t: 'ice', candidate: e.candidate.candidate }); };
+  pc.onconnectionstatechange = () => {
+    if (pc.connectionState === 'connected') setStatus('● live', '#3fb950');
+    else if (pc.connectionState === 'failed') fail('Connection failed (no network path to the device)');
+    else if (pc.connectionState === 'disconnected') setStatus('reconnecting…', '#d29922');
+  };
+}
+
+async function onOffer(sdp) {
+  if (!pc) makePeer(null);
+  await pc.setRemoteDescription({ type: 'offer', sdp });
+  const answer = await pc.createAnswer();
+  await pc.setLocalDescription(answer);
+  sig({ t: 'answer', sdp: answer.sdp });
+  while (pendingIce.length) await addIce(pendingIce.shift());
+}
+
+async function onRemoteIce(cand) {
+  if (!cand) return;
+  if (!pc || !pc.remoteDescription) { pendingIce.push(cand); return; }
+  await addIce(cand);
+}
+async function addIce(cand) {
+  // SIPSorcery sends a bare candidate string; browsers want it prefixed and tied to an m-line.
+  let c = String(cand).replace(/^a=/, '');
+  if (!c.startsWith('candidate:')) c = 'candidate:' + c;
+  try { await pc.addIceCandidate({ candidate: c, sdpMLineIndex: 0 }); } catch (e) { console.warn('ice', e); }
+}
+
+// ---- host → viewer side messages (thumbs channel) -------------------------
+function onThumbMsg(e) {
+  if (typeof e.data !== 'string') return;
+  try {
+    const m = JSON.parse(e.data);
+    if (m.t === 'clip' && typeof m.text === 'string' && navigator.clipboard?.writeText)
+      navigator.clipboard.writeText(m.text).catch(() => {});
+  } catch { /* binary/thumbnail payloads are ignored in the browser viewer */ }
+}
+
+// ---- input ----------------------------------------------------------------
+const sendInput = (o) => { if (inputCh && inputCh.readyState === 'open') inputCh.send(JSON.stringify(o)); };
+
+// Normalize pointer position to 0..1 of the *displayed* frame (object-fit: contain letterboxing).
+function norm(e) {
+  const r = video.getBoundingClientRect();
+  const vw = video.videoWidth || 1, vh = video.videoHeight || 1;
+  const scale = Math.min(r.width / vw, r.height / vh);
+  const dw = vw * scale, dh = vh * scale;
+  const ox = r.left + (r.width - dw) / 2, oy = r.top + (r.height - dh) / 2;
+  return { x: Math.min(1, Math.max(0, (e.clientX - ox) / dw)),
+           y: Math.min(1, Math.max(0, (e.clientY - oy) / dh)) };
+}
+
+let lastMove = 0;
+video.addEventListener('mousemove', (e) => {
+  const now = performance.now();
+  if (now - lastMove < 12) return;   // ~80 Hz cap
+  lastMove = now;
+  const p = norm(e); sendInput({ t: 'm', x: p.x, y: p.y });
+});
+video.addEventListener('mousedown', (e) => {
+  e.preventDefault(); video.focus(); $('kbdnote').style.display = 'block';
+  const p = norm(e); sendInput({ t: 'b', x: p.x, y: p.y, btn: e.button, down: true });
+});
+video.addEventListener('mouseup', (e) => { e.preventDefault(); const p = norm(e); sendInput({ t: 'b', x: p.x, y: p.y, btn: e.button, down: false }); });
+video.addEventListener('contextmenu', (e) => e.preventDefault());
+video.addEventListener('wheel', (e) => { e.preventDefault(); sendInput({ t: 'w', dy: e.deltaY > 0 ? -120 : 120 }); }, { passive: false });
+video.addEventListener('blur', () => { $('kbdnote').style.display = 'none'; });
+
+// KeyboardEvent.code → Windows virtual-key code (the host injects VKs).
+const VK = (() => {
+  const m = {
+    Backspace:0x08, Tab:0x09, Enter:0x0D, NumpadEnter:0x0D, Pause:0x13, CapsLock:0x14, Escape:0x1B,
+    Space:0x20, PageUp:0x21, PageDown:0x22, End:0x23, Home:0x24,
+    ArrowLeft:0x25, ArrowUp:0x26, ArrowRight:0x27, ArrowDown:0x28,
+    PrintScreen:0x2C, Insert:0x2D, Delete:0x2E,
+    MetaLeft:0x5B, MetaRight:0x5C, ContextMenu:0x5D,
+    Numpad0:0x60, Numpad1:0x61, Numpad2:0x62, Numpad3:0x63, Numpad4:0x64,
+    Numpad5:0x65, Numpad6:0x66, Numpad7:0x67, Numpad8:0x68, Numpad9:0x69,
+    NumpadMultiply:0x6A, NumpadAdd:0x6B, NumpadSubtract:0x6D, NumpadDecimal:0x6E, NumpadDivide:0x6F,
+    NumLock:0x90, ScrollLock:0x91,
+    ShiftLeft:0xA0, ShiftRight:0xA1, ControlLeft:0xA2, ControlRight:0xA3, AltLeft:0xA4, AltRight:0xA5,
+    Semicolon:0xBA, Equal:0xBB, Comma:0xBC, Minus:0xBD, Period:0xBE, Slash:0xBF, Backquote:0xC0,
+    BracketLeft:0xDB, Backslash:0xDC, BracketRight:0xDD, Quote:0xDE, IntlBackslash:0xE2,
+  };
+  for (let i = 0; i < 26; i++) m['Key' + String.fromCharCode(65 + i)] = 0x41 + i;
+  for (let i = 0; i < 10; i++) m['Digit' + i] = 0x30 + i;
+  for (let i = 1; i <= 24; i++) m['F' + i] = 0x70 + i - 1;
+  return m;
+})();
+
+let lastEsc = 0;
+video.addEventListener('keydown', (e) => {
+  e.preventDefault();
+  if (e.code === 'Escape') {
+    const n = performance.now();
+    if (n - lastEsc < 400) { video.blur(); return; }
+    lastEsc = n;
+  }
+  const vk = VK[e.code]; if (vk) sendInput({ t: 'k', vk, down: true });
+});
+video.addEventListener('keyup', (e) => { e.preventDefault(); const vk = VK[e.code]; if (vk) sendInput({ t: 'k', vk, down: false }); });
+
+// ---- monitors -------------------------------------------------------------
+function renderMonitors(list, current) {
+  const el = $('mons');
+  if (!list || list.length < 2) { el.innerHTML = ''; return; }
+  const btn = (label, idx) =>
+    `<button data-mon="${idx}" class="${idx === current ? 'cur' : ''}">${label}</button>`;
+  el.innerHTML = list.map((m, n) => btn(String(n + 1), m.i)).join('') + btn('All', -1);
+  el.querySelectorAll('[data-mon]').forEach((b) => b.onclick = () => sig({ t: 'selmon', index: Number(b.dataset.mon) }));
+}
+
+// ---- header buttons -------------------------------------------------------
+$('fs').onclick = () => document.fullscreenElement ? document.exitFullscreen() : $('stage').requestFullscreen();
+$('bye').onclick = () => { closed = true; try { sig({ t: 'bye' }); } catch {} try { ws.close(); } catch {}
+  try { pc && pc.close(); } catch {} fail('Session ended'); setStatus('ended'); };
+window.addEventListener('beforeunload', () => { try { sig({ t: 'bye' }); } catch {} });
+</script>
+</body>
+</html>

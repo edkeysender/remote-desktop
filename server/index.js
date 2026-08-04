@@ -16,7 +16,7 @@ import { fileURLToPath } from 'url';
 import { buildWebApp } from './lib/web.js';
 import * as releases from './lib/releases.js';
 import * as rateLimit from './lib/ratelimit.js';
-import { verifyToken } from './lib/auth.js';
+import { verifyToken, parseCookies, SESSION_COOKIE } from './lib/auth.js';
 import * as store from './lib/store.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
@@ -458,6 +458,10 @@ wss.on('connection', (ws, req) => {
   ws.role = null;      // 'host' | 'viewer'
   ws.id = null;        // host id (both peers store the paired host id)
   ws._ip = clientIp(req);
+  // The browser viewer connects same-origin, so the panel's session cookie rides on
+  // the upgrade request. Keep it as a fallback credential: a signed-in user opens a
+  // session without their HttpOnly token ever being exposed to page JavaScript.
+  ws._cookieAuth = parseCookies(req)[SESSION_COOKIE] || null;
 
   ws.on('message', (data, isBinary) => {
     // Binary = a media frame from the host. Fast-path relay to its viewer.
@@ -541,8 +545,10 @@ wss.on('connection', (ws, req) => {
         pending.set(rid, ws);
         ws._rid = rid;
         ws._hostId = String(msg.id);
-        // Remember who is viewing (for session history) when account-authenticated.
-        const vuser = msg.auth ? store.getUser(verifyToken(msg.auth) || '') : null;
+        // Remember who is viewing (for session history) when account-authenticated —
+        // via an explicit token (desktop app) or the same-origin cookie (browser viewer).
+        const auth = msg.auth || ws._cookieAuth;
+        const vuser = auth ? store.getUser(verifyToken(auth) || '') : null;
         ws._viewerEmail = vuser?.email ?? null;
         // Two ways to be authorized (host then accepts without the per-client password):
         //  • an account session whose user may access this computer (org + group), or
@@ -553,7 +559,7 @@ wss.on('connection', (ws, req) => {
         // granted password-less control of every host on the relay, across all orgs, and
         // left no session record. Accounts do the same job scoped and audited.
         const admin =
-          accountAuthorized(msg.auth, entry) ||
+          accountAuthorized(auth, entry) ||
           peerAuthorized(msg.from, entry);
         send(entry.ws, { t: 'connect-request', rid, password: msg.password ?? '', admin });
         break;

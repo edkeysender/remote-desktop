@@ -406,6 +406,8 @@ export function buildWebApp({ relayStatus, sendCommand, onlinePeer }) {
   // ------------------------------- static SPA -------------------------------
 
   app.use(express.static(PUBLIC_DIR));
+  // Browser session viewer (opened from the panel in a new tab): /session?id=<relayId>.
+  app.get('/session', (_req, res) => res.sendFile(join(PUBLIC_DIR, 'session.html')));
   // Client-side routes fall back to the SPA shell.
   app.get(['/', '/login', '/invite/:token', '/app', '/app/*'], (_req, res) =>
     res.sendFile(join(PUBLIC_DIR, 'index.html')));
