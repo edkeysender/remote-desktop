@@ -44,6 +44,8 @@ Source: "..\publish\client\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
 ; The service exe is always laid down (harmless if the task is unchecked); it looks for
 ; the worker exe next to itself, so both live in {app}.
 Source: "..\publish\client\{#SvcExe}"; DestDir: "{app}"; Flags: ignoreversion
+; LGPL FFmpeg runtime (hardware H.264). Present only when built with -WithFFmpeg.
+Source: "..\publish\client\*.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"

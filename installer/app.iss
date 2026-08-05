@@ -56,6 +56,8 @@ Name: "autostart"; Description: "Start automatically when I sign in (stay availa
 
 [Files]
 Source: "..\publish\app\{#AppExe}"; DestDir: "{app}"; Flags: ignoreversion
+; LGPL FFmpeg runtime (hardware H.264). Present only when built with -WithFFmpeg.
+Source: "..\publish\app\*.dll"; DestDir: "{app}"; Flags: ignoreversion skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\{#AppName}"; Filename: "{app}\{#AppExe}"

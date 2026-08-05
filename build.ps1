@@ -27,7 +27,10 @@ param(
     # Per-org white-label: produces a custom-named installer whose app exe carries the
     # given icon. e.g. build.ps1 -BrandName "Acme Remote" -BrandIcon C:\acme.ico
     [string]$BrandName = '',
-    [string]$BrandIcon = ''
+    [string]$BrandIcon = '',
+    # Bundle the LGPL FFmpeg shared libraries next to the exes (enables hardware H.264).
+    # Off by default so a plain local build doesn't pull ~70 MB; CI/release passes it.
+    [switch]$WithFFmpeg
 )
 
 $ErrorActionPreference = 'Stop'
@@ -65,6 +68,33 @@ if ($Version) {
 Set-Content "$root\VERSION" $ver -Encoding ascii -NoNewline
 if (-not $Notes) { $Notes = "Remotler $ver" }
 Write-Host "== Building version $ver ==" -ForegroundColor Cyan
+
+# Download the LGPL FFmpeg 8 shared DLLs (H.264 hardware encode + native decode) once,
+# cache under .ffmpeg, and copy them next to each given exe folder. LGPL (no GPL libx264),
+# so it's safe to ship with a proprietary app; H.264 encode uses NVENC/QuickSync/AMF.
+function Add-FFmpeg {
+    param([string[]]$Dests)
+    $cache  = Join-Path $root '.ffmpeg'
+    $binDir = Join-Path $cache 'bin'
+    if (-not (Get-ChildItem -Path $binDir -Filter 'avcodec-*.dll' -ErrorAction SilentlyContinue)) {
+        New-Item -ItemType Directory -Force -Path $cache | Out-Null
+        $zip = Join-Path $cache 'ffmpeg.zip'
+        $url = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl-shared.zip'
+        Write-Host "== Downloading FFmpeg (LGPL shared) ==" -ForegroundColor Cyan
+        Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
+        Expand-Archive -Path $zip -DestinationPath $cache -Force
+        $extractedBin = Get-ChildItem -Path $cache -Directory |
+            ForEach-Object { Join-Path $_.FullName 'bin' } |
+            Where-Object { Test-Path $_ } | Select-Object -First 1
+        if (-not $extractedBin) { throw "FFmpeg 'bin' folder not found after extraction." }
+        if (Test-Path $binDir) { Remove-Item $binDir -Recurse -Force }
+        Copy-Item $extractedBin $binDir -Recurse -Force
+    }
+    foreach ($d in $Dests) {
+        if ($d -and (Test-Path $d)) { Copy-Item (Join-Path $binDir '*.dll') $d -Force }
+    }
+    Write-Host "   FFmpeg DLLs staged into: $($Dests -join ', ')"
+}
 
 function Find-ISCC {
     $candidates = @(
@@ -110,6 +140,9 @@ Write-Host '== Publishing Client worker ==' -ForegroundColor Cyan
 dotnet publish "$root\src\Client\Client.csproj" @publishArgs -o "$root\publish\client"
 Write-Host '== Publishing Service ==' -ForegroundColor Cyan
 dotnet publish "$root\src\Service\Service.csproj" @publishArgs -o "$root\publish\client"
+
+# Bundle the FFmpeg runtime next to both exes so hardware H.264 is available (else VP8).
+if ($WithFFmpeg) { Add-FFmpeg -Dests @("$root\publish\app", "$root\publish\client") }
 
 # ---- stage the auto-update package -------------------------------------------------
 Write-Host '== Staging update package ==' -ForegroundColor Cyan
