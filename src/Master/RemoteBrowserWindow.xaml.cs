@@ -106,6 +106,103 @@ public partial class RemoteBrowserWindow : Window
     }
     private void LRefresh_Click(object sender, RoutedEventArgs e) => LocalNavigate(_localCur);
 
+    // ---- local file-manager ops (act directly on this machine's filesystem) ----
+    private void LNew_Click(object sender, RoutedEventArgs e)
+    {
+        if (_localCur.Length == 0) { StatusText.Text = "Open a drive or folder first."; return; }
+        var name = Prompt("New folder", "New folder");
+        if (string.IsNullOrWhiteSpace(name)) return;
+        try { Directory.CreateDirectory(Path.Combine(_localCur, name!)); LocalNavigate(_localCur); }
+        catch (Exception ex) { StatusText.Text = "Create failed: " + ex.Message; }
+    }
+
+    private void LRen_Click(object sender, RoutedEventArgs e)
+    {
+        if (_localCur.Length == 0 || LocalList.SelectedItem is not Row row) { StatusText.Text = "Select an item to rename."; return; }
+        var cur = Path.GetFileName(row.FullPath.TrimEnd('\\', '/'));
+        var name = Prompt("Rename", cur);
+        if (string.IsNullOrWhiteSpace(name) || name == cur) return;
+        try
+        {
+            var dir = Path.GetDirectoryName(row.FullPath.TrimEnd('\\', '/')) ?? _localCur;
+            var to = Path.Combine(dir, name!);
+            if (row.IsDir) Directory.Move(row.FullPath, to); else File.Move(row.FullPath, to);
+            LocalNavigate(_localCur);
+        }
+        catch (Exception ex) { StatusText.Text = "Rename failed: " + ex.Message; }
+    }
+
+    private void LDel_Click(object sender, RoutedEventArgs e)
+    {
+        if (_localCur.Length == 0 || LocalList.SelectedItem is not Row row) { StatusText.Text = "Select an item to delete."; return; }
+        var nm = Path.GetFileName(row.FullPath.TrimEnd('\\', '/'));
+        if (!Confirm($"Delete '{nm}' from this computer?" + (row.IsDir ? "\n\nThe folder and everything in it will be removed." : ""))) return;
+        try { if (row.IsDir) Directory.Delete(row.FullPath, recursive: true); else File.Delete(row.FullPath); LocalNavigate(_localCur); }
+        catch (Exception ex) { StatusText.Text = "Delete failed: " + ex.Message; }
+    }
+
+    // ---- remote file-manager ops (the host performs them over the channel) ----
+    private async void RNew_Click(object sender, RoutedEventArgs e)
+    {
+        if (_remoteCur.Length == 0) { StatusText.Text = "Open a remote drive or folder first."; return; }
+        var name = Prompt("New folder (remote)", "New folder");
+        if (string.IsNullOrWhiteSpace(name)) return;
+        await RemoteOp(() => _session.Files.MakeDirAsync(Path.Combine(_remoteCur, name!)), $"Created {name}");
+    }
+
+    private async void RRen_Click(object sender, RoutedEventArgs e)
+    {
+        if (_remoteCur.Length == 0 || RemoteList.SelectedItem is not Row row) { StatusText.Text = "Select a remote item to rename."; return; }
+        var cur = Path.GetFileName(row.FullPath.TrimEnd('\\', '/'));
+        var name = Prompt("Rename (remote)", cur);
+        if (string.IsNullOrWhiteSpace(name) || name == cur) return;
+        await RemoteOp(() => _session.Files.RenameEntryAsync(row.FullPath, Path.Combine(_remoteCur, name!)), $"Renamed to {name}");
+    }
+
+    private async void RDel_Click(object sender, RoutedEventArgs e)
+    {
+        if (_remoteCur.Length == 0 || RemoteList.SelectedItem is not Row row) { StatusText.Text = "Select a remote item to delete."; return; }
+        var nm = Path.GetFileName(row.FullPath.TrimEnd('\\', '/'));
+        if (!Confirm($"Delete '{nm}' on the remote computer?" + (row.IsDir ? "\n\nThe folder and everything in it will be removed." : ""))) return;
+        await RemoteOp(() => _session.Files.DeleteEntryAsync(row.FullPath), $"Deleted {nm}");
+    }
+
+    private async Task RemoteOp(Func<Task> op, string okMsg)
+    {
+        SetBusy(true);
+        try { await op(); StatusText.Text = okMsg; _session.Files.RequestListing(_remoteCur); }
+        catch (Exception ex) { StatusText.Text = "Failed: " + ex.Message; }
+        finally { SetBusy(false); }
+    }
+
+    private bool Confirm(string message) =>
+        MessageBox.Show(this, message, "Confirm", MessageBoxButton.OKCancel, MessageBoxImage.Warning) == MessageBoxResult.OK;
+
+    // A small themed text-entry dialog (WPF has no built-in InputBox).
+    private string? Prompt(string title, string initial)
+    {
+        var dlg = new Window
+        {
+            Title = title, Width = 380, SizeToContent = SizeToContent.Height, Owner = this,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner, WindowStyle = WindowStyle.ToolWindow,
+            ResizeMode = ResizeMode.NoResize, Background = (Brush)Resources["Bg"], FontFamily = new FontFamily("Segoe UI")
+        };
+        var panel = new StackPanel { Margin = new Thickness(16) };
+        panel.Children.Add(new TextBlock { Text = title, Foreground = (Brush)Resources["Text"], FontSize = 13, Margin = new Thickness(0, 0, 0, 8) });
+        var tb = new TextBox { Text = initial, FontSize = 13, Padding = new Thickness(6, 5, 6, 5), Foreground = (Brush)Resources["Text"], Background = (Brush)Resources["Card"], BorderBrush = (Brush)Resources["Line"], CaretBrush = (Brush)Resources["Text"] };
+        panel.Children.Add(tb);
+        var btns = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 12, 0, 0) };
+        var ok = new Button { Content = "OK", Width = 82, Height = 30, IsDefault = true, Margin = new Thickness(0, 0, 8, 0), Cursor = Cursors.Hand };
+        var cancel = new Button { Content = "Cancel", Width = 82, Height = 30, IsCancel = true, Cursor = Cursors.Hand };
+        string? result = null;
+        ok.Click += (_, _) => { result = tb.Text?.Trim(); dlg.DialogResult = true; };
+        btns.Children.Add(ok); btns.Children.Add(cancel);
+        panel.Children.Add(btns);
+        dlg.Content = panel;
+        dlg.Loaded += (_, _) => { tb.Focus(); tb.SelectAll(); };
+        return dlg.ShowDialog() == true ? result : null;
+    }
+
     private void LocalList_DoubleClick(object sender, MouseButtonEventArgs e)
     {
         if (LocalList.SelectedItem is not Row row) return;
@@ -236,6 +333,8 @@ public partial class RemoteBrowserWindow : Window
         LUp.IsEnabled = !busy && _localCur.Length > 0;
         RUp.IsEnabled = !busy && _remoteCur.Length > 0;
         LRefresh.IsEnabled = RRefresh.IsEnabled = !busy;
+        LNew.IsEnabled = LRen.IsEnabled = LDel.IsEnabled = !busy;
+        RNew.IsEnabled = RRen.IsEnabled = RDel.IsEnabled = !busy && _session.Files.IsOpen;
         UpdateDirButtons();
     }
 

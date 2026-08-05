@@ -63,6 +63,9 @@ public sealed class FileTransferChannel
     private TaskCompletionSource<string>? _pullTcs;
     private string? _pullSaveAs;                      // explicit save path for the pulled file
 
+    // --- filesystem op state (master waiting on mkdir/del/ren the host performs) ---
+    private TaskCompletionSource<bool>? _opTcs;
+
     /// <summary>Where received files are written. Defaults to the user's Downloads folder.</summary>
     public string SaveDirectory { get; set; } = DefaultSaveDirectory();
 
@@ -100,6 +103,7 @@ public sealed class FileTransferChannel
         AbortReceive();                   // discard any partial download
         _txDone?.TrySetResult(false);
         _pullTcs?.TrySetException(new IOException("Session ended."));
+        _opTcs?.TrySetException(new IOException("Session ended."));
     }
 
     /// <summary>Fires when a transfer is aborted (locally or by the peer).</summary>
@@ -186,6 +190,39 @@ public sealed class FileTransferChannel
     public void RequestReveal(string name)
     {
         _chan?.send(JsonSerializer.Serialize(new { t = "reveal", name }));
+    }
+
+    // ---- remote filesystem ops (master requests; host performs on its own disk) ----
+
+    /// <summary>Create a directory on the remote machine.</summary>
+    public Task MakeDirAsync(string path, CancellationToken ct = default)
+        => SendOpAsync(new { t = "mkdir", path }, ct);
+
+    /// <summary>Delete a file or (recursively) a folder on the remote machine.</summary>
+    public Task DeleteEntryAsync(string path, CancellationToken ct = default)
+        => SendOpAsync(new { t = "del", path }, ct);
+
+    /// <summary>Rename/move a file or folder on the remote machine.</summary>
+    public Task RenameEntryAsync(string path, string to, CancellationToken ct = default)
+        => SendOpAsync(new { t = "ren", path, to }, ct);
+
+    private async Task SendOpAsync(object msg, CancellationToken ct)
+    {
+        var chan = _chan;
+        if (chan is not { IsOpened: true }) throw new InvalidOperationException("File channel is not open.");
+        if (_opTcs != null) throw new InvalidOperationException("A file operation is already in progress.");
+        _opTcs = new TaskCompletionSource<bool>(TaskCreationOptions.RunContinuationsAsynchronously);
+        try
+        {
+            chan.send(JsonSerializer.Serialize(msg));
+            using (ct.Register(() => _opTcs?.TrySetCanceled()))
+            {
+                var done = await Task.WhenAny(_opTcs.Task, Task.Delay(15_000, ct));
+                if (done != _opTcs.Task) throw new IOException("Operation timed out.");
+                await _opTcs.Task;   // throws if the host reported an error
+            }
+        }
+        finally { _opTcs = null; }
     }
 
     /// <summary>
@@ -350,6 +387,50 @@ public sealed class FileTransferChannel
                 if (!string.IsNullOrEmpty(target)) RevealRequested?.Invoke(target!);
                 break;
             }
+
+            // ---- host side: perform a filesystem op the viewer requested, ack with op-ok/op-err ----
+            case "mkdir":
+                DoFsOp(() => Directory.CreateDirectory(r.GetProperty("path").GetString()!));
+                break;
+            case "del":
+                DoFsOp(() =>
+                {
+                    var p = r.GetProperty("path").GetString()!;
+                    if (Directory.Exists(p)) Directory.Delete(p, recursive: true);
+                    else if (File.Exists(p)) File.Delete(p);
+                    else throw new FileNotFoundException("No such file or folder.", p);
+                });
+                break;
+            case "ren":
+                DoFsOp(() =>
+                {
+                    var p = r.GetProperty("path").GetString()!;
+                    var to = r.GetProperty("to").GetString()!;
+                    if (File.Exists(to) || Directory.Exists(to)) throw new IOException("A file or folder with that name already exists.");
+                    if (Directory.Exists(p)) Directory.Move(p, to);
+                    else if (File.Exists(p)) File.Move(p, to);
+                    else throw new FileNotFoundException("No such file or folder.", p);
+                });
+                break;
+
+            // ---- master side: the host's result for a mkdir/del/ren we requested ----
+            case "op-ok":
+                _opTcs?.TrySetResult(true);
+                break;
+            case "op-err":
+                _opTcs?.TrySetException(new IOException(
+                    r.TryGetProperty("msg", out var om) ? om.GetString() : "operation failed"));
+                break;
+        }
+    }
+
+    // ---- host side: run a filesystem op and reply op-ok / op-err ----
+    private void DoFsOp(Action act)
+    {
+        try { act(); _chan?.send("""{"t":"op-ok"}"""); }
+        catch (Exception ex)
+        {
+            try { _chan?.send(JsonSerializer.Serialize(new { t = "op-err", msg = ex.Message })); } catch { }
         }
     }
 

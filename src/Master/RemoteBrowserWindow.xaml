@@ -135,10 +135,13 @@
                             <TextBlock Text="This computer" Foreground="{DynamicResource Text}" FontWeight="Bold" FontSize="13.5" VerticalAlignment="Center"/>
                         </StackPanel>
                         <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
-                            <Border Background="{DynamicResource PathBg}" CornerRadius="6" Padding="10,6" Margin="0,0,74,0">
+                            <Border Background="{DynamicResource PathBg}" CornerRadius="6" Padding="10,6" Margin="0,0,192,0">
                                 <TextBlock x:Name="LocalPath" Text="This PC" Foreground="{DynamicResource Muted}" FontFamily="Consolas" FontSize="12" TextTrimming="CharacterEllipsis"/>
                             </Border>
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <Button x:Name="LNew" Content="🗂" Style="{StaticResource PaneBtn}" Width="30" Click="LNew_Click" ToolTip="New folder"/>
+                                <Button x:Name="LRen" Content="✎" Style="{StaticResource PaneBtn}" Width="30" Click="LRen_Click" ToolTip="Rename"/>
+                                <Button x:Name="LDel" Content="🗑" Style="{StaticResource PaneBtn}" Width="30" Click="LDel_Click" ToolTip="Delete"/>
                                 <Button x:Name="LUp" Content="↑" Style="{StaticResource PaneBtn}" Width="30" Click="LUp_Click" ToolTip="Up"/>
                                 <Button x:Name="LRefresh" Content="⟳" Style="{StaticResource PaneBtn}" Width="30" Margin="0" Click="LRefresh_Click" ToolTip="Refresh"/>
                             </StackPanel>
@@ -170,10 +173,13 @@
                             <TextBlock x:Name="RemoteId" Text="" Foreground="{DynamicResource Muted}" FontFamily="Consolas" FontSize="11.5" Margin="8,0,0,0" VerticalAlignment="Center"/>
                         </StackPanel>
                         <Grid DockPanel.Dock="Top" Margin="0,0,0,8">
-                            <Border Background="{DynamicResource PathBg}" CornerRadius="6" Padding="10,6" Margin="0,0,74,0">
+                            <Border Background="{DynamicResource PathBg}" CornerRadius="6" Padding="10,6" Margin="0,0,192,0">
                                 <TextBlock x:Name="RemotePath" Text="This PC" Foreground="{DynamicResource Muted}" FontFamily="Consolas" FontSize="12" TextTrimming="CharacterEllipsis"/>
                             </Border>
                             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                                <Button x:Name="RNew" Content="🗂" Style="{StaticResource PaneBtn}" Width="30" Click="RNew_Click" ToolTip="New folder (remote)"/>
+                                <Button x:Name="RRen" Content="✎" Style="{StaticResource PaneBtn}" Width="30" Click="RRen_Click" ToolTip="Rename (remote)"/>
+                                <Button x:Name="RDel" Content="🗑" Style="{StaticResource PaneBtn}" Width="30" Click="RDel_Click" ToolTip="Delete (remote)"/>
                                 <Button x:Name="RUp" Content="↑" Style="{StaticResource PaneBtn}" Width="30" Click="RUp_Click" ToolTip="Up"/>
                                 <Button x:Name="RRefresh" Content="⟳" Style="{StaticResource PaneBtn}" Width="30" Margin="0" Click="RRefresh_Click" ToolTip="Refresh"/>
                             </StackPanel>
