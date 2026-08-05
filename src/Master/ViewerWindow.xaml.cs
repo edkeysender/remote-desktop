@@ -87,6 +87,70 @@ public partial class ViewerWindow : Window
         _hwnd = new WindowInteropHelper(this).Handle;
         HwndSource.FromHwnd(_hwnd)?.AddHook(WndProc);
         try { _clipHooked = AddClipboardFormatListener(_hwnd); } catch { }
+        InstallWinKeyHook();
+    }
+
+    // ---- Windows-key capture ----
+    // The shell handles the Win key before WPF sees it (opens the LOCAL Start menu), so a
+    // low-level keyboard hook swallows LWin/RWin while this window is active and forwards
+    // them to the remote instead. Combos follow for free: the remote holds Win while the
+    // second key (R, E, D…) arrives through the normal preview-key path.
+    private const int WH_KEYBOARD_LL = 13;
+    private const int WM_KEYDOWN = 0x0100, WM_SYSKEYDOWN = 0x0104;
+    private const int VK_LWIN = 0x5B, VK_RWIN = 0x5C;
+    private const int LLKHF_INJECTED = 0x10;
+
+    [StructLayout(LayoutKind.Sequential)]
+    private struct KBDLLHOOKSTRUCT { public uint vkCode, scanCode, flags, time; public IntPtr dwExtraInfo; }
+
+    private delegate IntPtr LowLevelKeyboardProc(int nCode, IntPtr wParam, IntPtr lParam);
+    [DllImport("user32.dll", SetLastError = true)]
+    private static extern IntPtr SetWindowsHookEx(int idHook, LowLevelKeyboardProc lpfn, IntPtr hMod, uint dwThreadId);
+    [DllImport("user32.dll")] private static extern bool UnhookWindowsHookEx(IntPtr hhk);
+    [DllImport("user32.dll")] private static extern IntPtr CallNextHookEx(IntPtr hhk, int nCode, IntPtr wParam, IntPtr lParam);
+    [DllImport("kernel32.dll")] private static extern IntPtr GetModuleHandle(string? name);
+
+    private IntPtr _kbHook;
+    private LowLevelKeyboardProc? _kbProc;   // field ref keeps the delegate alive for the native hook
+    private bool _winHeld;
+
+    private void InstallWinKeyHook()
+    {
+        if (_kbHook != IntPtr.Zero) return;
+        _kbProc = WinKeyHook;
+        try { _kbHook = SetWindowsHookEx(WH_KEYBOARD_LL, _kbProc, GetModuleHandle(null), 0); } catch { }
+    }
+
+    private IntPtr WinKeyHook(int nCode, IntPtr wParam, IntPtr lParam)
+    {
+        if (nCode >= 0 && _connected && IsActive)
+        {
+            var k = Marshal.PtrToStructure<KBDLLHOOKSTRUCT>(lParam);
+            if ((k.vkCode == VK_LWIN || k.vkCode == VK_RWIN) && (k.flags & LLKHF_INJECTED) == 0)
+            {
+                int msg = (int)wParam;
+                bool down = msg == WM_KEYDOWN || msg == WM_SYSKEYDOWN;
+                _winHeld = down;
+                _session?.KeyVirtual((int)k.vkCode, down);
+                return (IntPtr)1;   // swallow: keep the local Start menu closed
+            }
+        }
+        return CallNextHookEx(_kbHook, nCode, wParam, lParam);
+    }
+
+    // Focus can leave mid-combo (e.g. Win+D held while alt-tabbing away): release the remote's
+    // Win key so it doesn't stay stuck down.
+    protected override void OnDeactivated(EventArgs e)
+    {
+        base.OnDeactivated(e);
+        ReleaseWinKey();
+    }
+
+    private void ReleaseWinKey()
+    {
+        if (!_winHeld) return;
+        _winHeld = false;
+        try { _session?.KeyVirtual(VK_LWIN, false); _session?.KeyVirtual(VK_RWIN, false); } catch { }
     }
 
     private IntPtr WndProc(IntPtr hwnd, int msg, IntPtr w, IntPtr l, ref bool handled)
@@ -1196,7 +1260,6 @@ public partial class ViewerWindow : Window
     private void WinKeyBtn_Click(object sender, RoutedEventArgs e)
     {
         if (!_connected) return;
-        const int VK_LWIN = 0x5B;
         _session!.KeyVirtual(VK_LWIN, true);
         _session!.KeyVirtual(VK_LWIN, false);
         RemoteImage.Focus();
@@ -1306,6 +1369,8 @@ public partial class ViewerWindow : Window
         _timerTick?.Stop();
         _pingTimer?.Stop();
         _txTimer?.Stop();
+        ReleaseWinKey();
+        if (_kbHook != IntPtr.Zero) { try { UnhookWindowsHookEx(_kbHook); } catch { } _kbHook = IntPtr.Zero; }
         if (_clipHooked) { try { RemoveClipboardFormatListener(_hwnd); } catch { } _clipHooked = false; }
         StopPan();
         if (_session != null) { try { await _session.CloseAsync(); } catch { } _session.Dispose(); _session = null; }

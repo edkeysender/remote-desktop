@@ -101,7 +101,8 @@ public partial class MainWindow : Window
 
     private void OpenDirectViewer(string host, int port, string? pw)
     {
-        var w = new ViewerWindow("", host, host, password: pw, directPort: port) { Owner = this };
+        // No Owner: an owned window would minimize/restore together with the hub.
+        var w = new ViewerWindow("", host, host, password: pw, directPort: port);
         w.Show();
     }
 
@@ -472,8 +473,9 @@ public partial class MainWindow : Window
         if (id.Length == 0) return;
         RecordRecent(string.IsNullOrWhiteSpace(display) ? id : display, id);
         var server = string.IsNullOrWhiteSpace(serverOverride) ? _config.ServerUrl : serverOverride!;
+        // No Owner: an owned window would minimize/restore together with the hub.
         var w = new ViewerWindow(server, id, display, password: password, authToken: authToken,
-                                 peerToken: _config.HostToken, fleetProvider: CurrentFleetSnapshot) { Owner = this };
+                                 peerToken: _config.HostToken, fleetProvider: CurrentFleetSnapshot);
         w.Show();
     }
 
