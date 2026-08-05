@@ -165,6 +165,10 @@ public sealed class HostSession : IDisposable
                 // per-client password (this is the directory "connect without a prompt").
                 bool admin = root.TryGetProperty("admin", out var av) && av.ValueKind == JsonValueKind.True;
                 bool ok = admin || string.Equals(pw, _password, StringComparison.Ordinal);
+                // The relay sends a freshly-resolved ICE set with each request — the copy
+                // from registration can hold expired short-lived TURN credentials.
+                if (root.TryGetProperty("ice", out var cice) && cice.ValueKind == JsonValueKind.Object)
+                    _iceServers = IceConfig.FromJson(cice);
                 _ = _conn!.SendJsonAsync(new { t = "connect-response", rid, ok });
                 if (ok) { _ = StartPeerAsync(); if (admin) Status?.Invoke("Session active (admin) — negotiating video…"); }
                 else Status?.Invoke("Rejected a connection (wrong password)");

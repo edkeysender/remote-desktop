@@ -138,7 +138,10 @@ export function buildWebApp({ relayStatus, sendCommand, onlinePeer }) {
   // including read-only auditors — should be able to read over REST. Clients still
   // receive them where they're actually needed, on the relay's registered/connected
   // messages, which requires possession of a device or session credential.
-  app.get('/api/ice', requireUser, requireAdmin, (req, res) => res.json(store.getIce(req.user.orgId)));
+  // GET returns the *stored* org row (plus a serverTurn flag), never the resolved set:
+  // the resolved output can contain server-default TURN credentials minted from
+  // TURN_SECRET, which must not appear in a form where saving would persist them.
+  app.get('/api/ice', requireUser, requireAdmin, (req, res) => res.json(store.getIceStored(req.user.orgId)));
   app.put('/api/ice', requireUser, requireAdmin, (req, res) => {
     const i = store.setIce(req.user.orgId, req.body || {});
     store.logEvent(req.user.orgId, 'network', { actorEmail: req.user.email });

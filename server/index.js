@@ -609,7 +609,13 @@ wss.on('connection', (ws, req) => {
         const admin =
           accountAuthorized(auth, entry) ||
           peerAuthorized(msg.from, entry);
-        send(entry.ws, { t: 'connect-request', rid, password: msg.password ?? '', admin });
+        // Include a freshly-resolved ICE set: the host's register-time copy can be
+        // stale (TURN_SECRET credentials are short-lived, and the org's network
+        // settings may have changed since). Older hosts ignore the extra field.
+        send(entry.ws, {
+          t: 'connect-request', rid, password: msg.password ?? '', admin,
+          ice: entry.orgId ? store.getIce(entry.orgId) : null,
+        });
         break;
       }
 

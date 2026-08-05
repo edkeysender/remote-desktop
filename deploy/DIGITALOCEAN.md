@@ -59,16 +59,35 @@ Caddy now serves `https://remotler.com` and `wss://remotler.com` with an
 auto-renewing certificate. Verify: `curl https://remotler.com/health` → `ok`.
 
 ## 6. TURN relay (coturn)
+
+**This step is not optional for internet use.** Without a TURN fallback, any viewer/host
+pair that can't STUN-hole-punch (symmetric NAT, CGNAT, UDP-filtered networks — common
+for browser sessions) fails ICE with *"Connection failed (no network path to the
+device)"* even though signaling works.
+
 ```bash
 apt install -y coturn
 sed -i 's/#TURNSERVER_ENABLED=1/TURNSERVER_ENABLED=1/' /etc/default/coturn
 cp /opt/remotler/deploy/turnserver.conf /etc/turnserver.conf
-# EDIT it: domain + a strong TURN secret; ensure the cert path exists
+# EDIT it: domain + a strong static-auth-secret; ensure the cert path exists
 systemctl enable --now coturn
 ```
-Then in the org dashboard → **Configurations → Network / relay**:
-- STUN: `stun:remotler.com:3478`
-- TURN URL: `turn:remotler.com:3478` · user `remotler` · password `<your secret>`
+
+Then give the signaling server the same secret — in
+`/etc/systemd/system/remotler-signal.service` (the template already carries the lines):
+```
+Environment=STUN_URLS=stun:remotler.com:3478
+Environment=TURN_URL=turn:remotler.com:3478
+Environment=TURN_SECRET=<the static-auth-secret from turnserver.conf>
+```
+```bash
+systemctl daemon-reload && systemctl restart remotler-signal
+```
+Every org now gets this relay as its default fallback automatically: the server mints
+short-lived TURN credentials per session (TURN REST API), so nothing long-lived reaches
+a browser or the org database. An org can still override with its own relay — or opt
+out of external servers entirely by saving an empty STUN list — in the dashboard under
+**Configurations → Network / relay**.
 
 ## 7. Firewall
 ```bash
