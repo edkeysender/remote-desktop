@@ -515,6 +515,7 @@ async function viewConfigs(){
     <h2 style="font-size:.9rem">Network / relay</h2>
     <div class="card" style="margin-bottom:16px">
       <p class="muted" style="margin-bottom:8px">Computers on the same network connect <b>directly, peer-to-peer</b> — the server only brokers the handshake and never carries the stream. STUN helps first-time NAT hole-punching; a TURN relay is a last resort for hard NATs. For a flat internal network you can clear STUN entirely (LAN-direct, nothing external).</p>
+      ${ice.serverTurn&&!ice.turnUrl?'<p class="muted" style="margin-bottom:8px">✓ This server provides a <b>default TURN relay</b> — sessions already fall back to it when a direct path fails. Fill the fields below only to override it with your own relay.</p>':''}
       <label>STUN servers (comma-separated; blank = LAN-only, no external)</label>
       <input id="stun" value="${esc((ice.stun||[]).join(', '))}" placeholder="stun:stun.l.google.com:19302">
       <div style="display:grid;grid-template-columns:2fr 1fr 1fr;gap:8px;margin-top:8px">

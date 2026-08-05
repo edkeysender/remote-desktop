@@ -11,7 +11,7 @@
 // Access rule: a user may connect to a computer iff same org AND (user is admin OR
 // the computer's group is one of the user's groups).
 
-import { randomBytes, createHash } from 'crypto';
+import { randomBytes, createHash, createHmac } from 'crypto';
 import { readFileSync, writeFileSync, existsSync, mkdirSync, renameSync, chmodSync } from 'fs';
 import { resolve, join } from 'path';
 
@@ -249,15 +249,61 @@ export function setComputerConfig(deviceToken, orgId, configId) {
 }
 
 // ---- per-org network / ICE settings (STUN/TURN for WebRTC) ----
-// Default = a public STUN server (helps first NAT hole-punch). On a flat internal
-// network you can set stun:[] (host candidates only → pure LAN-direct, nothing external),
-// or point at your own coturn. Media is always P2P; TURN is only a last-resort relay.
+// What peers receive resolves in two layers:
+//   1. the org's saved settings (panel → Configurations → Network / relay), else
+//   2. server-wide defaults from the environment:
+//        STUN_URLS    comma-separated STUN URIs (default: Google's public server)
+//        TURN_URL     e.g. turn:remotler.com:3478
+//        TURN_USER / TURN_PASS   static long-term credential (coturn lt-cred-mech), or
+//        TURN_SECRET  coturn `use-auth-secret` shared secret — a short-lived credential
+//                     is minted per call (TURN REST API, username = expiry timestamp,
+//                     password = HMAC-SHA1), so viewers never hold anything long-lived.
+// Without a TURN fallback, any browser/host pair that can't STUN-hole-punch (symmetric
+// NAT, UDP-filtered networks) fails ICE outright — "no network path to the device".
+// An org that saved an explicitly-empty STUN list opted into LAN-only/no-external;
+// the env TURN default is not injected for it.
+const TURN_CRED_TTL_S = 24 * 60 * 60;
+
+function envStun() {
+  const s = (process.env.STUN_URLS || '').split(',').map((x) => x.trim()).filter(Boolean);
+  return s.length ? s : ['stun:stun.l.google.com:19302'];
+}
+function envTurn() {
+  const turnUrl = (process.env.TURN_URL || '').trim();
+  if (!turnUrl) return null;
+  const secret = (process.env.TURN_SECRET || '').trim();
+  if (secret) {
+    const turnUser = String(Math.floor(Date.now() / 1000) + TURN_CRED_TTL_S);
+    const turnPass = createHmac('sha1', secret).update(turnUser).digest('base64');
+    return { turnUrl, turnUser, turnPass };
+  }
+  return {
+    turnUrl,
+    turnUser: (process.env.TURN_USER || '').trim() || null,
+    turnPass: (process.env.TURN_PASS || '').trim() || null,
+  };
+}
+
 export function getIce(orgId) {
   const i = db.orgs[orgId]?.ice;
-  if (!i) return { stun: ['stun:stun.l.google.com:19302'], turnUrl: null, turnUser: null, turnPass: null };
+  const stun = i && Array.isArray(i.stun) ? i.stun : envStun();
+  const lanOnly = !!i && Array.isArray(i.stun) && i.stun.length === 0;
+  const turn = i?.turnUrl
+    ? { turnUrl: i.turnUrl, turnUser: i.turnUser || null, turnPass: i.turnPass || null }
+    : (lanOnly ? null : envTurn());
+  return { stun, turnUrl: null, turnUser: null, turnPass: null, ...turn };
+}
+
+// What the panel edits: the org's stored row only. Env-minted TURN credentials must
+// never round-trip through the form and get saved back as if they were org settings.
+// `serverTurn` lets the UI say a server-wide TURN default is active when the org
+// fields are blank.
+export function getIceStored(orgId) {
+  const i = db.orgs[orgId]?.ice;
   return {
-    stun: Array.isArray(i.stun) ? i.stun : ['stun:stun.l.google.com:19302'],
-    turnUrl: i.turnUrl || null, turnUser: i.turnUser || null, turnPass: i.turnPass || null,
+    stun: i && Array.isArray(i.stun) ? i.stun : envStun(),
+    turnUrl: i?.turnUrl || null, turnUser: i?.turnUser || null, turnPass: i?.turnPass || null,
+    serverTurn: !!(process.env.TURN_URL || '').trim(),
   };
 }
 export function setIce(orgId, { stun, turnUrl, turnUser, turnPass } = {}) {
@@ -272,7 +318,7 @@ export function setIce(orgId, { stun, turnUrl, turnUser, turnPass } = {}) {
     turnPass: (turnPass || '').toString().trim() || null,
   };
   save();
-  return getIce(orgId);
+  return getIceStored(orgId);
 }
 
 // ---- per-org branding (white-label) ----

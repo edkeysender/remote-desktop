@@ -19,6 +19,14 @@ Environment=NODE_ENV=production
 Environment=UPDATE_DIR=/opt/remotler/server/update
 Environment=ADMIN_PASSWORD=change-me-admin
 Environment=PLATFORM_PASSWORD=change-me-platform
+# Server-wide ICE defaults handed to every org that hasn't set its own (panel →
+# Configurations → Network / relay). Without a TURN fallback, peers that can't
+# STUN-hole-punch (symmetric NAT, UDP-blocked networks) fail with "no network path".
+# TURN_SECRET must match `static-auth-secret` in /etc/turnserver.conf (coturn
+# use-auth-secret mode); the server then mints short-lived per-session credentials.
+Environment=STUN_URLS=stun:remotler.com:3478
+Environment=TURN_URL=turn:remotler.com:3478
+Environment=TURN_SECRET=change-me-turn-secret
 ExecStart=/usr/bin/node index.js
 Restart=always
 RestartSec=3
