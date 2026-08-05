@@ -18,6 +18,9 @@ public readonly record struct VdBounds(int X, int Y, int W, int H);
 /// <summary>A file copied on the remote clipboard (to be pulled to the local machine).</summary>
 public readonly record struct RemoteClipFile(string Path, string Name, long Size);
 
+/// <summary>How the media path was established: direct peer-to-peer, or through the TURN relay.</summary>
+public enum SessionTransport { P2p, Relay }
+
 /// <summary>
 /// Master (viewer) side, Phase 2. The WebSocket carries only signaling; video and
 /// input travel over a direct WebRTC peer connection. The master is the answerer:
@@ -42,6 +45,7 @@ public sealed class ViewerSession : IDisposable
     public event Action<int, int, int, byte[]>? Thumbnail;    // monitor index, w, h, JPEG bytes
     public event Action<int>? NewWindow;                      // a new top-level window appeared on this monitor
     public event Action<long>? PongReceived;                  // echo of a ping timestamp (for RTT)
+    public event Action<SessionTransport>? TransportResolved; // P2P vs TURN relay, once ICE nominates a pair
     public event Action<string>? ClipboardText;               // text copied on the remote → set locally
     public event Action<List<RemoteClipFile>>? ClipboardFiles;// files copied on the remote → pull + set locally
     public event Action<string?>? Closed;
@@ -173,6 +177,12 @@ public sealed class ViewerSession : IDisposable
             if (c != null) _ = _conn.SendJsonAsync(new { t = "ice", candidate = c.ToString() });
         };
 
+        var pc = _pc;
+        _pc.onconnectionstatechange += state =>
+        {
+            if (state == RTCPeerConnectionState.connected) _ = ResolveTransportAsync(pc);
+        };
+
         _pc.OnVideoFrameReceived += (_, _, encoded, format) =>
         {
             try
@@ -186,6 +196,27 @@ public sealed class ViewerSession : IDisposable
             }
             catch { /* skip a bad frame */ }
         };
+    }
+
+    /// <summary>
+    /// Reads the nominated ICE pair to tell whether media flows directly (host/srflx
+    /// candidates) or through the TURN server. Nomination can settle slightly after the
+    /// connection-state change and there is no event for it, so poll briefly.
+    /// </summary>
+    private async Task ResolveTransportAsync(RTCPeerConnection pc)
+    {
+        for (int i = 0; i < 20; i++)
+        {
+            var entry = (pc.GetRtpChannel() as RtpIceChannel)?.NominatedEntry;
+            if (entry?.LocalCandidate != null && entry.RemoteCandidate != null)
+            {
+                bool relay = entry.LocalCandidate.type == RTCIceCandidateType.relay
+                          || entry.RemoteCandidate.type == RTCIceCandidateType.relay;
+                TransportResolved?.Invoke(relay ? SessionTransport.Relay : SessionTransport.P2p);
+                return;
+            }
+            await Task.Delay(250);
+        }
     }
 
     private async Task HandleOfferAsync(string sdp)

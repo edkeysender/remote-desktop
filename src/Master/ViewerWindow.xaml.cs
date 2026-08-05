@@ -219,6 +219,7 @@ public partial class ViewerWindow : Window
         _session.Thumbnail += (i, _, _, bytes) => Dispatcher.Invoke(() => OnThumb(i, bytes));
         _session.NewWindow += i => Dispatcher.Invoke(() => OnNewWindow(i));
         _session.PongReceived += ts => Dispatcher.Invoke(() => OnPong(ts));
+        _session.TransportResolved += tr => Dispatcher.Invoke(() => OnTransport(tr));
         _session.ClipboardText += t => Dispatcher.Invoke(() => OnRemoteClipText(t));
         _session.ClipboardFiles += list => Dispatcher.Invoke(() => OnRemoteClipFiles(list));
         _session.Closed    += r  => Dispatcher.Invoke(() => { if (_connected) SetStatus("Closed: " + (r ?? ""), "#8A8DA3"); CloseSoon(); });
@@ -419,6 +420,7 @@ public partial class ViewerWindow : Window
         _id = id; _display = name;
         TitleText.Text = name; Title = $"Remotler — {name}";
         P2pText.Text = "Connecting"; P2pDot.Fill = new SolidColorBrush(Color.FromRgb(0x3E, 0xC8, 0xFF));
+        _transport = null; P2pBadge.ToolTip = null;
         TimerText.Text = "00:00";
         SetStatus("Connecting…", "#8A8DA3");
 
@@ -734,11 +736,22 @@ public partial class ViewerWindow : Window
         RailBadgeText.Text = alert ? "!" : _monitors.Count.ToString();
     }
 
+    private string? _transport;   // "P2P" / "Relay" once ICE nominates a pair; null while unknown
+
+    private void OnTransport(SessionTransport tr)
+    {
+        _transport = tr == SessionTransport.Relay ? "Relay" : "P2P";
+        P2pBadge.ToolTip = tr == SessionTransport.Relay
+            ? "Relayed connection — traffic goes through the TURN server (no direct path between the machines)"
+            : "Direct peer-to-peer connection between the machines";
+        P2pText.Text = _transport;
+    }
+
     private void OnPong(long ts)
     {
         long rtt = _sessionClock.ElapsedMilliseconds - ts;
         if (rtt < 0 || rtt > 10000) return;
-        P2pText.Text = $"Live · {rtt} ms";
+        P2pText.Text = $"{_transport ?? "Live"} · {rtt} ms";
         var c = rtt < 80 ? Color.FromRgb(0x1F, 0xC9, 0x8B) : rtt < 200 ? Color.FromRgb(0x3E, 0xC8, 0xFF) : Color.FromRgb(0xFF, 0xAA, 0x1D);
         P2pDot.Fill = new SolidColorBrush(c);
     }

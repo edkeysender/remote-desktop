@@ -127,10 +127,31 @@ function makePeer(ice) {
   };
   pc.onicecandidate = (e) => { if (e.candidate && e.candidate.candidate) sig({ t: 'ice', candidate: e.candidate.candidate }); };
   pc.onconnectionstatechange = () => {
-    if (pc.connectionState === 'connected') setStatus('● live', '#3fb950');
+    if (pc.connectionState === 'connected') { setStatus('● live', '#3fb950'); showTransport(); }
     else if (pc.connectionState === 'failed') fail('Connection failed (no network path to the device)');
     else if (pc.connectionState === 'disconnected') setStatus('reconnecting…', '#d29922');
   };
+}
+
+// Label the status with the media path: direct P2P vs TURN relay, read from the
+// selected candidate pair in getStats().
+async function showTransport() {
+  try {
+    const stats = await pc.getStats();
+    let pair = null;
+    stats.forEach((s) => {
+      if (!pair && s.type === 'transport' && s.selectedCandidatePairId) pair = stats.get(s.selectedCandidatePairId);
+    });
+    stats.forEach((s) => {   // Firefox has no transport stat; fall back to the nominated pair
+      if (!pair && s.type === 'candidate-pair' && s.state === 'succeeded' && (s.selected || s.nominated)) pair = s;
+    });
+    if (!pair) return;
+    const local = stats.get(pair.localCandidateId), remote = stats.get(pair.remoteCandidateId);
+    const relay = local?.candidateType === 'relay' || remote?.candidateType === 'relay';
+    setStatus('● live · ' + (relay ? 'Relay' : 'P2P'), '#3fb950');
+    statusEl.title = relay ? 'Relayed connection — traffic goes through the TURN server'
+                           : 'Direct peer-to-peer connection';
+  } catch { /* stats are best-effort; keep the plain "live" status */ }
 }
 
 async function onOffer(sdp) {
