@@ -70,10 +70,13 @@ jobs:
           # Attended app installer + unattended agent installer.
           Copy-Item "installer/dist/*.exe" $out -Force
           # Auto-update package: manifest + raw component exes (exclude the *-Setup-* copies
-          # that build.ps1 also stages there, to avoid duplicate asset names).
+          # that build.ps1 also stages there, to avoid duplicate asset names) + the FFmpeg
+          # DLLs so auto-update can deliver hardware H.264, not just the exe.
           Copy-Item "publish/update/manifest.json" $out -Force
           Get-ChildItem "publish/update/*.exe" |
             Where-Object { $_.Name -notlike '*-Setup-*' } |
+            ForEach-Object { Copy-Item $_.FullName $out -Force }
+          Get-ChildItem "publish/update/*.dll" -ErrorAction SilentlyContinue |
             ForEach-Object { Copy-Item $_.FullName $out -Force }
           Write-Host "Assets:"; Get-ChildItem $out | ForEach-Object { Write-Host "  $($_.Name)  ($([math]::Round($_.Length/1MB,1)) MB)" }
           "dir=$out" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8

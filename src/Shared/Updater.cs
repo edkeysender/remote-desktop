@@ -91,9 +91,22 @@ public sealed class Updater
         var stage = Path.Combine(Path.GetTempPath(), "ftd-update-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(stage);
 
-        long total = Math.Max(1, info.Files.Sum(f => f.Size));
+        // Skip files already installed with a matching hash (e.g. the FFmpeg DLLs, which rarely
+        // change) — only the actually-changed files get downloaded and staged for the swap.
+        var installDir = Path.GetDirectoryName(Environment.ProcessPath ?? "") ?? "";
+        var toGet = new List<UpdateFile>();
+        foreach (var f in info.Files)
+        {
+            var existing = Path.Combine(installDir, Path.GetFileName(f.Name));
+            if (File.Exists(existing) &&
+                (await Sha256Async(existing, ct)).Equals(f.Sha256, StringComparison.OrdinalIgnoreCase))
+                continue;   // already current on disk
+            toGet.Add(f);
+        }
+
+        long total = Math.Max(1, toGet.Sum(f => f.Size));
         long done = 0;
-        foreach (var file in info.Files)
+        foreach (var file in toGet)
         {
             var dest = Path.Combine(stage, Path.GetFileName(file.Name));
             using (var resp = await _http.GetAsync(UpdateBase + Uri.EscapeDataString(file.Name),

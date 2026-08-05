@@ -163,16 +163,24 @@ function New-Entry([string]$path) {
 $appOut   = if ($BrandName) { (($BrandName -replace '[^\w\-]', '_')) + "-Setup-$ver" } else { "Remotler-Setup-$ver" }
 $agentOut = "RemotlerAgent-Setup-$ver"
 
+# The FFmpeg runtime DLLs (hardware H.264) are part of both components so auto-update
+# delivers them too, not just the exe. They're identical across app/client; the updater
+# skips any file already installed with a matching hash, so they download only when changed.
+$ffEntries = @()
+if ($WithFFmpeg) {
+    foreach ($dll in Get-ChildItem "$root\publish\app\*.dll") { $ffEntries += New-Entry $dll.FullName }
+}
+
 # @(...) keeps these as JSON arrays; the app parser also tolerates a bare object.
 # Components: "app" = the unified attended app; "client" = the unattended worker+service.
 $manifest = [ordered]@{
     version        = $ver
     notes          = $Notes
-    app            = @( New-Entry "$root\publish\app\RemoteControl.exe" )
+    app            = @( New-Entry "$root\publish\app\RemoteControl.exe" ) + $ffEntries
     client         = @(
         New-Entry "$root\publish\client\RemotlerAgent.exe"
         New-Entry "$root\publish\client\RemotlerService.exe"
-    )
+    ) + $ffEntries
     appInstaller   = "$appOut.exe"      # attended app installer (dashboard Download tab)
     agentInstaller = "$agentOut.exe"    # unattended agent + service installer
 }
