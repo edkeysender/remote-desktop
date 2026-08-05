@@ -3,6 +3,8 @@ using System.Text.Json;
 using SIPSorcery.Net;
 using SIPSorceryMedia.Abstractions;
 using SIPSorceryMedia.Encoders;
+using SIPSorceryMedia.FFmpeg;
+using RemoteDesktop.Client;
 using RemoteDesktop.Shared;
 
 namespace RemoteDesktop.Master;
@@ -26,6 +28,7 @@ public sealed class ViewerSession : IDisposable
 {
     private ISignaling _conn = new SignalingConnection();
     private readonly VpxVideoEncoder _decoder = new();
+    private FFmpegVideoEncoder? _h264dec;               // created on demand when H.264 is available
     private RTCPeerConnection? _pc;
     private RTCDataChannel? _inputChannel;
     private int _controlReadyFired;   // 0/1 guard so ControlReady fires once
@@ -141,9 +144,16 @@ public sealed class ViewerSession : IDisposable
         };
         _pc = new RTCPeerConnection(config);
 
-        var vp8 = new SDPAudioVideoMediaFormat(SDPMediaTypesEnum.video, 96, "VP8", 90000);
-        _pc.addTrack(new MediaStreamTrack(SDPMediaTypesEnum.video, false,
-            new List<SDPAudioVideoMediaFormat> { vp8 }, MediaStreamStatusEnum.RecvOnly));
+        // Accept H.264 (preferred) + VP8 when FFmpeg is available for decode; otherwise VP8 only,
+        // so a viewer without the FFmpeg libs simply negotiates VP8 with the host.
+        var formats = new List<SDPAudioVideoMediaFormat>();
+        if (FFmpegSupport.H264Available)
+        {
+            try { _h264dec = new FFmpegVideoEncoder(); formats.Add(new SDPAudioVideoMediaFormat(SDPMediaTypesEnum.video, 100, "H264", 90000)); }
+            catch { _h264dec = null; }
+        }
+        formats.Add(new SDPAudioVideoMediaFormat(SDPMediaTypesEnum.video, 96, "VP8", 90000));
+        _pc.addTrack(new MediaStreamTrack(SDPMediaTypesEnum.video, false, formats, MediaStreamStatusEnum.RecvOnly));
 
         _pc.ondatachannel += chan =>
         {
@@ -163,11 +173,15 @@ public sealed class ViewerSession : IDisposable
             if (c != null) _ = _conn.SendJsonAsync(new { t = "ice", candidate = c.ToString() });
         };
 
-        _pc.OnVideoFrameReceived += (_, _, encoded, _) =>
+        _pc.OnVideoFrameReceived += (_, _, encoded, format) =>
         {
             try
             {
-                foreach (var s in _decoder.DecodeVideo(encoded, VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.VP8))
+                // Decode with the codec the frame actually arrived in (negotiated per session).
+                var samples = format.Codec == VideoCodecsEnum.H264 && _h264dec != null
+                    ? _h264dec.DecodeVideo(encoded, VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.H264)
+                    : _decoder.DecodeVideo(encoded, VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.VP8);
+                foreach (var s in samples)
                     Frame?.Invoke((int)s.Width, (int)s.Height, s.Sample);
             }
             catch { /* skip a bad frame */ }
@@ -258,6 +272,7 @@ public sealed class ViewerSession : IDisposable
     {
         Files.Detach();
         try { _pc?.Close("disposed"); } catch { }
+        try { _h264dec?.Dispose(); } catch { }
         _conn.Dispose();
     }
 }

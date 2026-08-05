@@ -7,6 +7,7 @@ using System.Text.Json;
 using SIPSorcery.Net;
 using SIPSorceryMedia.Abstractions;
 using SIPSorceryMedia.Encoders;
+using SIPSorceryMedia.FFmpeg;
 using RemoteDesktop.Shared;
 
 namespace RemoteDesktop.Client;
@@ -41,6 +42,8 @@ public sealed class HostSession : IDisposable
     private WindowWatcher? _winWatch;
     private ClipboardMonitor? _clipMon;
     private VpxVideoEncoder? _encoder;
+    private FFmpegVideoEncoder? _h264;                 // non-null only when H.264 was negotiated + available
+    private VideoCodecsEnum _sendCodec = VideoCodecsEnum.VP8;   // set by OnVideoFormatsNegotiated
     private CancellationTokenSource? _pumpCts;
     private Task? _pumpTask;
     private readonly object _encLock = new();   // serialize encode vs. dispose (native codec)
@@ -241,15 +244,33 @@ public sealed class HostSession : IDisposable
         Status?.Invoke("Session active — negotiating video…");
 
         _encoder = new VpxVideoEncoder();
+        _sendCodec = VideoCodecsEnum.VP8;
+
+        // Offer H.264 (preferred) + VP8 when FFmpeg is available; the peer's answer decides which
+        // is used, and OnVideoFormatsNegotiated tells us which to encode. If FFmpeg or H.264
+        // isn't available on either side, negotiation falls back to VP8 — no behaviour change.
+        bool h264 = FFmpegSupport.H264Available;
+        if (h264)
+        {
+            try { _h264 = new FFmpegVideoEncoder(); }
+            catch { _h264 = null; h264 = false; }
+        }
+
         var config = new RTCConfiguration
         {
             iceServers = _iceServers ?? IceConfig.Default()
         };
         _pc = new RTCPeerConnection(config);
 
-        var vp8 = new SDPAudioVideoMediaFormat(SDPMediaTypesEnum.video, 96, "VP8", 90000);
-        _pc.addTrack(new MediaStreamTrack(SDPMediaTypesEnum.video, false,
-            new List<SDPAudioVideoMediaFormat> { vp8 }, MediaStreamStatusEnum.SendOnly));
+        var formats = new List<SDPAudioVideoMediaFormat>();
+        if (h264) formats.Add(new SDPAudioVideoMediaFormat(SDPMediaTypesEnum.video, 100, "H264", 90000));
+        formats.Add(new SDPAudioVideoMediaFormat(SDPMediaTypesEnum.video, 96, "VP8", 90000));
+        _pc.addTrack(new MediaStreamTrack(SDPMediaTypesEnum.video, false, formats, MediaStreamStatusEnum.SendOnly));
+
+        _pc.OnVideoFormatsNegotiated += fmts =>
+        {
+            if (fmts != null && fmts.Count > 0) _sendCodec = fmts[0].Codec;
+        };
 
         // Host creates the input channel; master sends input back over it.
         _inputChannel = await _pc.createDataChannel("input", null);
@@ -373,6 +394,9 @@ public sealed class HostSession : IDisposable
             _capture!.SetRegion(region);
             _encoder?.Dispose();
             _encoder = new VpxVideoEncoder();
+            // Recreate the H.264 encoder too so it re-initialises at the new dimensions and
+            // emits a fresh keyframe.
+            if (_h264 != null) { try { _h264.Dispose(); _h264 = new FFmpegVideoEncoder(); } catch { _h264 = null; } }
         }
         ApplyInputRegion();
         SendMonitorList();   // push refreshed bounds + virtual-desktop geometry to the viewer
@@ -408,9 +432,14 @@ public sealed class HostSession : IDisposable
                         // the codec mid-call (would be an uncatchable AccessViolation).
                         lock (_encLock)
                         {
-                            if (_encoder == null || token.IsCancellationRequested) break;
-                            enc = _encoder.EncodeVideo(_capture.Width, _capture.Height, bgr,
-                                VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.VP8);
+                            if (token.IsCancellationRequested) break;
+                            if (_sendCodec == VideoCodecsEnum.H264 && _h264 != null)
+                                enc = _h264.EncodeVideo(_capture.Width, _capture.Height, bgr,
+                                    VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.H264);
+                            else if (_encoder != null)
+                                enc = _encoder.EncodeVideo(_capture.Width, _capture.Height, bgr,
+                                    VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.VP8);
+                            else break;
                         }
                         if (enc is { Length: > 0 }) { _pc?.SendVideo(duration, enc); lastSentMs = t0; }
                         if (changed)
@@ -518,7 +547,8 @@ public sealed class HostSession : IDisposable
         try { _thumbChannel?.close(); } catch { }
         try { _pc?.Close("session ended"); } catch { }
         _inputChannel = null; _fileChannel = null; _thumbChannel = null; _pc = null;
-        lock (_encLock) { _encoder?.Dispose(); _encoder = null; }
+        lock (_encLock) { _encoder?.Dispose(); _encoder = null; _h264?.Dispose(); _h264 = null; }
+        _sendCodec = VideoCodecsEnum.VP8;
     }
 
     public async Task StopAsync()
