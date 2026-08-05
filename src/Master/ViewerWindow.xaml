@@ -166,7 +166,7 @@
                 <StackPanel Grid.Column="3" Orientation="Horizontal" VerticalAlignment="Center">
                     <Button x:Name="WinKeyBtn" Content="⊞ Win" Style="{StaticResource ToolBtn}"
                             Margin="0,0,6,0" IsEnabled="False" Click="WinKeyBtn_Click"
-                            ToolTip="Send the Windows (Start) key to the remote PC"/>
+                            ToolTip="Send the Windows (Start) key to the remote PC — or just press ⊞ Win while this window is focused"/>
                     <Button x:Name="TransferBtn" Content="📁 Transfer" Style="{StaticResource ToolBtn}"
                             Margin="0,0,6,0" IsEnabled="False" Click="TransferBtn_Click"
                             ToolTip="Browse the remote PC's files — download or upload"/>
