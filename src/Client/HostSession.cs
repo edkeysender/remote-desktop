@@ -68,7 +68,7 @@ public sealed class HostSession : IDisposable
     /// <summary>File send/receive over the session's "file" data channel.</summary>
     public FileTransferChannel Files { get; } = new();
 
-    public HostSession(string serverUrl, string password, int fps = 15, string? token = null,
+    public HostSession(string serverUrl, string password, int fps = 30, string? token = null,
                        string? authToken = null, string? hostName = null, string? enrollToken = null)
     {
         _serverUrl = serverUrl; _password = password; _fps = fps; _token = token;
@@ -386,25 +386,45 @@ public sealed class HostSession : IDisposable
         uint duration = (uint)(90000 / _fps);       // VP8 90 kHz clock
         _pumpTask = Task.Run(async () =>
         {
-            int delay = Math.Max(1, 1000 / _fps);
+            int interval = Math.Max(1, 1000 / _fps);
+            var sw = Stopwatch.StartNew();
+            byte[]? prev = null;                 // last frame we actually sent (for change detection)
+            long lastSentMs = long.MinValue / 2;
             while (!token.IsCancellationRequested && _pcConnected)
             {
+                long t0 = sw.ElapsedMilliseconds;
                 try
                 {
                     byte[] bgr = _capture!.CaptureBgr();
-                    byte[]? enc;
-                    // Hold the lock across the native encode so teardown can't free
-                    // the codec mid-call (would be an uncatchable AccessViolation).
-                    lock (_encLock)
+                    // Skip unchanged frames — a large CPU + bandwidth win on static screens —
+                    // but still send at least ~1/s so a recovering decoder always has a recent
+                    // frame. SequenceEqual is a vectorized memcmp, far cheaper than encoding.
+                    bool changed = prev == null || prev.Length != bgr.Length
+                                   || !bgr.AsSpan().SequenceEqual(prev);
+                    if (changed || t0 - lastSentMs >= 1000)
                     {
-                        if (_encoder == null || token.IsCancellationRequested) break;
-                        enc = _encoder.EncodeVideo(_capture.Width, _capture.Height, bgr,
-                            VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.VP8);
+                        byte[]? enc;
+                        // Hold the lock across the native encode so teardown can't free
+                        // the codec mid-call (would be an uncatchable AccessViolation).
+                        lock (_encLock)
+                        {
+                            if (_encoder == null || token.IsCancellationRequested) break;
+                            enc = _encoder.EncodeVideo(_capture.Width, _capture.Height, bgr,
+                                VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.VP8);
+                        }
+                        if (enc is { Length: > 0 }) { _pc?.SendVideo(duration, enc); lastSentMs = t0; }
+                        if (changed)
+                        {
+                            if (prev == null || prev.Length != bgr.Length) prev = new byte[bgr.Length];
+                            Buffer.BlockCopy(bgr, 0, prev, 0, bgr.Length);
+                        }
                     }
-                    if (enc is { Length: > 0 }) _pc?.SendVideo(duration, enc);
                 }
                 catch { /* transient send error; keep going */ }
-                try { await Task.Delay(delay, token); } catch { break; }
+                // Pace to the target fps, subtracting the work just done so we add as little
+                // latency as possible (and never fall further behind than one interval).
+                int sleep = (int)Math.Max(1, interval - (sw.ElapsedMilliseconds - t0));
+                try { await Task.Delay(sleep, token); } catch { break; }
             }
         }, token);
     }
