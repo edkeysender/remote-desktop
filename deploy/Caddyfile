@@ -12,6 +12,11 @@
 	email admin@remotler.com
 }
 
+# www resolves to this droplet too; give it a certificate and send visitors to the apex.
+www.remotler.com {
+	redir https://remotler.com{uri} permanent
+}
+
 remotler.com {
 	encode zstd gzip
 
