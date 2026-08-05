@@ -259,6 +259,7 @@ public partial class MainWindow : Window
             case "setpw": SetPassword(); break;
             case "setserver": SetServer(); break;
             case "update": _ = DoUpdateAsync(); break;
+            case "refresh": _ = RefreshFleetAsync(); break;
         }
     }
 
@@ -374,6 +375,15 @@ public partial class MainWindow : Window
         _config.EnrollToken = string.IsNullOrWhiteSpace(token) ? null : token.Trim();
         _config.Save("app");
         StartHosting();
+        PushState();
+    }
+
+    // Address-book refresh: re-pull the account's computers/groups (authoritative when signed
+    // in) and ask the relay to re-send this device's group siblings, then repaint.
+    private async Task RefreshFleetAsync()
+    {
+        if (_acct != null) { try { await LoadComputersAsync(); } catch { } }
+        try { _host?.RequestFleet(); } catch { }
         PushState();
     }
 

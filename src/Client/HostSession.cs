@@ -75,6 +75,12 @@ public sealed class HostSession : IDisposable
         _authToken = authToken; _hostName = hostName; _enrollToken = enrollToken;
     }
 
+    /// <summary>Ask the relay to re-send this host's org/group fleet (address-book refresh).</summary>
+    public void RequestFleet()
+    {
+        try { _ = _conn?.SendJsonAsync(new { t = "fleet-req" }); } catch { }
+    }
+
     public async Task StartAsync()
     {
         _monitors = ScreenCapture.EnumerateMonitors();

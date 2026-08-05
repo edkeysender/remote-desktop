@@ -238,7 +238,10 @@ button.lrow:hover{background:#FAFAFE}
       </section>
 
       <section class="view" id="view-book" role="tabpanel" hidden>
-        <div class="view-title">Address book</div><div class="view-sub">Devices you're allowed to control, by group.</div>
+        <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px">
+          <div><div class="view-title">Address book</div><div class="view-sub">Devices you're allowed to control, by group.</div></div>
+          <button id="book-refresh" class="btn-small" title="Reload groups &amp; devices from the server">↻ Refresh</button>
+        </div>
         <div id="book"></div>
       </section>
 
@@ -363,6 +366,7 @@ $('sec-setpw').addEventListener('click',()=>send({t:'setpw'}));
 $('set-server').addEventListener('click',()=>send({t:'setserver'}));
 $('tg-direct')?.addEventListener('click',()=>{const el=$('tg-direct');const on=el.classList.toggle('on');el.setAttribute('aria-checked',on);send({t:'setting',key:'directlan',on});});
 $('set-update').addEventListener('click',()=>send({t:'update'}));
+$('book-refresh').addEventListener('click',()=>{ const b=$('book-refresh'); b.disabled=true; const t=b.textContent; b.textContent='↻ Refreshing…'; send({t:'refresh'}); setTimeout(()=>{ b.disabled=false; b.textContent=t; },1500); });
 
 // address-book expand state (per group name), preserved across state refreshes
 let bookOpen={};

@@ -567,6 +567,18 @@ wss.on('connection', (ws, req) => {
         break;
       }
 
+      case 'fleet-req': {                    // desktop app Address-book "Refresh"
+        // Re-send this host its current group fleet, picking up any admin re-grouping
+        // (of this device or its siblings) made since it registered.
+        const entry = ws.id ? hosts.get(ws.id) : null;
+        if (entry && entry.orgId) {
+          const comp = ws._deviceToken ? store.findComputerByToken(ws._deviceToken) : null;
+          if (comp) entry.groupId = comp.groupId || null;
+          send(ws, { t: 'fleet', list: groupFleet(entry.orgId, entry.groupId ?? null, ws.id) });
+        }
+        break;
+      }
+
       case 'connect': {                      // viewer -> "let me into <id>"
         // IDs are 9 digits and the reply distinguishes "no such ID online" from a real
         // host, which is an enumeration oracle over the whole space. Budget the attempts
