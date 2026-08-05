@@ -45,13 +45,20 @@ jobs:
           } else {
             $v = '${{ github.event.inputs.version }}'
           }
-          if ($v -notmatch '^\d+\.\d+\.\d+$') { throw "Version must be x.y.z (got '$v')." }
-          "version=$v" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
-          Write-Host "== Releasing version $v =="
+          # Allow an optional prerelease suffix (e.g. 0.5.0-rc1). The build/assembly version is
+          # the numeric part; a suffix marks the GitHub release as a prerelease so field installs
+          # (which pull releases/latest/download) do NOT auto-update to it.
+          if ($v -notmatch '^\d+\.\d+\.\d+(-[0-9A-Za-z.]+)?$') { throw "Version must be x.y.z or x.y.z-suffix (got '$v')." }
+          $buildver = ($v -split '-')[0]
+          $pre = if ($v -match '-') { 'true' } else { 'false' }
+          "version=$v"       | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "buildver=$buildver" | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          "prerelease=$pre"  | Out-File -FilePath $env:GITHUB_OUTPUT -Append -Encoding utf8
+          Write-Host "== Releasing $v (build $buildver, prerelease=$pre) =="
 
       - name: Build app + installers + update package
         shell: pwsh
-        run: ./build.ps1 -Version ${{ steps.ver.outputs.version }} -Bump none
+        run: ./build.ps1 -Version ${{ steps.ver.outputs.buildver }} -Bump none -WithFFmpeg
 
       - name: Collect release assets
         id: assets
@@ -76,16 +83,20 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          $v = '${{ steps.ver.outputs.version }}'
+          $v  = '${{ steps.ver.outputs.version }}'
+          $bv = '${{ steps.ver.outputs.buildver }}'
+          $pre = '${{ steps.ver.outputs.prerelease }}' -eq 'true'
           $files = (Get-ChildItem '${{ steps.assets.outputs.dir }}').FullName
           # Create the release if it doesn't exist yet; otherwise upload/overwrite assets.
           $exists = gh release view "v$v" --repo $env:GITHUB_REPOSITORY 2>$null
           if ($LASTEXITCODE -eq 0) {
             gh release upload "v$v" $files --clobber --repo $env:GITHUB_REPOSITORY
           } else {
-            gh release create "v$v" $files `
-              --repo $env:GITHUB_REPOSITORY `
-              --title "Remotler v$v" `
-              --notes "Automated build of Remotler v$v.`n`n- Remotler-Setup-$v.exe — attended app (host + viewer)`n- RemotlerAgent-Setup-$v.exe — unattended agent + service"
+            $args = @("v$v") + $files + @(
+              "--repo", $env:GITHUB_REPOSITORY,
+              "--title", "Remotler v$v",
+              "--notes", "Automated build of Remotler v$v.`n`n- Remotler-Setup-$bv.exe — attended app (host + viewer)`n- RemotlerAgent-Setup-$bv.exe — unattended agent + service")
+            if ($pre) { $args += "--prerelease" }
+            gh release create @args
           }
-          Write-Host "Release v$v published."
+          Write-Host "Release v$v published (prerelease=$pre)."
