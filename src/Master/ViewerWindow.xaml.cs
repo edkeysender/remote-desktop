@@ -941,14 +941,21 @@ public partial class ViewerWindow : Window
             VerticalAlignment = VerticalAlignment.Center
         };
         if (up && _uploadPaths.TryGetValue(name, out var up0)) row.LocalPath = up0;
+        // Uploads land on the REMOTE device, so the folder icon opens Explorer there;
+        // downloads land here, so it reveals the local file.
         var folder = new Button
         {
-            Content = "📁", Width = 26, Height = 22, Cursor = Cursors.Hand, ToolTip = "Open containing folder",
+            Content = "📁", Width = 26, Height = 22, Cursor = Cursors.Hand,
+            ToolTip = up ? "Open folder on remote device" : "Open containing folder",
             Background = Brushes.Transparent, BorderThickness = new Thickness(0), Padding = new Thickness(0),
             Foreground = new SolidColorBrush(Res("MutedBrush")),
-            Visibility = row.LocalPath != null ? Visibility.Visible : Visibility.Collapsed
+            Visibility = (up || row.LocalPath != null) ? Visibility.Visible : Visibility.Collapsed
         };
-        folder.Click += (_, _) => RevealInExplorer(row.LocalPath);
+        folder.Click += (_, _) =>
+        {
+            if (up) { try { _session?.Files.RequestReveal(name); } catch { } }
+            else RevealInExplorer(row.LocalPath);
+        };
         row.Folder = folder;
         var abort = new Button
         {

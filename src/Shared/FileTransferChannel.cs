@@ -52,7 +52,12 @@ public sealed class FileTransferChannel
     private FileStream? _rxStream;
     private string? _rxPath;
     private string? _rxName;
+    private string? _rxOrigName;                      // name the sender announced (key for "reveal")
     private long _rxSize, _rxReceived, _rxLastAck;
+
+    // Host-side: original announced name -> absolute path where we saved it, so a later
+    // "reveal" request from the viewer can locate the pushed file in Explorer.
+    private readonly Dictionary<string, string> _rxSaved = new(StringComparer.OrdinalIgnoreCase);
 
     // --- pull state (master waiting on a file it requested with "get") ---
     private TaskCompletionSource<string>? _pullTcs;
@@ -75,6 +80,7 @@ public sealed class FileTransferChannel
     public event Action<string>? Error;
     public event Action<FsListing>? ListingReceived;                // master: a remote directory arrived
     public event Action<string, string>? ListingError;             // master: path, error message
+    public event Action<string>? RevealRequested;                   // host: reveal this absolute path in Explorer
 
     public bool IsOpen => _chan is { IsOpened: true };
 
@@ -175,6 +181,13 @@ public sealed class FileTransferChannel
         _chan?.send(JsonSerializer.Serialize(new { t = "ls", path }));
     }
 
+    /// <summary>Master side: ask the host to reveal a file we pushed (by its announced name)
+    /// in Explorer on the remote machine.</summary>
+    public void RequestReveal(string name)
+    {
+        _chan?.send(JsonSerializer.Serialize(new { t = "reveal", name }));
+    }
+
     /// <summary>
     /// Pull a remote file to this machine and return the local path it was saved to.
     /// <paramref name="saveAsPath"/> forces an exact destination; otherwise it lands in
@@ -237,6 +250,7 @@ public sealed class FileTransferChannel
                 var name = Path.GetFileName(r.GetProperty("name").GetString() ?? "file");
                 foreach (var c in Path.GetInvalidFileNameChars()) name = name.Replace(c, '_');
                 if (name.Length == 0) name = "file";
+                _rxOrigName = name;   // remember for a later "reveal" request from the viewer
 
                 if (_pullSaveAs != null)
                 {
@@ -266,9 +280,10 @@ public sealed class FileTransferChannel
                 if (_rxStream == null) break;
                 _rxStream.Dispose(); _rxStream = null;
                 var savedPath = _rxPath!; var savedName = _rxName!;
+                if (_rxOrigName != null) _rxSaved[_rxOrigName] = savedPath;   // for "reveal"
                 _chan?.send(JsonSerializer.Serialize(new { t = "ack", n = _rxReceived }));
                 _chan?.send("""{"t":"done"}""");
-                _rxPath = null; _rxName = null;
+                _rxPath = null; _rxName = null; _rxOrigName = null;
                 ReceiveCompleted?.Invoke(savedName, savedPath);
                 _pullTcs?.TrySetResult(savedPath);   // unblock DownloadAsync, if this was a pull
                 break;
@@ -318,6 +333,23 @@ public sealed class FileTransferChannel
                 _pullTcs?.TrySetException(new IOException(
                     r.TryGetProperty("msg", out var gm) ? gm.GetString() : "remote error"));
                 break;
+
+            // ---- host side: viewer asks to reveal a pushed file in Explorer here ----
+            case "reveal":
+            {
+                var nm = r.TryGetProperty("name", out var rv) ? rv.GetString() : null;
+                string? target = null;
+                if (!string.IsNullOrEmpty(nm))
+                {
+                    if (string.Equals(_rxOrigName, nm, StringComparison.OrdinalIgnoreCase) && _rxPath != null)
+                        target = _rxPath;                              // still receiving — reveal in place
+                    else if (_rxSaved.TryGetValue(nm!, out var sp))
+                        target = sp;                                   // finished earlier
+                }
+                if (string.IsNullOrEmpty(target)) target = ResolveDropDir?.Invoke();   // fallback: current folder
+                if (!string.IsNullOrEmpty(target)) RevealRequested?.Invoke(target!);
+                break;
+            }
         }
     }
 

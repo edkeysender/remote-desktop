@@ -255,6 +255,8 @@ public sealed class HostSession : IDisposable
         Files.Attach(_fileChannel);
         // Dropped files land in the folder the user has open in Explorer, else Downloads.
         Files.ResolveDropDir = () => ExplorerFolder.Foreground();
+        // Viewer clicked the folder icon on a pushed file — open it in Explorer on this machine.
+        Files.RevealRequested += RevealInExplorer;
 
         // Low-fps per-monitor thumbnails for the viewer's rail + all-monitors overview.
         _thumbChannel = await _pc.createDataChannel("thumbs", null);
@@ -458,6 +460,23 @@ public sealed class HostSession : IDisposable
     {
         _metricsTimer?.Dispose();
         _metricsTimer = null;
+    }
+
+    // Open a received file in Explorer on this (host) machine, selecting it if it exists.
+    // Note: under the unattended service (SYSTEM, session 0) this cannot surface on the
+    // interactive desktop; it works for the attended host running as the logged-in user.
+    private static void RevealInExplorer(string path)
+    {
+        try
+        {
+            if (System.IO.File.Exists(path))
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                    "explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true });
+            else if (System.IO.Directory.Exists(path))
+                System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(
+                    "explorer.exe", $"\"{path}\"") { UseShellExecute = true });
+        }
+        catch { }
     }
 
     private void TearDownPeer()
