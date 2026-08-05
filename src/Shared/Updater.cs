@@ -14,19 +14,24 @@ public sealed record UpdateFile(string Name, string Sha256, long Size);
 public sealed record UpdateInfo(Version Version, string Notes, IReadOnlyList<UpdateFile> Files);
 
 /// <summary>
-/// Self-update against the signaling server's HTTP side (the same Pi, same port):
-/// <c>&lt;http&gt;/update/manifest.json</c> lists the current version and, per component
-/// ("master" / "client"), the files to fetch. If the manifest version is newer than the
-/// running assembly, the app shows an "update available" button; clicking downloads the
-/// files (hash-verified) and hands off to a small PowerShell script that waits for the app
-/// to exit, swaps the files in place, and relaunches.
+/// Self-update against the project's GitHub Releases. <c>releases/latest/download/manifest.json</c>
+/// always resolves to the newest published release's manifest, which lists the version and,
+/// per component ("app" / "client"), the files to fetch (each a flat release asset at
+/// <c>releases/latest/download/&lt;name&gt;</c>). If the manifest version is newer than the
+/// running assembly, the app shows an "update available" button; clicking downloads the files
+/// (hash-verified) and hands off to a small PowerShell script that waits for the app to exit,
+/// swaps the files in place, and relaunches. A new git tag = an update in the field.
 ///
 /// The client component elevates (the exe lives in Program Files and a SYSTEM service may
-/// hold it open); the master installs per-user and updates without a UAC prompt.
+/// hold it open); the app installs per-user and updates without a UAC prompt.
 /// </summary>
 public sealed class Updater
 {
-    private readonly string _component;      // "master" | "client"
+    // Auto-update source: GitHub Releases. `latest/download/<asset>` is a stable URL that
+    // redirects to the newest release's asset (HttpClient follows redirects by default).
+    private const string UpdateBase = "https://github.com/edkeysender/remote-desktop/releases/latest/download/";
+
+    private readonly string _component;      // "app" | "client"
     private readonly bool _elevate;
     private readonly HttpClient _http = new() { Timeout = TimeSpan.FromMinutes(5) };
 
@@ -49,8 +54,7 @@ public sealed class Updater
     {
         try
         {
-            var baseUrl = HttpBase(serverUrl);
-            using var doc = JsonDocument.Parse(await _http.GetStringAsync(baseUrl + "/update/manifest.json", ct));
+            using var doc = JsonDocument.Parse(await _http.GetStringAsync(UpdateBase + "manifest.json", ct));
             var root = doc.RootElement;
             var version = Normalize(Version.Parse(root.GetProperty("version").GetString()!));
             if (version <= Current) return null;
@@ -84,7 +88,6 @@ public sealed class Updater
     public async Task<string> DownloadAsync(string serverUrl, UpdateInfo info,
         IProgress<double>? progress = null, CancellationToken ct = default)
     {
-        var baseUrl = HttpBase(serverUrl);
         var stage = Path.Combine(Path.GetTempPath(), "ftd-update-" + Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(stage);
 
@@ -93,7 +96,7 @@ public sealed class Updater
         foreach (var file in info.Files)
         {
             var dest = Path.Combine(stage, Path.GetFileName(file.Name));
-            using (var resp = await _http.GetAsync(baseUrl + "/update/" + Uri.EscapeDataString(file.Name),
+            using (var resp = await _http.GetAsync(UpdateBase + Uri.EscapeDataString(file.Name),
                        HttpCompletionOption.ResponseHeadersRead, ct))
             {
                 resp.EnsureSuccessStatusCode();
@@ -187,15 +190,6 @@ public sealed class Updater
         Remove-Item $StageDir -Recurse -Force
         Remove-Item $MyInvocation.MyCommand.Path -Force
         """;
-
-    // ws://host:port/... → http://host:port   (wss → https). Path/query dropped; the
-    // update endpoints live at the server root, same host+port as signaling.
-    private static string HttpBase(string serverUrl)
-    {
-        var u = new Uri(serverUrl);
-        var scheme = u.Scheme switch { "wss" => "https", "ws" => "http", var s => s };
-        return $"{scheme}://{u.Host}:{u.Port}";
-    }
 
     private static Version Normalize(Version v) => new(v.Major, v.Minor, Math.Max(0, v.Build));
 
