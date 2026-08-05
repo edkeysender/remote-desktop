@@ -74,17 +74,34 @@ public static class InputInjector
         uint sc = MapVirtualKey((uint)vk, MAPVK_VK_TO_VSC_EX);
         ushort scan = (ushort)(sc & 0xFF);
         byte prefix = (byte)((sc >> 8) & 0xFF);
-        bool extended = prefix == 0xE0 || prefix == 0xE1;
+        // The non-Ex MapVirtualKey doesn't reliably return the 0xE0 prefix, so also force
+        // the extended flag for the known extended keys. Without it, Delete/Insert/Home/End/
+        // PageUp/PageDown/arrows inject as their numpad twins (e.g. Delete → numpad ".").
+        bool extended = prefix == 0xE0 || prefix == 0xE1 || IsExtendedKey(vk);
 
         if (scan == 0)
         {
-            // No scancode mapping (e.g. some media keys): fall back to virtual-key.
-            SendKey(0, (ushort)vk, down ? 0u : KEYEVENTF_KEYUP);
-            return;
+            // MAPVK_VK_TO_VSC_EX gave nothing — try the plain mapping, then virtual-key.
+            scan = (ushort)(MapVirtualKey((uint)vk, MAPVK_VK_TO_VSC) & 0xFF);
+            if (scan == 0) { SendKey(0, (ushort)vk, down ? 0u : KEYEVENTF_KEYUP); return; }
         }
         uint flags = KEYEVENTF_SCANCODE | (down ? 0u : KEYEVENTF_KEYUP) | (extended ? KEYEVENTF_EXTENDEDKEY : 0u);
         SendKey(scan, 0, flags);
     }
+
+    // Keys that live off the main block and must carry the 0xE0 extended prefix when injected.
+    private static bool IsExtendedKey(int vk) => vk switch
+    {
+        0x21 or 0x22 or 0x23 or 0x24 or 0x25 or 0x26 or 0x27 or 0x28   // PgUp PgDn End Home ← ↑ → ↓
+        or 0x2D or 0x2E                                                 // Insert Delete
+        or 0x2C                                                         // PrintScreen
+        or 0x90                                                         // NumLock
+        or 0x6F                                                         // numpad Divide '/'
+        or 0xA3 or 0xA5                                                 // Right Ctrl / Right Alt
+        or 0x5B or 0x5C or 0x5D                                         // LWin RWin Apps(menu)
+            => true,
+        _ => false,
+    };
 
     /// <summary>Legacy path: inject by DOM KeyboardEvent.code (browser viewer).</summary>
     public static void KeyCode(string code, bool down)
@@ -126,7 +143,7 @@ public static class InputInjector
 
     private const uint KEYEVENTF_EXTENDEDKEY = 0x0001, KEYEVENTF_KEYUP = 0x0002,
         KEYEVENTF_SCANCODE = 0x0008;
-    private const uint MAPVK_VK_TO_VSC_EX = 4;
+    private const uint MAPVK_VK_TO_VSC = 0, MAPVK_VK_TO_VSC_EX = 4;
 
     private const int INPUT_MOUSE = 0, INPUT_KEYBOARD = 1;
 
