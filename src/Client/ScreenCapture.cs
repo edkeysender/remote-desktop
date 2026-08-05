@@ -26,9 +26,18 @@ public sealed class ScreenCapture : IDisposable
     private Graphics _gfx;
     private byte[] _bgr;
 
+    // DXGI Desktop Duplication path (single-monitor regions only). Falls back to GDI on any
+    // failure; after a fault we retry re-creating it after a short cooldown.
+    private DxgiDuplicator? _dxgi;
+    private long _dxgiRetryAt;                 // Environment.TickCount64 gate for re-creation
+    private bool _dxgiEligible;               // region is exactly one monitor → DXGI can apply
+
     public int Width => _region.Width;
     public int Height => _region.Height;
     public Rectangle Region => _region;
+
+    /// <summary>Which backend produced the last frame ("dxgi" or "gdi"), for diagnostics.</summary>
+    public string Backend { get; private set; } = "gdi";
 
     public ScreenCapture(Rectangle region) => Init(region, out _bmp, out _gfx, out _bgr);
 
@@ -37,6 +46,7 @@ public sealed class ScreenCapture : IDisposable
     {
         if (region == _region) return;
         _gfx.Dispose(); _bmp.Dispose();
+        _dxgi?.Dispose(); _dxgi = null;
         Init(region, out _bmp, out _gfx, out _bgr);
     }
 
@@ -46,11 +56,45 @@ public sealed class ScreenCapture : IDisposable
         bmp = new Bitmap(region.Width, region.Height, PixelFormat.Format24bppRgb);
         gfx = Graphics.FromImage(bmp);
         bgr = new byte[region.Width * region.Height * 3];
+        // DXGI duplicates a whole output, so it applies only when the region is exactly one
+        // monitor (the combined all-monitors view stays on GDI).
+        _dxgiEligible = EnumerateMonitors().Any(m => m.Bounds == region);
+        _dxgiRetryAt = 0;
+        TryInitDxgi();
+    }
+
+    private void TryInitDxgi()
+    {
+        if (!_dxgiEligible) return;
+        try { _dxgi = DxgiDuplicator.TryCreate(_region); } catch { _dxgi = null; }
     }
 
     /// <summary>Grab one frame as tightly-packed BGR24 (stride == width*3). Buffer is reused.</summary>
     public byte[] CaptureBgr()
     {
+        // Prefer GPU capture. On timeout (no change) return the last buffer; on error, drop
+        // to GDI and schedule a retry so a transient loss (UAC, mode change) self-heals.
+        if (_dxgi == null && _dxgiEligible && Environment.TickCount64 >= _dxgiRetryAt)
+        {
+            _dxgiRetryAt = Environment.TickCount64 + 3000;
+            TryInitDxgi();
+        }
+        if (_dxgi != null)
+        {
+            try
+            {
+                _dxgi.TryCapture(_bgr);   // false = unchanged → keep previous _bgr
+                Backend = "dxgi";
+                return _bgr;
+            }
+            catch
+            {
+                _dxgi.Dispose(); _dxgi = null;
+                _dxgiRetryAt = Environment.TickCount64 + 3000;   // cool down before retrying DXGI
+            }
+        }
+
+        // ---- GDI fallback ----
         _gfx.CopyFromScreen(_region.Left, _region.Top, 0, 0, _region.Size, CopyPixelOperation.SourceCopy);
         var data = _bmp.LockBits(new Rectangle(0, 0, _region.Width, _region.Height),
             ImageLockMode.ReadOnly, PixelFormat.Format24bppRgb);
@@ -62,10 +106,11 @@ public sealed class ScreenCapture : IDisposable
                 Marshal.Copy(data.Scan0 + y * data.Stride, _bgr, y * rowBytes, rowBytes);
         }
         finally { _bmp.UnlockBits(data); }
+        Backend = "gdi";
         return _bgr;
     }
 
-    public void Dispose() { _gfx.Dispose(); _bmp.Dispose(); }
+    public void Dispose() { _dxgi?.Dispose(); _gfx.Dispose(); _bmp.Dispose(); }
 
     // ---------------- monitor discovery / region helpers ----------------
 
