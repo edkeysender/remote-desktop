@@ -147,7 +147,7 @@ public sealed class ViewerSession : IDisposable
         // Accept H.264 (preferred) + VP8 when FFmpeg is available for decode; otherwise VP8 only,
         // so a viewer without the FFmpeg libs simply negotiates VP8 with the host.
         var formats = new List<SDPAudioVideoMediaFormat>();
-        if (FFmpegSupport.H264Available)
+        if (FFmpegSupport.H264DecodeAvailable)
         {
             try { _h264dec = new FFmpegVideoEncoder(); formats.Add(new SDPAudioVideoMediaFormat(SDPMediaTypesEnum.video, 100, "H264", 90000)); }
             catch { _h264dec = null; }

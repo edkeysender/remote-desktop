@@ -5,6 +5,7 @@ using System.Runtime.Versioning;
 using System.Text;
 using System.Text.Json;
 using SIPSorcery.Net;
+using FFmpeg.AutoGen;
 using SIPSorceryMedia.Abstractions;
 using SIPSorceryMedia.Encoders;
 using SIPSorceryMedia.FFmpeg;
@@ -249,10 +250,10 @@ public sealed class HostSession : IDisposable
         // Offer H.264 (preferred) + VP8 when FFmpeg is available; the peer's answer decides which
         // is used, and OnVideoFormatsNegotiated tells us which to encode. If FFmpeg or H.264
         // isn't available on either side, negotiation falls back to VP8 — no behaviour change.
-        bool h264 = FFmpegSupport.H264Available;
+        bool h264 = FFmpegSupport.H264EncodeAvailable;
         if (h264)
         {
-            try { _h264 = new FFmpegVideoEncoder(); }
+            try { _h264 = MakeH264Encoder(); }
             catch { _h264 = null; h264 = false; }
         }
 
@@ -396,7 +397,7 @@ public sealed class HostSession : IDisposable
             _encoder = new VpxVideoEncoder();
             // Recreate the H.264 encoder too so it re-initialises at the new dimensions and
             // emits a fresh keyframe.
-            if (_h264 != null) { try { _h264.Dispose(); _h264 = new FFmpegVideoEncoder(); } catch { _h264 = null; } }
+            if (_h264 != null) { try { _h264.Dispose(); _h264 = MakeH264Encoder(); } catch { _h264 = null; } }
         }
         ApplyInputRegion();
         SendMonitorList();   // push refreshed bounds + virtual-desktop geometry to the viewer
@@ -532,6 +533,15 @@ public sealed class HostSession : IDisposable
                     "explorer.exe", $"\"{path}\"") { UseShellExecute = true });
         }
         catch { }
+    }
+
+    // Build an H.264 encoder bound to the hardware codec probed at startup (NVENC/QSV/AMF).
+    private static FFmpegVideoEncoder MakeH264Encoder()
+    {
+        var enc = new FFmpegVideoEncoder();
+        var name = FFmpegSupport.H264EncoderName;
+        if (!string.IsNullOrEmpty(name)) enc.SetCodec(AVCodecID.AV_CODEC_ID_H264, name, null);
+        return enc;
     }
 
     private void TearDownPeer()
