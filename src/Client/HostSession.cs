@@ -642,6 +642,9 @@ public sealed class HostSession : IDisposable
                 case "h264_amf":
                     opts["usage"] = "ultralowlatency"; opts["quality"] = "speed"; opts["rc"] = "cbr";
                     break;
+                case "libopenh264":
+                    opts["rc_mode"] = "bitrate";
+                    break;
             }
             if (!enc.SetCodec(AVCodecID.AV_CODEC_ID_H264, name, opts))
             {
