@@ -256,6 +256,7 @@
                               AllowDrop="True" DragOver="RemoteView_DragOver" Drop="RemoteView_Drop"
                               DragLeave="RemoteView_DragLeave">
                     <Image x:Name="RemoteImage" Stretch="Uniform" Focusable="True" AllowDrop="True"
+                           RenderOptions.BitmapScalingMode="LowQuality"
                            HorizontalAlignment="Center" VerticalAlignment="Center"
                            MouseMove="RemoteImage_MouseMove"
                            MouseDown="RemoteImage_MouseDown"
@@ -312,7 +313,7 @@
                         CornerRadius="8" ClipToBounds="True" Cursor="Hand"
                         MouseLeftButtonDown="Strip_Down" MouseMove="Strip_Move" MouseLeftButtonUp="Strip_Up">
                     <Grid>
-                        <Image x:Name="StripImg" Stretch="Fill"/>
+                        <Image x:Name="StripImg" Stretch="Fill" RenderOptions.BitmapScalingMode="LowQuality"/>
                         <Canvas x:Name="StripCanvas">
                             <Rectangle x:Name="StripRect" Stroke="#3EC8FF" StrokeThickness="1.5">
                                 <Rectangle.Fill><SolidColorBrush Color="#3EC8FF" Opacity="0.18"/></Rectangle.Fill>

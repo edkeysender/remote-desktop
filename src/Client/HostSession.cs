@@ -412,24 +412,26 @@ public sealed class HostSession : IDisposable
         if (_pumpCts != null) return;               // already running
         _pumpCts = new CancellationTokenSource();
         var token = _pumpCts.Token;
-        uint duration = (uint)(90000 / _fps);       // VP8 90 kHz clock
         _pumpTask = Task.Run(async () =>
         {
             int interval = Math.Max(1, 1000 / _fps);
             var sw = Stopwatch.StartNew();
-            byte[]? prev = null;                 // last frame we actually sent (for change detection)
-            long lastSentMs = long.MinValue / 2;
+            byte[]? prev = null;                 // last sent frame — GDI-path change detection only
+            long lastSentMs = -1;
             while (!token.IsCancellationRequested && _pcConnected)
             {
                 long t0 = sw.ElapsedMilliseconds;
                 try
                 {
-                    byte[] bgr = _capture!.CaptureBgr();
+                    byte[] frame = _capture!.CaptureBgra(out bool? dxChanged);
                     // Skip unchanged frames — a large CPU + bandwidth win on static screens —
                     // but still send at least ~1/s so a recovering decoder always has a recent
-                    // frame. SequenceEqual is a vectorized memcmp, far cheaper than encoding.
-                    bool changed = prev == null || prev.Length != bgr.Length
-                                   || !bgr.AsSpan().SequenceEqual(prev);
+                    // frame. DXGI reports change exactly from the duplication metadata; only
+                    // the GDI fallback needs the memcmp diff.
+                    bool changed;
+                    if (dxChanged.HasValue) { changed = dxChanged.Value; prev = null; }
+                    else changed = prev == null || prev.Length != frame.Length
+                                   || !frame.AsSpan().SequenceEqual(prev);
                     if (changed || t0 - lastSentMs >= 1000)
                     {
                         byte[]? enc;
@@ -439,18 +441,29 @@ public sealed class HostSession : IDisposable
                         {
                             if (token.IsCancellationRequested) break;
                             if (_sendCodec == VideoCodecsEnum.H264 && _h264 != null)
-                                enc = _h264.EncodeVideo(_capture.Width, _capture.Height, bgr,
-                                    VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.H264);
+                                enc = _h264.EncodeVideo(_capture.Width, _capture.Height, frame,
+                                    VideoPixelFormatsEnum.Bgra, VideoCodecsEnum.H264);
                             else if (_encoder != null)
-                                enc = _encoder.EncodeVideo(_capture.Width, _capture.Height, bgr,
-                                    VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.VP8);
+                                enc = _encoder.EncodeVideo(_capture.Width, _capture.Height, frame,
+                                    VideoPixelFormatsEnum.Bgra, VideoCodecsEnum.VP8);
                             else break;
                         }
-                        if (enc is { Length: > 0 }) { _pc?.SendVideo(duration, enc); lastSentMs = t0; }
-                        if (changed)
+                        if (enc is { Length: > 0 })
                         {
-                            if (prev == null || prev.Length != bgr.Length) prev = new byte[bgr.Length];
-                            Buffer.BlockCopy(bgr, 0, prev, 0, bgr.Length);
+                            // RTP timestamps advance by real elapsed time (90 kHz clock), not a
+                            // fixed per-frame constant — skipped frames and slow captures would
+                            // otherwise skew the receiver's jitter buffer.
+                            long now = sw.ElapsedMilliseconds;
+                            uint duration = lastSentMs < 0
+                                ? (uint)(90000 / _fps)
+                                : (uint)Math.Clamp((now - lastSentMs) * 90, 90, 270000);
+                            _pc?.SendVideo(duration, enc);
+                            lastSentMs = now;
+                        }
+                        if (changed && !dxChanged.HasValue)
+                        {
+                            if (prev == null || prev.Length != frame.Length) prev = new byte[frame.Length];
+                            Buffer.BlockCopy(frame, 0, prev, 0, frame.Length);
                         }
                     }
                 }
@@ -539,12 +552,44 @@ public sealed class HostSession : IDisposable
         catch { }
     }
 
-    // Build an H.264 encoder bound to the hardware codec probed at startup (NVENC/QSV/AMF).
+    // Build an H.264 encoder bound to the hardware codec probed at startup (NVENC/QSV/AMF),
+    // tuned for interactive desktop streaming: capped CBR-ish rate control, no B-frames or
+    // reordering delay, ~4 s GOP. Without options the FFmpeg defaults are file-transcoding
+    // oriented (unbounded quality-based rate, frame reordering) — bad latency and bursts.
     private static FFmpegVideoEncoder MakeH264Encoder()
     {
         var enc = new FFmpegVideoEncoder();
         var name = FFmpegSupport.H264EncoderName;
-        if (!string.IsNullOrEmpty(name)) enc.SetCodec(AVCodecID.AV_CODEC_ID_H264, name, null);
+        if (!string.IsNullOrEmpty(name))
+        {
+            var opts = new Dictionary<string, string>
+            {
+                ["b"] = "6M", ["maxrate"] = "8M", ["bufsize"] = "8M",   // ~6 Mbps, small VBV
+                ["g"] = "120",                                          // keyframe every ~4 s @30fps
+                ["bf"] = "0",                                           // no B-frames (reordering = latency)
+            };
+            switch (name)
+            {
+                case "h264_nvenc":
+                    opts["preset"] = "p3"; opts["tune"] = "ull"; opts["rc"] = "cbr";
+                    opts["delay"] = "0"; opts["zerolatency"] = "1";
+                    break;
+                case "h264_qsv":
+                    opts["preset"] = "veryfast"; opts["async_depth"] = "1";
+                    break;
+                case "h264_amf":
+                    opts["usage"] = "ultralowlatency"; opts["quality"] = "speed"; opts["rc"] = "cbr";
+                    break;
+            }
+            if (!enc.SetCodec(AVCodecID.AV_CODEC_ID_H264, name, opts))
+            {
+                // A driver that rejects an option shouldn't cost us hardware H.264 —
+                // fall back to the encoder's defaults rather than to software VP8.
+                enc.Dispose();
+                enc = new FFmpegVideoEncoder();
+                enc.SetCodec(AVCodecID.AV_CODEC_ID_H264, name, null);
+            }
+        }
         return enc;
     }
 

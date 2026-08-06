@@ -1168,22 +1168,45 @@ public partial class ViewerWindow : Window
     }
 
     // ---- frame rendering ----
+    // Latest-frame-wins: the decode thread never blocks on the UI thread. It swaps the
+    // newest frame into _pendingFrame and schedules one render; if the UI is busy, older
+    // frames are overwritten (dropped) instead of queueing behind it.
     private WriteableBitmap? _wb;
+    private readonly object _frameLock = new();
+    private (int w, int h, byte[] bgr)? _pendingFrame;
+    private bool _renderQueued;
+
     private void DrawFrame(int w, int h, byte[] bgr)
     {
         if (w <= 0 || h <= 0 || bgr.Length < w * h * 3) return;
-        Dispatcher.Invoke(() =>
+        lock (_frameLock)
         {
-            bool sizeChanged = _srcW != w || _srcH != h;
-            _srcW = w; _srcH = h;
-            if (_wb == null || _wb.PixelWidth != w || _wb.PixelHeight != h)
-            {
-                _wb = new WriteableBitmap(w, h, 96, 96, PixelFormats.Bgr24, null);
-                RemoteImage.Source = _wb;
-            }
-            _wb.WritePixels(new Int32Rect(0, 0, w, h), bgr, w * 3, 0);
-            if (sizeChanged) UpdateReadout();
-        });
+            _pendingFrame = (w, h, bgr);
+            if (_renderQueued) return;   // the already-scheduled render will pick this up
+            _renderQueued = true;
+        }
+        Dispatcher.BeginInvoke(new Action(RenderPendingFrame));
+    }
+
+    private void RenderPendingFrame()
+    {
+        int w, h; byte[] bgr;
+        lock (_frameLock)
+        {
+            _renderQueued = false;
+            if (_pendingFrame == null) return;
+            (w, h, bgr) = _pendingFrame.Value;
+            _pendingFrame = null;
+        }
+        bool sizeChanged = _srcW != w || _srcH != h;
+        _srcW = w; _srcH = h;
+        if (_wb == null || _wb.PixelWidth != w || _wb.PixelHeight != h)
+        {
+            _wb = new WriteableBitmap(w, h, 96, 96, PixelFormats.Bgr24, null);
+            RemoteImage.Source = _wb;
+        }
+        _wb.WritePixels(new Int32Rect(0, 0, w, h), bgr, w * 3, 0);
+        if (sizeChanged) UpdateReadout();
     }
 
     // ---- input ----

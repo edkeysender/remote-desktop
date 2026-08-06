@@ -8,10 +8,13 @@ namespace RemoteDesktop.Client;
 
 /// <summary>
 /// GPU screen capture via DXGI Desktop Duplication. Captures one whole output (monitor)
-/// into a tightly-packed BGR24 buffer — far lower CPU + latency than GDI BitBlt, and it
-/// only produces a frame when the desktop actually changed. Falls back are handled by the
-/// caller (<see cref="ScreenCapture"/>): any failure here throws / returns null and the
-/// caller reverts to GDI.
+/// into a BGRA32 buffer — far lower CPU + latency than GDI BitBlt — and reports, from the
+/// duplication frame metadata, whether the desktop image actually changed, so callers can
+/// skip encoding entirely on static screens (cursor-only updates don't count as change).
+/// The destination can be a larger composite buffer (Show-All): the frame is written at
+/// (dstX, dstY) with the caller's row stride. Fallbacks are handled by the caller
+/// (<see cref="ScreenCapture"/>): any failure here throws / returns null and the caller
+/// reverts to GDI.
 /// </summary>
 [SupportedOSPlatform("windows")]
 internal sealed class DxgiDuplicator : IDisposable
@@ -20,6 +23,7 @@ internal sealed class DxgiDuplicator : IDisposable
     private readonly ID3D11DeviceContext _ctx;
     private readonly IDXGIOutputDuplication _dupl;
     private ID3D11Texture2D? _staging;
+    private bool _everCopied;   // first acquired frame must be treated as changed
 
     public int Width { get; }
     public int Height { get; }
@@ -70,19 +74,29 @@ internal sealed class DxgiDuplicator : IDisposable
     }
 
     /// <summary>
-    /// Try to grab the next frame into <paramref name="dst"/> (BGR24, tightly packed,
-    /// Width*Height*3). Returns true if a fresh frame was written; false on timeout (no
-    /// change — leave the previous contents). Throws on access-lost / device errors so the
-    /// caller can fall back to GDI.
+    /// Try to grab the next frame into <paramref name="dst"/> (BGRA32) at pixel offset
+    /// (<paramref name="dstX"/>, <paramref name="dstY"/>) with row stride
+    /// <paramref name="dstStride"/> bytes. Sets <paramref name="changed"/> when the desktop
+    /// image was actually updated (per the duplication metadata — cursor-only movement is
+    /// not a change, and the GPU→CPU readback is skipped entirely for it). Returns false on
+    /// timeout (nothing new — previous contents remain valid). Throws on access-lost /
+    /// device errors so the caller can fall back to GDI.
     /// </summary>
-    public unsafe bool TryCapture(byte[] dst, int timeoutMs = 100)
+    public unsafe bool TryCapture(byte[] dst, int dstStride, int dstX, int dstY, out bool changed, int timeoutMs = 10)
     {
-        var res = _dupl.AcquireNextFrame((uint)timeoutMs, out _, out IDXGIResource? desktop);
+        changed = false;
+        var res = _dupl.AcquireNextFrame((uint)timeoutMs, out OutduplFrameInfo info, out IDXGIResource? desktop);
         if (res == Vortice.DXGI.ResultCode.WaitTimeout) return false;
         if (!res.Success) throw new InvalidOperationException("AcquireNextFrame failed: " + res.Code);
 
         try
         {
+            // LastPresentTime == 0 → only the mouse pointer moved; the desktop image is
+            // unchanged and there is nothing to read back or encode. (The very first frame
+            // after DuplicateOutput carries the current desktop and must always be copied.)
+            if (_everCopied && info.LastPresentTime == 0 && info.AccumulatedFrames == 0)
+                return true;
+
             using var tex = desktop!.QueryInterface<ID3D11Texture2D>();
             var desc = tex.Description;
 
@@ -102,23 +116,20 @@ internal sealed class DxgiDuplicator : IDisposable
             try
             {
                 int w = Math.Min(Width, (int)desc.Width), h = Math.Min(Height, (int)desc.Height);
-                int pitch = (int)map.RowPitch;
+                int srcPitch = (int)map.RowPitch, rowBytes = w * 4;
                 byte* src = (byte*)map.DataPointer;
                 fixed (byte* dstP = dst)
                 {
                     for (int y = 0; y < h; y++)
-                    {
-                        byte* s = src + (long)y * pitch;    // BGRA source
-                        byte* d = dstP + (long)y * Width * 3; // BGR dest
-                        for (int x = 0; x < w; x++)
-                        {
-                            d[0] = s[0]; d[1] = s[1]; d[2] = s[2];   // B, G, R (drop A)
-                            s += 4; d += 3;
-                        }
-                    }
+                        Buffer.MemoryCopy(
+                            src + (long)y * srcPitch,
+                            dstP + (long)(dstY + y) * dstStride + (long)dstX * 4,
+                            rowBytes, rowBytes);
                 }
             }
             finally { _ctx.Unmap(_staging, 0); }
+            _everCopied = true;
+            changed = true;
             return true;
         }
         finally
