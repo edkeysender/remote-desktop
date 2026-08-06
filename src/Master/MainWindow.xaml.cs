@@ -27,6 +27,7 @@ public partial class MainWindow : Window
     private readonly Updater _updater = new("app", elevate: false);
     private UpdateInfo? _pendingUpdate;
     private bool _updating;       // an update is downloading/applying (guard against re-entry)
+    private bool _hostBusy;       // a viewer is connected to this host right now
     private System.Windows.Threading.DispatcherTimer? _updateTimer;
 
     // live state pushed to the web UI
@@ -256,6 +257,13 @@ public partial class MainWindow : Window
                 { _config.AskConsent = r.GetProperty("on").GetBoolean(); _config.Save("app"); }
                 else if (r.GetProperty("key").GetString() == "directlan")
                 { _config.AllowDirectLan = r.GetProperty("on").GetBoolean(); _config.Save("app"); StartDirectListener(); PushState(); }
+                else if (r.GetProperty("key").GetString() == "autoupdate")
+                {
+                    _config.AutoUpdate = r.GetProperty("on").GetBoolean(); _config.Save("app"); PushState();
+                    // Turning it on with an update already pending → apply at the next quiet
+                    // moment; the check also restarts the (possibly stopped) retry timer.
+                    if (_config.AutoUpdate) { _updateTimer?.Start(); _ = CheckForUpdateAsync(); }
+                }
                 break;
             case "setpw": SetPassword(); break;
             case "setserver": SetServer(); break;
@@ -327,6 +335,7 @@ public partial class MainWindow : Window
             version = Updater.Current.ToString(),
             updateAvailable = _pendingUpdate?.Version.ToString(),
             consent = _config.AskConsent,
+            autoUpdate = _config.AutoUpdate,
             directLan = _config.AllowDirectLan,
             directPort = DirectHostListener.DefaultPort,
             lanIps = _config.AllowDirectLan ? LocalIps() : Array.Empty<string>(),
@@ -437,6 +446,7 @@ public partial class MainWindow : Window
                     PushState();
                 });
                 session.Status += s => Dispatcher.Invoke(() => { _status = s; _online = s.Contains("Ready") || s.Contains("active") || s.Contains("streaming"); PushState(); });
+                session.SessionActive += on => Dispatcher.Invoke(() => _hostBusy = on);
                 session.Status += s => { if (s.StartsWith("Disconnected", StringComparison.OrdinalIgnoreCase)) down.TrySetResult(); };
                 await session.StartAsync();
                 using (ct.Register(() => down.TrySetResult()))
@@ -632,17 +642,29 @@ public partial class MainWindow : Window
 
     private async Task CheckForUpdateAsync()
     {
-        if (_pendingUpdate != null) { _updateTimer?.Stop(); return; }
-        var info = await _updater.CheckAsync(_config.ServerUrl);
-        if (info == null) return;
-        // Already tried this exact version and we're still not on it (the served build/manifest
-        // are out of sync, or the swap didn't take) — stop nagging for it. A genuinely newer
-        // version still shows. The marker clears on startup once we actually reach that version.
-        if (info.Version.ToString() == _config.UpdateTriedVersion) { _updateTimer?.Stop(); return; }
-        _pendingUpdate = info;
-        _updateTimer?.Stop();
-        PushState();        // surfaces the "update available" toast; the user clicks to apply
+        if (_pendingUpdate == null)
+        {
+            var info = await _updater.CheckAsync(_config.ServerUrl);
+            if (info == null) return;
+            // Already tried this exact version and we're still not on it (the served build/manifest
+            // are out of sync, or the swap didn't take) — stop nagging for it. A genuinely newer
+            // version still shows. The marker clears on startup once we actually reach that version.
+            if (info.Version.ToString() == _config.UpdateTriedVersion) { _updateTimer?.Stop(); return; }
+            _pendingUpdate = info;
+            PushState();    // surfaces the "update available" toast; a click still applies it
+        }
+
+        if (_config.AutoUpdate)
+        {
+            // Auto-update applies only while nothing is live — never yank an active session
+            // (hosting or viewing). The timer keeps ticking until a quiet moment arrives.
+            if (!SessionBusy()) await DoUpdateAsync();
+        }
+        else _updateTimer?.Stop();   // manual mode: stop polling, wait for the click
     }
+
+    private bool SessionBusy() =>
+        _hostBusy || Application.Current.Windows.OfType<ViewerWindow>().Any();
 
     private async Task DoUpdateAsync()
     {

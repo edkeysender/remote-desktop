@@ -262,6 +262,7 @@ button.lrow:hover{background:#FAFAFE}
         <div class="set-card">
           <div class="opt"><div><b>Connection password</b><span>Required for ID-based connections to this device</span></div><span class="grow"></span><button class="btn-small" id="sec-setpw">Change password</button></div>
           <div class="opt"><div><b>Ask before each session</b><span>Approve incoming sessions on this screen</span></div><span class="grow"></span><button class="toggle" id="tg-consent2" role="switch" aria-checked="false"></button></div>
+          <div class="opt"><div><b>Automatic updates</b><span>Install new versions and restart when no session is active</span></div><span class="grow"></span><button class="toggle" id="tg-autoupd" role="switch" aria-checked="false"></button></div>
         </div>
         <div class="set-card"><div class="opt"><div><b>End-to-end encryption</b><span>DTLS-SRTP · relays never see screen data</span></div><span class="grow"></span><span class="pill done">Active</span></div></div>
       </section>
@@ -367,6 +368,7 @@ $('m-enrollbtn').addEventListener('click',()=>send({t:'enroll',token:$('m-token'
 $('sec-setpw').addEventListener('click',()=>send({t:'setpw'}));
 $('set-server').addEventListener('click',()=>send({t:'setserver'}));
 $('tg-direct')?.addEventListener('click',()=>{const el=$('tg-direct');const on=el.classList.toggle('on');el.setAttribute('aria-checked',on);send({t:'setting',key:'directlan',on});});
+$('tg-autoupd')?.addEventListener('click',()=>{const el=$('tg-autoupd');const on=el.classList.toggle('on');el.setAttribute('aria-checked',on);send({t:'setting',key:'autoupdate',on});});
 $('set-update').addEventListener('click',()=>send({t:'update'}));
 $('book-refresh').addEventListener('click',()=>{ const b=$('book-refresh'); b.disabled=true; const t=b.textContent; b.textContent='↻ Refreshing…'; send({t:'refresh'}); setTimeout(()=>{ b.disabled=false; b.textContent=t; },1500); });
 
@@ -412,6 +414,7 @@ window.chrome?.webview?.addEventListener('message',ev=>{
   // An update failure re-enables the chip and shows why, instead of sticking on "Updating…".
   if(s.error && /update|swap|checksum/i.test(s.error)){ su.hidden=false; su.disabled=false; su.textContent='⭡ Retry update'; su.title=s.error; }
   syncConsent(!!s.consent);
+  const au=$('tg-autoupd'); if(au){au.classList.toggle('on',!!s.autoUpdate);au.setAttribute('aria-checked',!!s.autoUpdate);}
   if(s.signedIn||org) closeModal();
   if(s.error){ $('m-err').textContent=s.error; $('m-err2').textContent=s.error; }
   // LOCAL FLEET = only devices reachable directly on this network (LAN discovery → P2P

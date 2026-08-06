@@ -48,6 +48,9 @@ public sealed class AppConfig
     // ---- auto-update loop guard ----
     /// <summary>The version we last auto-applied, so a failed swap can't loop forever.</summary>
     public string? UpdateTriedVersion { get; set; }
+
+    /// <summary>Install updates automatically (and restart) whenever no session is active.</summary>
+    public bool AutoUpdate { get; set; }
     /// <summary>How many times we've auto-applied that version without the running version advancing.</summary>
     public int UpdateTriedCount { get; set; }
 
