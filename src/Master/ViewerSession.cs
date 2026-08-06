@@ -54,6 +54,14 @@ public sealed class ViewerSession : IDisposable
     public FileTransferChannel Files { get; } = new();
 
     /// <summary>
+    /// True when decoded frames carry R-first channel order. SIPSorceryMedia.FFmpeg's
+    /// H.264 decoder returns RGB regardless of the requested format (verified against a
+    /// reference ffmpeg decode of the same bitstream) — the renderer must treat those
+    /// frames as Rgb24. The VP8 (vpx) decoder honours BGR correctly.
+    /// </summary>
+    public bool FrameIsRgb { get; private set; }
+
+    /// <summary>
     /// Join a host by ID. Three auth modes, in priority order:
     ///   • <paramref name="authToken"/> — an account session; the relay authorizes by
     ///     org + group membership and the host connects without a per-client password.
@@ -188,9 +196,11 @@ public sealed class ViewerSession : IDisposable
             try
             {
                 // Decode with the codec the frame actually arrived in (negotiated per session).
-                var samples = format.Codec == VideoCodecsEnum.H264 && _h264dec != null
-                    ? _h264dec.DecodeVideo(encoded, VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.H264)
+                bool h264 = format.Codec == VideoCodecsEnum.H264 && _h264dec != null;
+                var samples = h264
+                    ? _h264dec!.DecodeVideo(encoded, VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.H264)
                     : _decoder.DecodeVideo(encoded, VideoPixelFormatsEnum.Bgr, VideoCodecsEnum.VP8);
+                FrameIsRgb = h264;   // see property doc — the FFmpeg decode path is R-first
                 foreach (var s in samples)
                     Frame?.Invoke((int)s.Width, (int)s.Height, s.Sample);
             }

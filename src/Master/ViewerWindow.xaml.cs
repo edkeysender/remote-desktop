@@ -62,15 +62,17 @@ public partial class ViewerWindow : Window
     private bool _clipHooked;
     private string _lastClipText = "";   // guards the text sync loop (both directions)
 
+    private readonly string? _selfId;    // this machine's own relay id — never listed as a target
+
     public ViewerWindow(string serverUrl, string id, string display,
                         string? password = null, string? adminPw = null, string? authToken = null, string? peerToken = null,
                         Func<IReadOnlyList<(string Name, string? RelayId, bool Online)>>? fleetProvider = null,
-                        int directPort = 0)
+                        int directPort = 0, string? selfRelayId = null)
     {
         InitializeComponent();
         _serverUrl = serverUrl; _id = id; _display = display;
         _password = password ?? ""; _adminPw = adminPw; _authToken = authToken; _peerToken = peerToken;
-        _fleetProvider = fleetProvider; _directPort = directPort;
+        _fleetProvider = fleetProvider; _directPort = directPort; _selfId = selfRelayId;
         Title = $"Remotler — {display}";
         TitleText.Text = display;
         Loaded += async (_, _) => await StartSessionAsync();
@@ -340,7 +342,13 @@ public partial class ViewerWindow : Window
         DevList.Children.Clear();
         var gname = new Dictionary<string, string>();
         foreach (var g in my.Groups) gname[g.Id] = g.Name;
-        var ordered = my.Computers.OrderByDescending(c => c.Online).ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        // The machine the operator is sitting at is never a sensible target — hide it.
+        // Match by relay id when known, else by machine name (LAN fleet entries).
+        var ordered = my.Computers
+            .Where(c => !string.IsNullOrEmpty(_selfId)
+                ? c.RelayId != _selfId
+                : !c.Name.Equals(Environment.MachineName, StringComparison.OrdinalIgnoreCase))
+            .OrderByDescending(c => c.Online).ThenBy(c => c.Name, StringComparer.OrdinalIgnoreCase).ToList();
         DevScope.Text = ordered.Count == 0 ? "No devices you can reach."
                       : my.Admin ? "All devices in your organization" : "Devices in your groups";
         foreach (var c in ordered) DevList.Children.Add(MakeDeviceRow(c, gname));
@@ -1185,16 +1193,20 @@ public partial class ViewerWindow : Window
     // newest frame into _pendingFrame and schedules one render; if the UI is busy, older
     // frames are overwritten (dropped) instead of queueing behind it.
     private WriteableBitmap? _wb;
+    private bool _wbRgb;             // channel order the current WriteableBitmap was created with
     private readonly object _frameLock = new();
-    private (int w, int h, byte[] bgr)? _pendingFrame;
+    private (int w, int h, byte[] px, bool rgb)? _pendingFrame;
     private bool _renderQueued;
 
-    private void DrawFrame(int w, int h, byte[] bgr)
+    private void DrawFrame(int w, int h, byte[] px)
     {
-        if (w <= 0 || h <= 0 || bgr.Length < w * h * 3) return;
+        if (w <= 0 || h <= 0 || px.Length < w * h * 3) return;
+        // H.264 frames arrive R-first from the FFmpeg decoder (see ViewerSession.FrameIsRgb);
+        // render them as Rgb24 instead of paying a per-pixel swap.
+        bool rgb = _session?.FrameIsRgb ?? false;
         lock (_frameLock)
         {
-            _pendingFrame = (w, h, bgr);
+            _pendingFrame = (w, h, px, rgb);
             if (_renderQueued) return;   // the already-scheduled render will pick this up
             _renderQueued = true;
         }
@@ -1203,22 +1215,23 @@ public partial class ViewerWindow : Window
 
     private void RenderPendingFrame()
     {
-        int w, h; byte[] bgr;
+        int w, h; byte[] px; bool rgb;
         lock (_frameLock)
         {
             _renderQueued = false;
             if (_pendingFrame == null) return;
-            (w, h, bgr) = _pendingFrame.Value;
+            (w, h, px, rgb) = _pendingFrame.Value;
             _pendingFrame = null;
         }
         bool sizeChanged = _srcW != w || _srcH != h;
         _srcW = w; _srcH = h;
-        if (_wb == null || _wb.PixelWidth != w || _wb.PixelHeight != h)
+        if (_wb == null || _wb.PixelWidth != w || _wb.PixelHeight != h || _wbRgb != rgb)
         {
-            _wb = new WriteableBitmap(w, h, 96, 96, PixelFormats.Bgr24, null);
+            _wb = new WriteableBitmap(w, h, 96, 96, rgb ? PixelFormats.Rgb24 : PixelFormats.Bgr24, null);
+            _wbRgb = rgb;
             RemoteImage.Source = _wb;
         }
-        _wb.WritePixels(new Int32Rect(0, 0, w, h), bgr, w * 3, 0);
+        _wb.WritePixels(new Int32Rect(0, 0, w, h), px, w * 3, 0);
         if (sizeChanged) UpdateReadout();
     }
 

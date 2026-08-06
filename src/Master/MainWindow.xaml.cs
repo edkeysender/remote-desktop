@@ -485,7 +485,8 @@ public partial class MainWindow : Window
         var server = string.IsNullOrWhiteSpace(serverOverride) ? _config.ServerUrl : serverOverride!;
         // No Owner: an owned window would minimize/restore together with the hub.
         var w = new ViewerWindow(server, id, display, password: password, authToken: authToken,
-                                 peerToken: _config.HostToken, fleetProvider: CurrentFleetSnapshot);
+                                 peerToken: _config.HostToken, fleetProvider: CurrentFleetSnapshot,
+                                 selfRelayId: string.IsNullOrEmpty(_id) ? null : _id);
         w.Show();
     }
 
