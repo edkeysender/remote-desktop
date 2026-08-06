@@ -590,10 +590,13 @@ wss.on('connection', (ws, req) => {
         const entry = hosts.get(String(msg.id));
         if (!entry) { send(ws, { t: 'rejected', reason: 'no such ID online' }); break; }
         // A viewer socket that died without a TCP close (network drop, crash) lingers
-        // until the heartbeat reaps it — don't let it hold the host hostage.
+        // until the heartbeat reaps it — don't let it hold the host hostage. Tell the
+        // host its old viewer is gone BEFORE the new connect flows to it, so it tears
+        // the stale peer down and starts the new session clean.
         if (entry.viewer && entry.viewer.readyState !== entry.viewer.OPEN) {
           endViewerSession(entry.viewer);
           entry.viewer = null;
+          send(entry.ws, { t: 'bye', reason: 'viewer replaced' });
         }
         if (entry.viewer) { send(ws, { t: 'rejected', reason: 'host is busy' }); break; }
         ws.role = 'viewer';

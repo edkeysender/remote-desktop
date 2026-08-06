@@ -246,6 +246,11 @@ public sealed class HostSession : IDisposable
 
     private async Task StartPeerAsync()
     {
+        // A new viewer can be authorized while a previous session's peer still exists
+        // (its viewer vanished without a bye and the relay replaced it). Start clean —
+        // two live peer connections sharing this host's pump/channel state is chaos.
+        if (_pc != null) TearDownPeer();
+
         SessionActive?.Invoke(true);
         Status?.Invoke("Session active — negotiating video…");
 
@@ -334,11 +339,15 @@ public sealed class HostSession : IDisposable
             }
             else if (s is RTCPeerConnectionState.failed or RTCPeerConnectionState.disconnected or RTCPeerConnectionState.closed)
             {
+                // Only act on events from the CURRENT session. A replaced/torn-down peer
+                // fires failed/closed long after a new session has started — reacting to
+                // it here (especially StopPump) would strangle the new session's stream.
+                if (!ReferenceEquals(pcRef, _pc)) return;
                 StopPump();
                 // A dead link must free this host even when no 'bye' ever arrives
                 // (viewer crashed / network died) — otherwise the UI stays on
                 // "streaming" and the next connect is rejected as busy.
-                if (s == RTCPeerConnectionState.failed && ReferenceEquals(pcRef, _pc))
+                if (s == RTCPeerConnectionState.failed)
                 {
                     Status?.Invoke("Viewer connection lost — waiting for a connection");
                     _ = Task.Run(TearDownPeer);   // off this callback: Close() re-enters state changes
