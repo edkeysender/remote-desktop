@@ -185,30 +185,19 @@ public partial class ViewerWindow : Window
         try { Clipboard.SetText(text); SetStatus("Clipboard synced from remote ✓"); } catch { }
     }
 
-    // Files copied on the remote → pull them here and put them on the local clipboard so a
-    // normal Ctrl+V in Explorer pastes the real files.
-    private async void OnRemoteClipFiles(List<RemoteClipFile> files)
+    // Files copied on the remote → advertise them on the local clipboard as VIRTUAL files.
+    // Nothing is transferred at Ctrl+C time; each file downloads over the session's file
+    // channel only when the user actually pastes it (Explorer pulls the contents then).
+    private void OnRemoteClipFiles(List<RemoteClipFile> files)
     {
-        if (_session is not { } session) return;
-        var stage = Path.Combine(Path.GetTempPath(), "Remotler", "clip");
-        try { Directory.CreateDirectory(stage); } catch { }
-        var local = new System.Collections.Specialized.StringCollection();
-        SetStatus($"Fetching {files.Count} file(s) from the remote clipboard…");
-        foreach (var f in files)
+        if (_session is not { } session || files.Count == 0) return;
+        try
         {
-            try
-            {
-                var name = string.IsNullOrEmpty(f.Name) ? Path.GetFileName(f.Path) : f.Name;
-                var saved = await session.Files.DownloadAsync(f.Path, Path.Combine(stage, name));
-                local.Add(saved);
-            }
-            catch (Exception ex) { SetStatus("Clipboard file fetch failed: " + ex.Message, "#F5484D"); return; }
+            RemoteClipboard.Set(files, session);
+            SetStatus(files.Count == 1 ? $"Remote copied {files[0].Name} — paste here to fetch it"
+                                       : $"Remote copied {files.Count} files — paste here to fetch them");
         }
-        if (local.Count > 0)
-        {
-            try { Clipboard.SetFileDropList(local); SetStatus($"{local.Count} file(s) from remote ready to paste ✓"); }
-            catch (Exception ex) { SetStatus("Couldn't set local clipboard: " + ex.Message, "#F5484D"); }
-        }
+        catch (Exception ex) { SetStatus("Couldn't advertise remote clipboard: " + ex.Message, "#F5484D"); }
     }
 
     private async Task StartSessionAsync()
@@ -1434,6 +1423,7 @@ public partial class ViewerWindow : Window
         ReleaseWinKey();
         if (_kbHook != IntPtr.Zero) { try { UnhookWindowsHookEx(_kbHook); } catch { } _kbHook = IntPtr.Zero; }
         if (_clipHooked) { try { RemoveClipboardFormatListener(_hwnd); } catch { } _clipHooked = false; }
+        if (_session is { } sess) RemoteClipboard.ClearIfOwned(sess);   // a paste can't succeed once the session is gone
         StopPan();
         if (_session != null) { try { await _session.CloseAsync(); } catch { } _session.Dispose(); _session = null; }
         base.OnClosed(e);
