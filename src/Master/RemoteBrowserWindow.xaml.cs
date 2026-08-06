@@ -141,6 +141,19 @@ public partial class RemoteBrowserWindow : Window
         catch (Exception ex) { StatusText.Text = "Delete failed: " + ex.Message; }
     }
 
+    // Keyboard on the panes: Delete = delete selection, F2 = rename (same as the 🗑/✎ buttons).
+    private void LocalList_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Delete) { LDel_Click(sender, e); e.Handled = true; }
+        else if (e.Key == System.Windows.Input.Key.F2) { LRen_Click(sender, e); e.Handled = true; }
+    }
+
+    private void RemoteList_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key == System.Windows.Input.Key.Delete) { RDel_Click(sender, e); e.Handled = true; }
+        else if (e.Key == System.Windows.Input.Key.F2) { RRen_Click(sender, e); e.Handled = true; }
+    }
+
     // ---- remote file-manager ops (the host performs them over the channel) ----
     private async void RNew_Click(object sender, RoutedEventArgs e)
     {

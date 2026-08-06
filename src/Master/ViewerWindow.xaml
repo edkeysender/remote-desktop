@@ -176,6 +176,17 @@
                     <Button x:Name="ThemeBtn" Content="☾" Style="{StaticResource ToolBtn}"
                             Margin="0,0,10,0" Click="ThemeBtn_Click" ToolTip="Toggle light / dark"/>
 
+                    <!-- connection quality profile (fps vs image quality trade-off) -->
+                    <ComboBox x:Name="ProfileBox" Width="170" Margin="0,0,10,0" VerticalAlignment="Center"
+                              IsEnabled="False" SelectionChanged="ProfileBox_Changed"
+                              ToolTip="Connection profile — trade frame rate against image quality">
+                        <ComboBoxItem Content="⚖ Balanced" Tag="balanced" IsSelected="True"/>
+                        <ComboBoxItem Content="⚡ Best responsiveness" Tag="responsive"/>
+                        <ComboBoxItem Content="🔍 Higher quality" Tag="quality"/>
+                        <ComboBoxItem Content="🎞 Higher frame rate" Tag="framerate"/>
+                        <ComboBoxItem Content="🚀 Ultra" Tag="ultra"/>
+                    </ComboBox>
+
                     <!-- P2P badge -->
                     <Border x:Name="P2pBadge" Background="#1A2B3A" CornerRadius="999" Padding="10,5" Margin="0,0,8,0">
                         <StackPanel Orientation="Horizontal">

@@ -26,7 +26,8 @@ public sealed class HostSession : IDisposable
 {
     private readonly string _serverUrl;
     private readonly string _password;
-    private readonly int _fps;
+    private volatile int _fps;                   // mutable: quality profiles change it live
+    private volatile int _h264Mbps = 6;          // per-profile H.264 target (maxrate/bufsize scale with it)
     private readonly string? _token;       // stable identity for unattended hosts (null = random ID)
     private readonly string? _authToken;   // account session → claims this PC into the org
     private readonly string? _enrollToken; // pre-baked enrollment token → claims into an org (no login)
@@ -193,6 +194,10 @@ public sealed class HostSession : IDisposable
 
             case "selmon":
                 SelectMonitor(root.GetProperty("index").GetInt32());
+                break;
+
+            case "profile":   // viewer picked a connection quality profile
+                ApplyProfile(root.TryGetProperty("name", out var prof) ? prof.GetString() : null);
                 break;
 
             case "fleet":
@@ -435,7 +440,6 @@ public sealed class HostSession : IDisposable
         var token = _pumpCts.Token;
         _pumpTask = Task.Run(async () =>
         {
-            int interval = Math.Max(1, 1000 / _fps);
             var sw = Stopwatch.StartNew();
             byte[]? prev = null;                 // last sent frame — GDI-path change detection only
             long lastSentMs = -1;
@@ -501,8 +505,9 @@ public sealed class HostSession : IDisposable
                     if (!notedErr) { notedErr = true; CrashLog.Note("pump: error: " + ex.Message); }
                     /* transient; keep going */
                 }
-                // Pace to the target fps, subtracting the work just done so we add as little
-                // latency as possible (and never fall further behind than one interval).
+                // Pace to the target fps (re-read each tick — profiles change it live),
+                // subtracting the work just done so we add as little latency as possible.
+                int interval = Math.Max(1, 1000 / _fps);
                 int sleep = (int)Math.Max(1, interval - (sw.ElapsedMilliseconds - t0));
                 try { await Task.Delay(sleep, token); } catch { break; }
             }
@@ -585,20 +590,44 @@ public sealed class HostSession : IDisposable
         catch { }
     }
 
+    // Quality profiles the viewer can switch live (over signaling): fps cap + H.264 target
+    // rate. VP8 has no exposed rate control in SIPSorcery, so profiles reach it via fps only.
+    private void ApplyProfile(string? name)
+    {
+        (int fps, int mbps) = name switch
+        {
+            "responsive" => (30, 3),
+            "quality"    => (15, 12),
+            "framerate"  => (60, 6),
+            "ultra"      => (60, 16),
+            _            => (30, 6),      // "balanced" — matches the defaults
+        };
+        _fps = fps; _h264Mbps = mbps;
+        // Recreate the encoders so the new rate/GOP takes effect and the next frame is a
+        // keyframe (same pattern as a monitor switch).
+        lock (_encLock)
+        {
+            _encoder?.Dispose(); _encoder = new VpxVideoEncoder();
+            if (_h264 != null) { try { _h264.Dispose(); _h264 = MakeH264Encoder(); } catch { _h264 = null; } }
+        }
+        CrashLog.Note($"profile: {name ?? "balanced"} fps={fps} h264={mbps}M");
+    }
+
     // Build an H.264 encoder bound to the hardware codec probed at startup (NVENC/QSV/AMF),
     // tuned for interactive desktop streaming: capped CBR-ish rate control, no B-frames or
     // reordering delay, ~4 s GOP. Without options the FFmpeg defaults are file-transcoding
     // oriented (unbounded quality-based rate, frame reordering) — bad latency and bursts.
-    private static FFmpegVideoEncoder MakeH264Encoder()
+    private FFmpegVideoEncoder MakeH264Encoder()
     {
         var enc = new FFmpegVideoEncoder();
         var name = FFmpegSupport.H264EncoderName;
         if (!string.IsNullOrEmpty(name))
         {
+            int mbps = _h264Mbps, max = mbps + Math.Max(1, mbps / 3);
             var opts = new Dictionary<string, string>
             {
-                ["b"] = "6M", ["maxrate"] = "8M", ["bufsize"] = "8M",   // ~6 Mbps, small VBV
-                ["g"] = "120",                                          // keyframe every ~4 s @30fps
+                ["b"] = $"{mbps}M", ["maxrate"] = $"{max}M", ["bufsize"] = $"{max}M",
+                ["g"] = Math.Max(30, _fps * 4).ToString(),              // keyframe every ~4 s
                 ["bf"] = "0",                                           // no B-frames (reordering = latency)
             };
             switch (name)

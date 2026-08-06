@@ -270,6 +270,7 @@ public partial class ViewerWindow : Window
         Hint.Visibility = Visibility.Collapsed;
         Scroller.Visibility = Visibility.Visible;
         foreach (var b in new[] { ZoomFit, Zoom100, Zoom200, TransferBtn, WinKeyBtn, ClipboardBtn }) b.IsEnabled = true;
+        ProfileBox.IsEnabled = true;
         ClipboardBtn.ToolTip = "Send your clipboard text to the remote PC";
         SetZoom(0);   // Fit
 
@@ -291,6 +292,17 @@ public partial class ViewerWindow : Window
     }
 
     private void DisconnectBtn_Click(object sender, RoutedEventArgs e) => Close();
+
+    private void ProfileBox_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
+    {
+        // Guarded by _connected so programmatic resets (device switch) don't send anything.
+        if (!_connected || _session == null) return;
+        if ((ProfileBox.SelectedItem as System.Windows.Controls.ComboBoxItem)?.Tag is string tag)
+        {
+            _session.SetProfile(tag);
+            SetStatus($"Profile → {((System.Windows.Controls.ComboBoxItem)ProfileBox.SelectedItem).Content}");
+        }
+    }
 
     private void SetStatus(string s, string? dotHex = null)
     {
@@ -421,6 +433,7 @@ public partial class ViewerWindow : Window
         TitleText.Text = name; Title = $"Remotler — {name}";
         P2pText.Text = "Connecting"; P2pDot.Fill = new SolidColorBrush(Color.FromRgb(0x3E, 0xC8, 0xFF));
         _transport = null; P2pBadge.ToolTip = null;
+        ProfileBox.IsEnabled = false; ProfileBox.SelectedIndex = 0;   // new session starts balanced
         TimerText.Text = "00:00";
         SetStatus("Connecting…", "#8A8DA3");
 

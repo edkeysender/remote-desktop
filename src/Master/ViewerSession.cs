@@ -291,6 +291,9 @@ public sealed class ViewerSession : IDisposable
     /// <summary>Ask the host to switch the captured monitor (-1 = all). Sent over signaling.</summary>
     public void SelectMonitor(int index) => _ = _conn.SendJsonAsync(new { t = "selmon", index });
 
+    /// <summary>Switch the host's connection quality profile (fps/bitrate trade-off).</summary>
+    public void SetProfile(string name) => _ = _conn.SendJsonAsync(new { t = "profile", name });
+
     public async Task CloseAsync()
     {
         Files.Detach();

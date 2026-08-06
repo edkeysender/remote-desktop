@@ -147,7 +147,8 @@
                             </StackPanel>
                         </Grid>
                         <ListView x:Name="LocalList" Style="{StaticResource FileList}" ItemContainerStyle="{StaticResource FileItem}"
-                                  MouseDoubleClick="LocalList_DoubleClick" SelectionChanged="Sel_Changed" SelectionMode="Single">
+                                  MouseDoubleClick="LocalList_DoubleClick" SelectionChanged="Sel_Changed" SelectionMode="Single"
+                                  KeyDown="LocalList_KeyDown">
                             <ListView.View>
                                 <GridView><GridViewColumn Header="Name" Width="300" DisplayMemberBinding="{Binding Name}"/>
                                           <GridViewColumn Header="Size" Width="90" DisplayMemberBinding="{Binding SizeText}"/></GridView>
@@ -185,6 +186,7 @@
                             </StackPanel>
                         </Grid>
                         <ListView x:Name="RemoteList" Style="{StaticResource FileList}" ItemContainerStyle="{StaticResource FileItem}"
+                                  KeyDown="RemoteList_KeyDown"
                                   MouseDoubleClick="RemoteList_DoubleClick" SelectionChanged="Sel_Changed" SelectionMode="Single">
                             <ListView.View>
                                 <GridView><GridViewColumn Header="Name" Width="300" DisplayMemberBinding="{Binding Name}"/>
