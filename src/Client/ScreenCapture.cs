@@ -32,6 +32,12 @@ public sealed class ScreenCapture : IDisposable
     private List<(DxgiDuplicator dup, int dx, int dy)>? _dxgi;
     private long _dxgiRetryAt;                 // Environment.TickCount64 gate for re-creation
     private bool _dxgiEligible;               // region is a monitor or the full virtual desktop
+    private bool _primed;                      // buffer holds real desktop content at least once
+
+    // Serializes capture against SetRegion/Dispose. Disposing a D3D texture or context
+    // while TryCapture is inside Map/CopyResource is a native use-after-free — an
+    // uncatchable AccessViolation that kills the whole process, not an exception.
+    private readonly object _sync = new();
 
     public int Width => _region.Width;
     public int Height => _region.Height;
@@ -45,10 +51,13 @@ public sealed class ScreenCapture : IDisposable
     /// <summary>Switch the captured region (e.g. a different monitor or all).</summary>
     public void SetRegion(Rectangle region)
     {
-        if (region == _region) return;
-        _gfx.Dispose(); _bmp.Dispose();
-        DisposeDxgi();
-        Init(region, out _bmp, out _gfx, out _bgra);
+        lock (_sync)
+        {
+            if (region == _region) return;
+            _gfx.Dispose(); _bmp.Dispose();
+            DisposeDxgi();
+            Init(region, out _bmp, out _gfx, out _bgra);
+        }
     }
 
     private void Init(Rectangle region, out Bitmap bmp, out Graphics gfx, out byte[] bgra)
@@ -62,6 +71,7 @@ public sealed class ScreenCapture : IDisposable
         var mons = EnumerateMonitors();
         _dxgiEligible = mons.Any(m => m.Bounds == region) || region == VirtualDesktop();
         _dxgiRetryAt = 0;
+        _primed = false;
         TryInitDxgi();
     }
 
@@ -97,56 +107,70 @@ public sealed class ScreenCapture : IDisposable
     /// </summary>
     public byte[] CaptureBgra(out bool? changed)
     {
-        // Prefer GPU capture. On timeout (no change) return the last buffer; on error, drop
-        // to GDI and schedule a retry so a transient loss (UAC, mode change) self-heals.
-        if (_dxgi == null && _dxgiEligible && Environment.TickCount64 >= _dxgiRetryAt)
+        lock (_sync)
         {
-            _dxgiRetryAt = Environment.TickCount64 + 3000;
-            TryInitDxgi();
-        }
-        if (_dxgi != null)
-        {
+            // Prefer GPU capture. On timeout (no change) return the last buffer; on error, drop
+            // to GDI and schedule a retry so a transient loss (UAC, mode change) self-heals.
+            if (_dxgi == null && _dxgiEligible && Environment.TickCount64 >= _dxgiRetryAt)
+            {
+                _dxgiRetryAt = Environment.TickCount64 + 3000;
+                TryInitDxgi();
+            }
+            if (_dxgi != null)
+            {
+                try
+                {
+                    int stride = _region.Width * 4;
+                    bool any = false;
+                    // Wait briefly on the first output only; poll the rest so a static second
+                    // monitor can never stall the pump.
+                    for (int i = 0; i < _dxgi.Count; i++)
+                    {
+                        var (dup, dx, dy) = _dxgi[i];
+                        dup.TryCapture(_bgra, stride, dx, dy, out bool c, timeoutMs: i == 0 ? 10 : 0);
+                        any |= c;
+                    }
+                    // A duplicator only delivers frames when the desktop changes; on a screen
+                    // that has been static since this region was created the buffer is still
+                    // empty. Prime it once via GDI rather than streaming black keepalives.
+                    if (any || _primed)
+                    {
+                        Backend = "dxgi";
+                        changed = any;
+                        _primed |= any;
+                        return _bgra;
+                    }
+                }
+                catch
+                {
+                    DisposeDxgi();
+                    _dxgiRetryAt = Environment.TickCount64 + 3000;   // cool down before retrying DXGI
+                }
+            }
+
+            // ---- GDI fallback ----
+            _gfx.CopyFromScreen(_region.Left, _region.Top, 0, 0, _region.Size, CopyPixelOperation.SourceCopy);
+            var data = _bmp.LockBits(new Rectangle(0, 0, _region.Width, _region.Height),
+                ImageLockMode.ReadOnly, PixelFormat.Format32bppRgb);
             try
             {
-                int stride = _region.Width * 4;
-                bool any = false;
-                // Wait briefly on the first output only; poll the rest so a static second
-                // monitor can never stall the pump.
-                for (int i = 0; i < _dxgi.Count; i++)
-                {
-                    var (dup, dx, dy) = _dxgi[i];
-                    dup.TryCapture(_bgra, stride, dx, dy, out bool c, timeoutMs: i == 0 ? 10 : 0);
-                    any |= c;
-                }
-                Backend = "dxgi";
-                changed = any;
-                return _bgra;
+                int rowBytes = _region.Width * 4;
+                if (data.Stride == rowBytes) Marshal.Copy(data.Scan0, _bgra, 0, _bgra.Length);
+                else for (int y = 0; y < _region.Height; y++)
+                    Marshal.Copy(data.Scan0 + y * data.Stride, _bgra, y * rowBytes, rowBytes);
             }
-            catch
-            {
-                DisposeDxgi();
-                _dxgiRetryAt = Environment.TickCount64 + 3000;   // cool down before retrying DXGI
-            }
+            finally { _bmp.UnlockBits(data); }
+            Backend = "gdi";
+            changed = null;
+            _primed = true;
+            return _bgra;
         }
-
-        // ---- GDI fallback ----
-        _gfx.CopyFromScreen(_region.Left, _region.Top, 0, 0, _region.Size, CopyPixelOperation.SourceCopy);
-        var data = _bmp.LockBits(new Rectangle(0, 0, _region.Width, _region.Height),
-            ImageLockMode.ReadOnly, PixelFormat.Format32bppRgb);
-        try
-        {
-            int rowBytes = _region.Width * 4;
-            if (data.Stride == rowBytes) Marshal.Copy(data.Scan0, _bgra, 0, _bgra.Length);
-            else for (int y = 0; y < _region.Height; y++)
-                Marshal.Copy(data.Scan0 + y * data.Stride, _bgra, y * rowBytes, rowBytes);
-        }
-        finally { _bmp.UnlockBits(data); }
-        Backend = "gdi";
-        changed = null;
-        return _bgra;
     }
 
-    public void Dispose() { DisposeDxgi(); _gfx.Dispose(); _bmp.Dispose(); }
+    public void Dispose()
+    {
+        lock (_sync) { DisposeDxgi(); _gfx.Dispose(); _bmp.Dispose(); }
+    }
 
     // ---------------- monitor discovery / region helpers ----------------
 

@@ -440,7 +440,11 @@ public sealed class HostSession : IDisposable
                         lock (_encLock)
                         {
                             if (token.IsCancellationRequested) break;
-                            if (_sendCodec == VideoCodecsEnum.H264 && _h264 != null)
+                            // Region switched between capture and encode → the buffer no longer
+                            // matches _capture dimensions; encoding it would over-read. Drop it.
+                            if (frame.Length != _capture.Width * _capture.Height * 4)
+                                enc = null;
+                            else if (_sendCodec == VideoCodecsEnum.H264 && _h264 != null)
                                 enc = _h264.EncodeVideo(_capture.Width, _capture.Height, frame,
                                     VideoPixelFormatsEnum.Bgra, VideoCodecsEnum.H264);
                             else if (_encoder != null)
