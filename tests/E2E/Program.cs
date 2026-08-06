@@ -41,7 +41,7 @@ viewer.Connected += () => viewerConnected.TrySetResult(true);
 viewer.Rejected += r => { Console.WriteLine($"[viewer] rejected: {r}"); viewerConnected.TrySetResult(false); };
 viewer.Frame += (w, h, bgr) => { framesDecoded++; lastW = w; lastH = h; };
 viewer.ControlReady += ready => { Console.WriteLine($"[viewer] control ready={ready}"); if (ready) controlReady.TrySetResult(true); };
-viewer.Monitors += (m, cur) => { monitors = m; currentMon = cur; monitorsReady.TrySetResult(true); };
+viewer.Monitors += (m, cur, _) => { monitors = m; currentMon = cur; monitorsReady.TrySetResult(true); };
 await viewer.ConnectAsync(SERVER, id2!, PASSWORD);
 
 Check(await WaitBool(viewerConnected.Task, 10000), "viewer authenticated + paired");
