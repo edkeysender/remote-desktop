@@ -319,6 +319,7 @@ public sealed class HostSession : IDisposable
         {
             if (c != null) _ = _conn!.SendJsonAsync(new { t = "ice", candidate = c.ToString() });
         };
+        var pcRef = _pc;
         _pc.onconnectionstatechange += s =>
         {
             _pcConnected = s == RTCPeerConnectionState.connected;
@@ -332,7 +333,17 @@ public sealed class HostSession : IDisposable
                 _clipMon?.Start();
             }
             else if (s is RTCPeerConnectionState.failed or RTCPeerConnectionState.disconnected or RTCPeerConnectionState.closed)
+            {
                 StopPump();
+                // A dead link must free this host even when no 'bye' ever arrives
+                // (viewer crashed / network died) — otherwise the UI stays on
+                // "streaming" and the next connect is rejected as busy.
+                if (s == RTCPeerConnectionState.failed && ReferenceEquals(pcRef, _pc))
+                {
+                    Status?.Invoke("Viewer connection lost — waiting for a connection");
+                    _ = Task.Run(TearDownPeer);   // off this callback: Close() re-enters state changes
+                }
+            }
         };
 
         var offer = _pc.createOffer(null);

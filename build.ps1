@@ -74,12 +74,16 @@ Write-Host "== Building version $ver ==" -ForegroundColor Cyan
 # so it's safe to ship with a proprietary app; H.264 encode uses NVENC/QuickSync/AMF.
 function Add-FFmpeg {
     param([string[]]$Dests)
-    $cache  = Join-Path $root '.ffmpeg'
+    # PINNED to the FFmpeg 8.x line: SIPSorceryMedia.FFmpeg's bindings load the v8 DLLs
+    # by name (avcodec-62 etc.). The old "master-latest" URL silently moved to FFmpeg 9
+    # (avcodec-63), which the bindings cannot load — shipping it disables H.264 entirely
+    # and every session falls back to software VP8.
+    $cache  = Join-Path $root '.ffmpeg8'
     $binDir = Join-Path $cache 'bin'
-    if (-not (Get-ChildItem -Path $binDir -Filter 'avcodec-*.dll' -ErrorAction SilentlyContinue)) {
+    if (-not (Get-ChildItem -Path $binDir -Filter 'avcodec-62.dll' -ErrorAction SilentlyContinue)) {
         New-Item -ItemType Directory -Force -Path $cache | Out-Null
         $zip = Join-Path $cache 'ffmpeg.zip'
-        $url = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-master-latest-win64-lgpl-shared.zip'
+        $url = 'https://github.com/BtbN/FFmpeg-Builds/releases/download/latest/ffmpeg-n8.1-latest-win64-lgpl-shared-8.1.zip'
         Write-Host "== Downloading FFmpeg (LGPL shared) ==" -ForegroundColor Cyan
         Invoke-WebRequest -Uri $url -OutFile $zip -UseBasicParsing
         Expand-Archive -Path $zip -DestinationPath $cache -Force

@@ -490,6 +490,8 @@ wss.on('connection', (ws, req) => {
   ws.role = null;      // 'host' | 'viewer'
   ws.id = null;        // host id (both peers store the paired host id)
   ws._ip = clientIp(req);
+  ws.isAlive = true;
+  ws.on('pong', () => { ws.isAlive = true; });
   // The browser viewer connects same-origin, so the panel's session cookie rides on
   // the upgrade request. Keep it as a fallback credential: a signed-in user opens a
   // session without their HttpOnly token ever being exposed to page JavaScript.
@@ -587,6 +589,12 @@ wss.on('connection', (ws, req) => {
         if (!rl.ok) { send(ws, { t: 'rejected', reason: 'too many attempts, slow down' }); break; }
         const entry = hosts.get(String(msg.id));
         if (!entry) { send(ws, { t: 'rejected', reason: 'no such ID online' }); break; }
+        // A viewer socket that died without a TCP close (network drop, crash) lingers
+        // until the heartbeat reaps it — don't let it hold the host hostage.
+        if (entry.viewer && entry.viewer.readyState !== entry.viewer.OPEN) {
+          endViewerSession(entry.viewer);
+          entry.viewer = null;
+        }
         if (entry.viewer) { send(ws, { t: 'rejected', reason: 'host is busy' }); break; }
         ws.role = 'viewer';
         const rid = randomBytes(8).toString('hex');
@@ -707,3 +715,16 @@ wss.on('connection', (ws, req) => {
 
   ws.on('error', () => { /* close handler does cleanup */ });
 });
+
+// Heartbeat: ping every connection; terminate any that didn't pong since the last
+// round. A terminated socket fires 'close', which runs the normal cleanup — so a
+// vanished viewer frees its host ("busy") and a vanished host drops off the fleet
+// within ~60 s instead of whenever TCP notices.
+const heartbeat = setInterval(() => {
+  for (const ws of wss.clients) {
+    if (ws.isAlive === false) { try { ws.terminate(); } catch { } continue; }
+    ws.isAlive = false;
+    try { ws.ping(); } catch { }
+  }
+}, 30_000);
+wss.on('close', () => clearInterval(heartbeat));

@@ -256,7 +256,6 @@
                               AllowDrop="True" DragOver="RemoteView_DragOver" Drop="RemoteView_Drop"
                               DragLeave="RemoteView_DragLeave">
                     <Image x:Name="RemoteImage" Stretch="Uniform" Focusable="True" AllowDrop="True"
-                           RenderOptions.BitmapScalingMode="LowQuality"
                            HorizontalAlignment="Center" VerticalAlignment="Center"
                            MouseMove="RemoteImage_MouseMove"
                            MouseDown="RemoteImage_MouseDown"

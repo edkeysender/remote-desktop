@@ -33,3 +33,7 @@ spike/
 
 # Claude Code local state + worktrees
 .claude/
+
+# FFmpeg runtime download cache (build.ps1 -WithFFmpeg)
+.ffmpeg/
+.ffmpeg8/
