@@ -99,7 +99,8 @@ public sealed class HostSession : IDisposable
 
         Status?.Invoke("Connecting to server…");
         await ws.ConnectAsync(_serverUrl);
-        await _conn.SendJsonAsync(new { t = "register", token = _token, auth = _authToken, enroll = _enrollToken, name = _hostName, mac = PrimaryMac() });
+        await _conn.SendJsonAsync(new { t = "register", token = _token, auth = _authToken, enroll = _enrollToken, name = _hostName, mac = PrimaryMac(),
+                                        ver = typeof(HostSession).Assembly.GetName().Version?.ToString(3) });
     }
 
     /// <summary>
@@ -418,6 +419,8 @@ public sealed class HostSession : IDisposable
             var sw = Stopwatch.StartNew();
             byte[]? prev = null;                 // last sent frame — GDI-path change detection only
             long lastSentMs = -1;
+            int sent = 0;                        // diag: breadcrumb after the first sent frame
+            bool notedErr = false;               // diag: note only the first pre-frame error
             while (!token.IsCancellationRequested && _pcConnected)
             {
                 long t0 = sw.ElapsedMilliseconds;
@@ -463,6 +466,8 @@ public sealed class HostSession : IDisposable
                                 : (uint)Math.Clamp((now - lastSentMs) * 90, 90, 270000);
                             _pc?.SendVideo(duration, enc);
                             lastSentMs = now;
+                            if (++sent == 1)
+                                CrashLog.Note($"pump: first frame sent {_capture.Width}x{_capture.Height} codec={_sendCodec} backend={_capture.Backend} h264={FFmpegSupport.H264EncoderName ?? "no"}");
                         }
                         if (changed && !dxChanged.HasValue)
                         {
@@ -471,7 +476,11 @@ public sealed class HostSession : IDisposable
                         }
                     }
                 }
-                catch { /* transient send error; keep going */ }
+                catch (Exception ex)
+                {
+                    if (!notedErr) { notedErr = true; CrashLog.Note("pump: error: " + ex.Message); }
+                    /* transient; keep going */
+                }
                 // Pace to the target fps, subtracting the work just done so we add as little
                 // latency as possible (and never fall further behind than one interval).
                 int sleep = (int)Math.Max(1, interval - (sw.ElapsedMilliseconds - t0));

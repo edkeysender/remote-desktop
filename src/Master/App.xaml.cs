@@ -21,6 +21,8 @@ public partial class App : Application
 
     private void OnStartup(object sender, StartupEventArgs e)
     {
+        RemoteDesktop.Shared.CrashLog.Install("app");
+
         // If launched loose (e.g. from Downloads), install into a proper per-user location and
         // relaunch from there — then this instance exits.
         if (SelfInstall.RelocateIfLoose(e.Args)) { Shutdown(); return; }

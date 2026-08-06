@@ -562,7 +562,7 @@ wss.on('connection', (ws, req) => {
           branding: claimOrgId ? store.getBranding(claimOrgId) : null,
           ice: claimOrgId ? store.getIce(claimOrgId) : null,
         });
-        console.log(`[server] host registered id=${id}${token ? ' (persistent)' : ''}${org ? ` org=${org.name}` : ''}`);
+        console.log(`[server] host registered id=${id}${token ? ' (persistent)' : ''}${org ? ` org=${org.name}` : ''} v=${msg.ver || '?'}`);
         if (claimOrgId) pushFleet(claimOrgId);   // tell this host + its siblings the new fleet
         break;
       }

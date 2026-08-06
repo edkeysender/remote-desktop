@@ -10,6 +10,8 @@ public partial class App : Application
 
     private void OnStartup(object sender, StartupEventArgs e)
     {
+        CrashLog.Install(e.Args.Any(a => a.Equals("--worker", StringComparison.OrdinalIgnoreCase)) ? "agent-worker" : "agent");
+
         // Installer seeds a custom unattended password: `--set-password <pw>` writes it to the
         // machine config (runs elevated from the installer) and exits.
         int pi = Array.FindIndex(e.Args, a => a.Equals("--set-password", StringComparison.OrdinalIgnoreCase));
