@@ -414,11 +414,11 @@ window.chrome?.webview?.addEventListener('message',ev=>{
   syncConsent(!!s.consent);
   if(s.signedIn||org) closeModal();
   if(s.error){ $('m-err').textContent=s.error; $('m-err2').textContent=s.error; }
-  // fleet = account computers + LAN-detected devices in the same group (deduped)
-  const fleet=[...(s.computers||[])];
-  (s.localDevices||[]).forEach(l=>{ if(!fleet.some(c=>c.relayId&&c.relayId===l.relayId)) fleet.push(l); });
+  // LOCAL FLEET = only devices reachable directly on this network (LAN discovery → P2P
+  // connect). Relay-only devices are reachable from the directory/groups views instead.
+  const fleet=[...(s.localDevices||[])];
   const qf=$('quickfleet'); qf.innerHTML=''; fleet.slice(0,8).forEach(c=>qf.appendChild(devCard(c)));
-  if(!fleet.length) qf.innerHTML='<div class="empty2" style="grid-column:1/-1">No fleet devices yet. Devices on this network in your group appear here automatically.</div>';
+  if(!fleet.length) qf.innerHTML='<div class="empty2" style="grid-column:1/-1">No local devices found. Devices on this network in your group appear here automatically.</div>';
   const rs=$('recent-strip'); rs.innerHTML=''; (s.recent||[]).slice(0,4).forEach(c=>rs.appendChild(devCard({name:c.name,relayId:c.relayId,online:c.online})));
   if(!(s.recent||[]).length) rs.innerHTML='<div class="empty2" style="grid-column:1/-1">No recent connections.</div>';
   // recent list
