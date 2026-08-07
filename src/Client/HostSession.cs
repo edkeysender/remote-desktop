@@ -624,6 +624,11 @@ public sealed class HostSession : IDisposable
         if (!string.IsNullOrEmpty(name))
         {
             int mbps = _h264Mbps, max = mbps + Math.Max(1, mbps / 3);
+            // The options dictionary alone does NOT set the rate: measured, 3/6/12/16 Mbps
+            // all produced byte-identical output. SetBitrate writes the codec context
+            // fields directly and must be called BEFORE SetCodec opens the context.
+            long bps = mbps * 1_000_000L;
+            try { enc.SetBitrate(bps, null, null, max * 1_000_000L); } catch { }
             var opts = new Dictionary<string, string>
             {
                 ["b"] = $"{mbps}M", ["maxrate"] = $"{max}M", ["bufsize"] = $"{max}M",
@@ -652,6 +657,7 @@ public sealed class HostSession : IDisposable
                 // fall back to the encoder's defaults rather than to software VP8.
                 enc.Dispose();
                 enc = new FFmpegVideoEncoder();
+                try { enc.SetBitrate(bps, null, null, max * 1_000_000L); } catch { }
                 enc.SetCodec(AVCodecID.AV_CODEC_ID_H264, name, null);
             }
         }

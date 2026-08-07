@@ -23,12 +23,19 @@ public static class FFmpegSupport
     private static bool _encOk;              // a hardware H.264 encoder actually works
     private static string? _encName;         // e.g. "h264_nvenc"
 
-    // H.264 encoders, best first: vendor hardware (NVENC/QSV/AMF), then Cisco's
-    // BSD-licensed OpenH264 as the software floor — so every host can negotiate tunable
-    // H.264 instead of falling back to fixed-rate VP8. libx264 is deliberately absent
-    // (GPL, not shipped); h264_mf is skipped (its async MediaFoundation transform never
-    // returns frames through this synchronous encode path — verified, not just probed).
-    private static readonly string[] HwEncoders = { "h264_nvenc", "h264_qsv", "h264_amf", "libopenh264" };
+    // H.264 encoders, best first: vendor hardware, then Cisco's BSD-licensed OpenH264 as
+    // the software floor — so every host can negotiate tunable H.264 instead of falling
+    // back to rate-fixed VP8. libx264 is deliberately absent (GPL, not shipped).
+    //
+    // Excluded on purpose, both verified rather than assumed:
+    //   h264_qsv — SIPSorceryMedia.FFmpeg hands the encoder software frames with no
+    //     hw_frames_ctx upload, so every submit fails ("map frame to surface failed")
+    //     whatever the input format or hw device type. Worse, probing it can trip a
+    //     native assert in qsvenc.c that abort()s the whole host process — uncatchable
+    //     from managed code. Driving QSV needs a direct FFmpeg encoder (planned).
+    //   h264_mf — its async MediaFoundation transform never returns frames through this
+    //     synchronous encode path (verified at 64px..1080p).
+    private static readonly string[] HwEncoders = { "h264_nvenc", "h264_amf", "libopenh264" };
 
     /// <summary>H.264 decode is possible (FFmpeg libs loaded). Used by the viewer.</summary>
     public static bool H264DecodeAvailable { get { EnsureInit(); return _libsOk; } }
