@@ -46,6 +46,7 @@ public sealed class ViewerSession : IDisposable
     public event Action<int>? NewWindow;                      // a new top-level window appeared on this monitor
     public event Action<long>? PongReceived;                  // echo of a ping timestamp (for RTT)
     public event Action<SessionTransport>? TransportResolved; // P2P vs TURN relay, once ICE nominates a pair
+    public event Action<string>? ChatReceived;                // chat message from the remote PC
     public event Action<string>? ClipboardText;               // text copied on the remote → set locally
     public event Action<List<RemoteClipFile>>? ClipboardFiles;// files copied on the remote → pull + set locally
     public event Action<string?>? Closed;
@@ -248,6 +249,7 @@ public sealed class ViewerSession : IDisposable
             if (kind == "newwin") { NewWindow?.Invoke(r.GetProperty("i").GetInt32()); return; }
             if (kind == "pong") { PongReceived?.Invoke(r.GetProperty("ts").GetInt64()); return; }
             if (kind == "clip") { ClipboardText?.Invoke(r.GetProperty("text").GetString() ?? ""); return; }
+            if (kind == "chat") { ChatReceived?.Invoke(r.GetProperty("text").GetString() ?? ""); return; }
             if (kind == "clipfiles")
             {
                 var list = new List<RemoteClipFile>();
@@ -297,6 +299,14 @@ public sealed class ViewerSession : IDisposable
     public void Ping(long ts) => Send(new { t = "ping", ts });
     /// <summary>Push the operator's clipboard text to the remote machine.</summary>
     public void SendClipboard(string text) => Send(new { t = "clip", text });
+
+    /// <summary>Send a chat message to the person at the remote PC.</summary>
+    public bool SendChat(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text) || _inputChannel is not { IsOpened: true }) return false;
+        Send(new { t = "chat", text });
+        return true;
+    }
 
     /// <summary>Ask the host to switch the captured monitor (-1 = all). Sent over signaling.</summary>
     public void SelectMonitor(int index) => _ = _conn.SendJsonAsync(new { t = "selmon", index });

@@ -82,6 +82,29 @@
                      Padding="6,4" LostFocus="Settings_LostFocus"/>
         </StackPanel>
 
+        <!-- Chat with the operator; only shown while a session is active. -->
+        <Border Grid.Row="5" x:Name="ChatPanel" Background="#161b22" CornerRadius="8" Padding="12,10"
+                Margin="0,0,0,10" Visibility="Collapsed">
+            <DockPanel>
+                <TextBlock DockPanel.Dock="Top" Text="💬 Chat with the operator" FontWeight="SemiBold"
+                           Foreground="#e6edf3" FontSize="13" Margin="0,0,0,8"/>
+                <Grid DockPanel.Dock="Bottom" Margin="0,8,0,0">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*"/>
+                        <ColumnDefinition Width="Auto"/>
+                    </Grid.ColumnDefinitions>
+                    <TextBox x:Name="ChatInput" Grid.Column="0" MaxLength="500" Background="#0d1117"
+                             Foreground="#e6edf3" BorderBrush="#30363d" Padding="6,4"
+                             KeyDown="ChatInput_KeyDown"/>
+                    <Button x:Name="ChatSend" Grid.Column="1" Content="Send" Margin="6,0,0,0"
+                            Padding="12,4" Click="ChatSend_Click"/>
+                </Grid>
+                <ScrollViewer x:Name="ChatScroll" VerticalScrollBarVisibility="Auto" MinHeight="90">
+                    <StackPanel x:Name="ChatList"/>
+                </ScrollViewer>
+            </DockPanel>
+        </Border>
+
         <TextBlock Grid.Row="5" x:Name="StatusText" Text="Starting…" Foreground="#8b949e"
                    VerticalAlignment="Bottom" TextWrapping="Wrap" Margin="0,12,0,10"/>
 

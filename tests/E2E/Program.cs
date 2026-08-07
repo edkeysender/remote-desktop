@@ -153,6 +153,22 @@ var pulled = await viewer.Files.DownloadAsync(remoteFile, pullDest);
 Check(File.Exists(pulled) && File.ReadAllBytes(pulled).AsSpan().SequenceEqual(remoteBytes),
     $"remote file pulled + intact ({remoteBytes.Length} bytes -> {pulled})");
 
+// --- chat both ways over the existing data channels ---
+{
+    var hostGotChat = new TaskCompletionSource<string>();
+    var viewerGotChat = new TaskCompletionSource<string>();
+    host.ChatReceived += t => hostGotChat.TrySetResult(t);
+    viewer.ChatReceived += t => viewerGotChat.TrySetResult(t);
+
+    Check(viewer.SendChat("hello from the operator"), "viewer sent a chat message");
+    var atHost = await WaitOr(hostGotChat.Task, 5000);
+    Check(atHost == "hello from the operator", $"host received operator chat ({atHost ?? "nothing"})");
+
+    Check(host.SendChat("hello from the remote PC"), "host sent a chat message");
+    var atViewer = await WaitOr(viewerGotChat.Task, 5000);
+    Check(atViewer == "hello from the remote PC", $"viewer received host chat ({atViewer ?? "nothing"})");
+}
+
 try { Directory.Delete(tmpDir, recursive: true); } catch { }
 
 // --- auto-update: manifest check + hash-verified download over the server's HTTP side ---

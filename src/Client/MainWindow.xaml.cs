@@ -77,6 +77,7 @@ public partial class MainWindow : Window
                 session.IdAssigned    += id     => Dispatcher.Invoke(() => IdBox.Text = FormatId(id));
                 session.Status        += s      => Dispatcher.Invoke(() => SetStatus(s));
                 session.SessionActive += active => Dispatcher.Invoke(() => ShowBanner(active));
+                session.ChatReceived  += text   => Dispatcher.Invoke(() => AddChatLine("Operator", text, mine: false));
                 session.Files.ReceiveStarted   += (n, _)    => Dispatcher.Invoke(() => SetStatus($"Receiving {n}…"));
                 session.Files.ReceiveCompleted += (n, path) => Dispatcher.Invoke(() => SetStatus($"Received {n} → {path}"));
                 session.Files.Error            += msg       => Dispatcher.Invoke(() => SetStatus("File transfer failed: " + msg));
@@ -182,7 +183,56 @@ public partial class MainWindow : Window
     }
 
     private void ShowBanner(bool active)
-        => Banner.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
+    {
+        Banner.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
+        // Chat is only meaningful while someone is connected; clear it between sessions.
+        ChatPanel.Visibility = active ? Visibility.Visible : Visibility.Collapsed;
+        if (!active) ChatList.Children.Clear();
+    }
+
+    // ---- chat with the operator ----
+    private void ChatInput_KeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    {
+        if (e.Key != System.Windows.Input.Key.Enter) return;
+        e.Handled = true;
+        SendChatMessage();
+    }
+
+    private void ChatSend_Click(object sender, RoutedEventArgs e) => SendChatMessage();
+
+    private void SendChatMessage()
+    {
+        var text = ChatInput.Text.Trim();
+        if (text.Length == 0) return;
+        if (_session?.SendChat(text) == true) { AddChatLine("You", text, mine: true); ChatInput.Clear(); }
+        else SetStatus("Chat unavailable — no operator is connected.");
+    }
+
+    private void AddChatLine(string who, string text, bool mine)
+    {
+        var stack = new System.Windows.Controls.StackPanel
+        {
+            Margin = new Thickness(mine ? 28 : 0, 0, mine ? 0 : 28, 8),
+            HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left,
+        };
+        stack.Children.Add(new System.Windows.Controls.TextBlock
+        {
+            Text = $"{who} · {DateTime.Now:HH:mm}",
+            Foreground = new System.Windows.Media.SolidColorBrush(
+                System.Windows.Media.Color.FromRgb(0x8b, 0x94, 0x9e)),
+            FontSize = 10.5,
+        });
+        stack.Children.Add(new System.Windows.Controls.TextBlock
+        {
+            Text = text, TextWrapping = TextWrapping.Wrap, FontSize = 12.5, MaxWidth = 300,
+            Foreground = new System.Windows.Media.SolidColorBrush(mine
+                ? System.Windows.Media.Color.FromRgb(0x9F, 0xE8, 0xFF)
+                : System.Windows.Media.Color.FromRgb(0xe6, 0xed, 0xf3)),
+        });
+        ChatList.Children.Add(stack);
+        ChatScroll.ScrollToEnd();
+        if (!mine) SetStatus("New chat message from the operator");
+    }
 
     private void SetStatus(string s) => StatusText.Text = s;
 

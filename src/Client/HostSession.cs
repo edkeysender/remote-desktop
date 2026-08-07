@@ -67,6 +67,7 @@ public sealed class HostSession : IDisposable
     public event Action<string?, string?>? GroupAssigned;   // group id, name (null = ungrouped)
     public event Action<string?, string?, string?>? Branding;   // appName, accent(#hex), logo(data URL)
     public event Action<string>? Status;
+    public event Action<string>? ChatReceived;   // operator sent a chat message to this PC
     public event Action<bool>? SessionActive;
     public event Action<HostSession>? Ended;   // direct-mode: the socket closed, listener can drop us
 
@@ -78,6 +79,14 @@ public sealed class HostSession : IDisposable
     {
         _serverUrl = serverUrl; _password = password; _fps = fps; _token = token;
         _authToken = authToken; _hostName = hostName; _enrollToken = enrollToken;
+    }
+
+    /// <summary>Send a chat message to the connected operator (over the "thumbs" channel).</summary>
+    public bool SendChat(string text)
+    {
+        if (string.IsNullOrWhiteSpace(text) || _thumbChannel is not { IsOpened: true }) return false;
+        try { _thumbChannel.send(JsonSerializer.Serialize(new { t = "chat", text })); return true; }
+        catch { return false; }
     }
 
     /// <summary>Ask the relay to re-send this host's org/group fleet (address-book refresh).</summary>
@@ -554,6 +563,12 @@ public sealed class HostSession : IDisposable
                     var text = r.GetProperty("text").GetString() ?? "";
                     ClipboardHelper.SetText(text);
                     _clipMon?.NoteText(text);   // don't echo it back to the viewer
+                    break;
+                }
+                case "chat":
+                {
+                    var text = r.TryGetProperty("text", out var ct) ? ct.GetString() ?? "" : "";
+                    if (text.Length > 0) ChatReceived?.Invoke(text);
                     break;
                 }
             }

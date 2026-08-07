@@ -212,6 +212,7 @@ public partial class ViewerWindow : Window
         _session.PongReceived += ts => Dispatcher.Invoke(() => OnPong(ts));
         _session.TransportResolved += tr => Dispatcher.Invoke(() => OnTransport(tr));
         _session.ClipboardText += t => Dispatcher.Invoke(() => OnRemoteClipText(t));
+        _session.ChatReceived += t => Dispatcher.Invoke(() => OnChatReceived(t));
         _session.ClipboardFiles += list => Dispatcher.Invoke(() => OnRemoteClipFiles(list));
         _session.Closed    += r  => Dispatcher.Invoke(() => { if (_connected) SetStatus("Closed: " + (r ?? ""), "#8A8DA3"); CloseSoon(); });
 
@@ -260,7 +261,7 @@ public partial class ViewerWindow : Window
         SetStatus("Connected", "#1FC98B");
         Hint.Visibility = Visibility.Collapsed;
         Scroller.Visibility = Visibility.Visible;
-        foreach (var b in new[] { ZoomFit, Zoom100, Zoom200, TransferBtn, WinKeyBtn, ClipboardBtn }) b.IsEnabled = true;
+        foreach (var b in new[] { ZoomFit, Zoom100, Zoom200, TransferBtn, WinKeyBtn, ClipboardBtn, ChatBtn }) b.IsEnabled = true;
         ProfileBox.IsEnabled = true;
         ClipboardBtn.ToolTip = "Send your clipboard text to the remote PC";
         SetZoom(0);   // Fit
@@ -283,6 +284,80 @@ public partial class ViewerWindow : Window
     }
 
     private void DisconnectBtn_Click(object sender, RoutedEventArgs e) => Close();
+
+    // ---- chat with the person at the remote PC ----
+    private void ChatBtn_Click(object sender, RoutedEventArgs e)
+    {
+        bool show = ChatPanel.Visibility != Visibility.Visible;
+        ChatPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        if (show) { ChatBtn.Content = "💬 Chat"; ChatInput.Focus(); }
+        else RemoteImage.Focus();
+    }
+
+    private void ChatClose_Click(object sender, RoutedEventArgs e)
+    {
+        ChatPanel.Visibility = Visibility.Collapsed;
+        RemoteImage.Focus();
+    }
+
+    private void ChatInput_KeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        e.Handled = true;              // don't forward Enter to the remote desktop
+        SendChatMessage();
+    }
+
+    private void ChatSend_Click(object sender, RoutedEventArgs e) => SendChatMessage();
+
+    private void SendChatMessage()
+    {
+        var text = ChatInput.Text.Trim();
+        if (text.Length == 0) return;
+        if (_session?.SendChat(text) == true)
+        {
+            AddChatLine("You", text, mine: true);
+            ChatInput.Clear();
+        }
+        else SetStatus("Chat unavailable — the remote isn't connected yet.", "#FFAA1D");
+    }
+
+    private void OnChatReceived(string text)
+    {
+        AddChatLine(_display, text, mine: false);
+        if (ChatPanel.Visibility != Visibility.Visible)
+        {
+            // Unread marker on the toolbar button so a message isn't missed while hidden.
+            ChatBtn.Content = "💬 Chat •";
+            SetStatus($"{_display}: {text}");
+        }
+    }
+
+    private void AddChatLine(string who, string text, bool mine)
+    {
+        var bubble = new Border
+        {
+            Background = new SolidColorBrush(mine ? Color.FromRgb(0x1A, 0x2B, 0x3A) : Res("StageBrush")),
+            CornerRadius = new CornerRadius(10),
+            Padding = new Thickness(10, 7, 10, 7),
+            Margin = new Thickness(mine ? 36 : 0, 0, mine ? 0 : 36, 8),
+            HorizontalAlignment = mine ? HorizontalAlignment.Right : HorizontalAlignment.Left,
+        };
+        var stack = new StackPanel();
+        stack.Children.Add(new TextBlock
+        {
+            Text = $"{who} · {DateTime.Now:HH:mm}",
+            Foreground = new SolidColorBrush(Res("MutedBrush")),
+            FontSize = 10.5, Margin = new Thickness(0, 0, 0, 2),
+        });
+        stack.Children.Add(new TextBlock
+        {
+            Text = text, TextWrapping = TextWrapping.Wrap, FontSize = 12.5,
+            Foreground = new SolidColorBrush(mine ? Color.FromRgb(0x9F, 0xE8, 0xFF) : Res("TextBrush")),
+        });
+        bubble.Child = stack;
+        ChatList.Children.Add(bubble);
+        ChatScroll.ScrollToEnd();
+    }
 
     private void ProfileBox_Changed(object sender, System.Windows.Controls.SelectionChangedEventArgs e)
     {
