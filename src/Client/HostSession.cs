@@ -44,7 +44,7 @@ public sealed class HostSession : IDisposable
     private WindowWatcher? _winWatch;
     private ClipboardMonitor? _clipMon;
     private VpxVideoEncoder? _encoder;
-    private FFmpegVideoEncoder? _h264;                 // non-null only when H.264 was negotiated + available
+    private H264Encoder? _h264;                        // non-null only when H.264 was negotiated + available
     private VideoCodecsEnum _sendCodec = VideoCodecsEnum.VP8;   // set by OnVideoFormatsNegotiated
     private CancellationTokenSource? _pumpCts;
     private Task? _pumpTask;
@@ -268,8 +268,10 @@ public sealed class HostSession : IDisposable
         bool h264 = FFmpegSupport.H264EncodeAvailable;
         if (h264)
         {
-            try { _h264 = MakeH264Encoder(); }
-            catch { _h264 = null; h264 = false; }
+            _h264 = MakeH264Encoder();
+            // Only offer H.264 if we can actually produce it — otherwise the peer could
+            // negotiate H.264 against an encoder we don't have.
+            if (_h264 == null) h264 = false;
         }
 
         var config = new RTCConfiguration
@@ -427,7 +429,7 @@ public sealed class HostSession : IDisposable
             _encoder = new VpxVideoEncoder();
             // Recreate the H.264 encoder too so it re-initialises at the new dimensions and
             // emits a fresh keyframe.
-            if (_h264 != null) { try { _h264.Dispose(); _h264 = MakeH264Encoder(); } catch { _h264 = null; } }
+            if (_h264 != null) { _h264.Dispose(); _h264 = MakeH264Encoder(); }
         }
         ApplyInputRegion();
         SendMonitorList();   // push refreshed bounds + virtual-desktop geometry to the viewer
@@ -471,9 +473,17 @@ public sealed class HostSession : IDisposable
                             // matches _capture dimensions; encoding it would over-read. Drop it.
                             if (frame.Length != _capture.Width * _capture.Height * 4)
                                 enc = null;
+                            // H.264 was negotiated but the encoder is gone (rebuild failed):
+                            // drop frames rather than sending VP8 bytes on an H.264 payload.
+                            else if (_sendCodec == VideoCodecsEnum.H264 && _h264 == null) enc = null;
                             else if (_sendCodec == VideoCodecsEnum.H264 && _h264 != null)
-                                enc = _h264.EncodeVideo(_capture.Width, _capture.Height, frame,
-                                    VideoPixelFormatsEnum.Bgra, VideoCodecsEnum.H264);
+                            {
+                                // The encoder is fixed to the size it was built at; a monitor
+                                // switch rebuilds it, but drop any frame that slipped through
+                                // mid-switch rather than feeding it mismatched dimensions.
+                                if (_h264.Width != (_capture.Width & ~1) || _h264.Height != (_capture.Height & ~1)) enc = null;
+                                else enc = _h264.Encode(frame, _capture.Width * 4);
+                            }
                             else if (_encoder != null)
                                 enc = _encoder.EncodeVideo(_capture.Width, _capture.Height, frame,
                                     VideoPixelFormatsEnum.Bgra, VideoCodecsEnum.VP8);
@@ -608,60 +618,22 @@ public sealed class HostSession : IDisposable
         lock (_encLock)
         {
             _encoder?.Dispose(); _encoder = new VpxVideoEncoder();
-            if (_h264 != null) { try { _h264.Dispose(); _h264 = MakeH264Encoder(); } catch { _h264 = null; } }
+            if (_h264 != null) { _h264.Dispose(); _h264 = MakeH264Encoder(); }
         }
         CrashLog.Note($"profile: {name ?? "balanced"} fps={fps} h264={mbps}M");
     }
 
-    // Build an H.264 encoder bound to the hardware codec probed at startup (NVENC/QSV/AMF),
-    // tuned for interactive desktop streaming: capped CBR-ish rate control, no B-frames or
-    // reordering delay, ~4 s GOP. Without options the FFmpeg defaults are file-transcoding
-    // oriented (unbounded quality-based rate, frame reordering) — bad latency and bursts.
-    private FFmpegVideoEncoder MakeH264Encoder()
+    /// <summary>
+    /// Build an H.264 encoder for the current capture size, profile bitrate and fps, bound
+    /// to the codec probed at startup. Returns null when H.264 isn't available or the
+    /// encoder can't be built (the caller then stays on VP8).
+    /// </summary>
+    private H264Encoder? MakeH264Encoder()
     {
-        var enc = new FFmpegVideoEncoder();
         var name = FFmpegSupport.H264EncoderName;
-        if (!string.IsNullOrEmpty(name))
-        {
-            int mbps = _h264Mbps, max = mbps + Math.Max(1, mbps / 3);
-            // The options dictionary alone does NOT set the rate: measured, 3/6/12/16 Mbps
-            // all produced byte-identical output. SetBitrate writes the codec context
-            // fields directly and must be called BEFORE SetCodec opens the context.
-            long bps = mbps * 1_000_000L;
-            try { enc.SetBitrate(bps, null, null, max * 1_000_000L); } catch { }
-            var opts = new Dictionary<string, string>
-            {
-                ["b"] = $"{mbps}M", ["maxrate"] = $"{max}M", ["bufsize"] = $"{max}M",
-                ["g"] = Math.Max(30, _fps * 4).ToString(),              // keyframe every ~4 s
-                ["bf"] = "0",                                           // no B-frames (reordering = latency)
-            };
-            switch (name)
-            {
-                case "h264_nvenc":
-                    opts["preset"] = "p3"; opts["tune"] = "ull"; opts["rc"] = "cbr";
-                    opts["delay"] = "0"; opts["zerolatency"] = "1";
-                    break;
-                case "h264_qsv":
-                    opts["preset"] = "veryfast"; opts["async_depth"] = "1";
-                    break;
-                case "h264_amf":
-                    opts["usage"] = "ultralowlatency"; opts["quality"] = "speed"; opts["rc"] = "cbr";
-                    break;
-                case "libopenh264":
-                    opts["rc_mode"] = "bitrate";
-                    break;
-            }
-            if (!enc.SetCodec(AVCodecID.AV_CODEC_ID_H264, name, opts))
-            {
-                // A driver that rejects an option shouldn't cost us hardware H.264 —
-                // fall back to the encoder's defaults rather than to software VP8.
-                enc.Dispose();
-                enc = new FFmpegVideoEncoder();
-                try { enc.SetBitrate(bps, null, null, max * 1_000_000L); } catch { }
-                enc.SetCodec(AVCodecID.AV_CODEC_ID_H264, name, null);
-            }
-        }
-        return enc;
+        if (string.IsNullOrEmpty(name) || _capture == null) return null;
+        try { return new H264Encoder(name!, _capture.Width, _capture.Height, _fps, _h264Mbps); }
+        catch (Exception ex) { CrashLog.Note("h264 encoder init failed: " + ex.Message); return null; }
     }
 
     private void TearDownPeer()
